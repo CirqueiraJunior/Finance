@@ -3,8 +3,8 @@
 ## Escopo da Sprint 04
 
 O Fluxo de Caixa registra Receita Direta do BOE, Receita Indireta manual e
-Despesa manual. Orçamento, aplicações, resgates, saldo aplicado, saldo acumulado
-e contas bancárias não fazem parte da Sprint 05.
+Despesa manual. O orçamento e as movimentações de investimento pertencem a
+módulos próprios e não são categorias do Fluxo de Caixa.
 
 ## Lançamento financeiro
 
@@ -57,7 +57,8 @@ Despesa com BOE ou categoria de receita é bloqueada pelo service e pelo banco.
 
 ```text
 Receita Total = Receita Direta + Receita Indireta
-Saldo Mensal = Receita Total - Despesa Total
+Resultado Operacional = Receita Total - Despesa Total
+Movimentação de Caixa = Receita Total - Despesa Total - Aplicações + Resgates
 ```
 
 Todos os cálculos usam `Decimal`. Não há saldo acumulado nesta Sprint.
@@ -65,8 +66,12 @@ Todos os cálculos usam `Decimal`. Não há saldo acumulado nesta Sprint.
 Os lançamentos do Fluxo de Caixa são a fonte exclusiva do realizado na comparação
 orçamentária. O módulo de orçamento não altera nem duplica esses valores.
 
+Aplicação e Resgate são movimentações do Fluxo de Caixa, mas não são Receita nem
+Despesa. Eles são armazenados em `investment_movements` e apresentados na mesma
+tabela do Financeiro. O Saldo Aplicado considera o histórico até o fim do período.
+
 ## Interface
 
-A página oferece filtro por ano/mês, cinco cards, tabela somente leitura e
-diálogo Novo Lançamento. Receita permite apenas Receita Indireta; Despesa mostra
-somente categorias de despesa. Lançamentos BOE não são editáveis.
+A página oferece filtro por ano/mês, sete indicadores, tabela unificada e diálogo
+Novo Lançamento com os quatro tipos. Receita permite apenas Receita Indireta;
+Receita Direta continua automática via BOE.

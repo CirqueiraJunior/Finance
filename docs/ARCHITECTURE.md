@@ -46,6 +46,12 @@ service também consulta `CashflowRepository` na mesma sessão para calcular o
 realizado. Não há dependência do Fluxo de Caixa para o orçamento, nem valor
 realizado persistido em `budget_entries`.
 
+Na Sprint 07, a operação segue pela página única Financeiro:
+`FinanceiroPage -> CashflowController -> FinancialFlowService`. O serviço de
+composição consulta `CashflowService` e `InvestmentService` com a mesma sessão.
+Internamente, `InvestmentMovement` e `InvestmentRepository` permanecem
+especializados para preservar baixo acoplamento e a validação temporal do saldo.
+
 ## Banco de dados
 
 SQLAlchemy 2.x abstrai SQLite em desenvolvimento e PostgreSQL em produção. A URL
@@ -58,3 +64,4 @@ de coerência e FK única para `boe_imports`.
 A migration da Sprint 05 recria apenas as constraints necessárias para permitir
 despesas manuais, sem adicionar tabelas ou colunas.
 A migration da Sprint 06 adiciona somente `budget_entries`.
+A migration da Sprint 07 adiciona somente `investment_movements`.

@@ -77,6 +77,18 @@ e coerência entre tipo e categoria.
 `BudgetEntry` não armazena realizado nem possui FK para lançamentos. O realizado
 é agregado de `CashflowEntry` no service usando as quatro dimensões comuns.
 
+## InvestmentMovement
+
+Representa uma transferência entre caixa e saldo aplicado. Guarda data do
+movimento, ano e mês derivados, tipo `APLICACAO` ou `RESGATE`, descrição, valor
+`Numeric(18, 4)` sempre positivo, observação e timestamps. O tipo define o
+efeito no saldo; não há persistência com sinal negativo.
+
+Não existe FK para `CashflowEntry`: aplicação não é despesa e resgate não é
+receita, embora ambos pertençam ao fluxo operacional do Financeiro. O service
+soma aplicações e subtrai resgates até uma data de corte,
+impedindo saldo aplicado negativo e o uso de movimentos futuros na validação.
+
 ## Relacionamentos
 
 ```text
@@ -84,6 +96,7 @@ Entity 1 ───── N EntityAlias
 Entity 1 ───── N BOEEntityTotal N ───── 1 BOEImport
 BOEImport 1 ───── N BOEImportIssue
 BOEImport 1 ───── 0..1 CashflowEntry
+InvestmentMovement (histórico financeiro independente)
 ```
 
 O relacionamento SQLAlchemy é bidirecional por `Entity.aliases` e
@@ -112,5 +125,6 @@ A regra não reside na GUI nem no repository.
 - Meta x Realizado: usará a base mestra para associar resultados às Entidades.
 - O código `7500` será calculado somente em resultados consolidados futuros.
 
-Despesas manuais e saldo mensal foram adicionados na Sprint 05. Orçamento,
-saldos acumulados e demais evoluções continuam futuras.
+Despesas manuais e saldo mensal foram adicionados na Sprint 05, orçamento na
+Sprint 06 e aplicações/resgates com saldo aplicado na Sprint 07. Rendimentos e
+demais evoluções continuam futuras.

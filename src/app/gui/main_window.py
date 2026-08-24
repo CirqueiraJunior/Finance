@@ -27,9 +27,11 @@ from app.repositories.boe_repository import BOERepository
 from app.repositories.budget_repository import BudgetRepository
 from app.repositories.cashflow_repository import CashflowRepository
 from app.repositories.entity_repository import EntityRepository
+from app.repositories.investment_repository import InvestmentRepository
 from app.services.boe_service import BOEService
 from app.services.budget_service import BudgetService
 from app.services.cashflow_service import CashflowService
+from app.services.investment_service import InvestmentService
 from app.widgets.sidebar import Sidebar
 from app.widgets.topbar import TopBar
 
@@ -56,8 +58,11 @@ class MainWindow(QMainWindow):
                 cashflow_service,
             ),
         )
+        investment_service = InvestmentService(
+            InvestmentRepository(self._boe_session)
+        )
         self._cashflow_controller = CashflowController(
-            financeiro_page, cashflow_service
+            financeiro_page, cashflow_service, investment_service
         )
         self._budget_controller = BudgetController(
             orcamento_page,

@@ -9,8 +9,14 @@ from app.services.budget_service import (
 )
 from app.services.cashflow_service import CashflowService, CashflowSummary
 from app.services.entity_service import EntityService
+from app.services.investment_service import InvestmentMonthlySummary, InvestmentService
+from app.services.financial_flow_service import (
+    FinancialFlowService, FinancialFlowSummary, FinancialMovement,
+)
 
 __all__ = [
     "BOEService", "BudgetComparison", "BudgetService", "BudgetSummary",
     "BudgetVsActual", "CashflowService", "CashflowSummary", "EntityService",
+    "InvestmentMonthlySummary", "InvestmentService",
+    "FinancialFlowService", "FinancialFlowSummary", "FinancialMovement",
 ]

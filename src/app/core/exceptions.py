@@ -52,3 +52,15 @@ class BudgetValidationError(BudgetDomainError):
 
 class BudgetDuplicateError(BudgetDomainError):
     """Raised when a period/type/category budget already exists."""
+
+
+class InvestmentDomainError(Exception):
+    """Base exception for investment movement errors."""
+
+
+class InvestmentValidationError(InvestmentDomainError):
+    """Raised when investment movement input is invalid."""
+
+
+class InvestmentBalanceError(InvestmentDomainError):
+    """Raised when a redemption exceeds the balance available on its date."""
