@@ -3,6 +3,6 @@ SQLAlchemy>=2.0,<3
 alembic>=1.14,<2
 python-dotenv>=1.0,<2
 psycopg[binary]>=3.2,<4
+openpyxl>=3.1,<4
 pytest>=8.3,<9
 pytest-qt>=4.4,<5
-

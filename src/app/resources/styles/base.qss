@@ -55,9 +55,59 @@ QLabel#pageDescription {
     font-size: 15px;
 }
 
+QLabel#sectionTitle {
+    color: #172554;
+    font-size: 15px;
+    font-weight: 600;
+    margin-top: 8px;
+}
+
+QLabel#operationStatus {
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    border-radius: 6px;
+    color: #065f46;
+    padding: 8px;
+}
+
+QLabel#operationStatus[error="true"] {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
+}
+
+QLineEdit, QPlainTextEdit, QTableWidget {
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 6px;
+}
+
+QPushButton {
+    background: #e5e7eb;
+    border: none;
+    border-radius: 6px;
+    color: #1f2937;
+    padding: 9px 14px;
+}
+
+QPushButton#primaryButton {
+    background: #1d4ed8;
+    color: #ffffff;
+}
+
+QPushButton:disabled {
+    background: #e5e7eb;
+    color: #9ca3af;
+}
+
+QPushButton#primaryButton:disabled {
+    background: #e5e7eb;
+    color: #9ca3af;
+}
+
 QStatusBar {
     background: #ffffff;
     border-top: 1px solid #e5e7eb;
     color: #4b5563;
 }
-

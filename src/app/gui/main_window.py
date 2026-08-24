@@ -1,3 +1,4 @@
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
@@ -8,6 +9,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.config import Settings
+from app.database.session import get_session_factory
+from app.gui.controllers.boe_controller import BOEController
 from app.gui.controllers.navigation_controller import NavigationController
 from app.gui.pages.administracao import AdministracaoPage
 from app.gui.pages.boe import BoePage
@@ -16,6 +19,10 @@ from app.gui.pages.dashboard import DashboardPage
 from app.gui.pages.financeiro import FinanceiroPage
 from app.gui.pages.metas import MetasPage
 from app.gui.pages.relatorios import RelatoriosPage
+from app.importers.boe_importer import BOEImporter
+from app.repositories.boe_repository import BOERepository
+from app.repositories.entity_repository import EntityRepository
+from app.services.boe_service import BOEService
 from app.widgets.sidebar import Sidebar
 from app.widgets.topbar import TopBar
 
@@ -28,10 +35,21 @@ class MainWindow(QMainWindow):
         self.resize(1200, 760)
         self.setMinimumSize(900, 600)
 
+        boe_page = BoePage()
+        self._boe_session = get_session_factory()()
+        self._boe_controller = BOEController(
+            boe_page,
+            BOEService(
+                BOERepository(self._boe_session),
+                EntityRepository(self._boe_session),
+                BOEImporter(),
+            ),
+        )
+
         pages = {
             "dashboard": DashboardPage(),
             "financeiro": FinanceiroPage(),
-            "boe": BoePage(),
+            "boe": boe_page,
             "metas": MetasPage(),
             "cadastros": CadastrosPage(),
             "relatorios": RelatoriosPage(),
@@ -51,7 +69,7 @@ class MainWindow(QMainWindow):
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
-        content_layout.addWidget(TopBar("Fundação do sistema"))
+        content_layout.addWidget(TopBar("Gestão financeira"))
         content_layout.addWidget(stack)
         body_layout.addWidget(content, 1)
         self.setCentralWidget(body)
@@ -61,3 +79,6 @@ class MainWindow(QMainWindow):
         self.setStatusBar(status)
         self.navigation.navigate_to("dashboard")
 
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._boe_session.close()
+        super().closeEvent(event)

@@ -36,10 +36,31 @@ externas ou legadas.
 A combinação `entity_id + alias` é única. O mesmo texto poderá existir para
 Entidades distintas quando fontes externas realmente exigirem isso.
 
-## Relacionamento
+## BOEImport
+
+Representa uma execução mensal do BOE. Ano e mês são únicos em conjunto, e o
+hash SHA-256 do arquivo também é único. Guarda nome e caminho de origem, data,
+quantidades, valor total `Numeric(18, 4)` e status controlado.
+
+## BOEEntityTotal
+
+Registra o resumo mensal de uma Entidade. Possui FKs obrigatórias para
+`BOEImport` e `Entity`, quantidade inteira, valor `Numeric(18, 4)` e cópia do
+código e nome de origem para auditoria. Uma Entidade só pode aparecer uma vez em
+cada importação.
+
+## BOEImportIssue
+
+Persiste avisos não impeditivos associados à importação, com linha, código,
+mensagem e severidade. Erros anteriores à criação do histórico permanecem no
+resultado de validação em memória e impedem a transação.
+
+## Relacionamentos
 
 ```text
 Entity 1 ───── N EntityAlias
+Entity 1 ───── N BOEEntityTotal N ───── 1 BOEImport
+BOEImport 1 ───── N BOEImportIssue
 ```
 
 O relacionamento SQLAlchemy é bidirecional por `Entity.aliases` e
@@ -61,12 +82,12 @@ A regra não reside na GUI nem no repository.
 
 ## Integrações futuras
 
-- BOE: reconhecerá Entidades pelo código e, quando necessário, por aliases; o
-  fluxo principal usará o resumo por Entidade, não a aba `PRODUTO`.
+- BOE: reconhece Entidades pelo código; nomes oficiais e aliases servem apenas
+  para conferir divergências. O fluxo usa o resumo, nunca a aba `PRODUTO`.
 - Fluxo de Caixa: uma importação BOE futura originará Receita Direta automática,
   rastreável e protegida contra duplicidade. Receita Indireta será manual.
 - Meta x Realizado: usará a base mestra para associar resultados às Entidades.
 - O código `7500` será calculado somente em resultados consolidados futuros.
 
-Essas integrações estão documentadas, mas não foram implementadas na Sprint 02.
-
+Somente a persistência resumida do BOE foi implementada na Sprint 03. As demais
+integrações continuam futuras.

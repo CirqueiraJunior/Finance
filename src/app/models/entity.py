@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.base import Base
 
 if TYPE_CHECKING:
+    from app.models.boe_entity_total import BOEEntityTotal
     from app.models.entity_alias import EntityAlias
 
 
@@ -42,5 +43,9 @@ class Entity(Base):
     aliases: Mapped[list["EntityAlias"]] = relationship(
         back_populates="entity",
         cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    boe_totals: Mapped[list["BOEEntityTotal"]] = relationship(
+        back_populates="entity",
         passive_deletes=True,
     )
