@@ -6,8 +6,7 @@ ModelT = TypeVar("ModelT")
 
 
 class BaseRepository(Generic[ModelT]):
-    """Shared dependency boundary; no CRUD is implemented in Sprint 01."""
+    """Shared dependency boundary for persistence repositories."""
 
     def __init__(self, session: Session) -> None:
         self.session = session
-

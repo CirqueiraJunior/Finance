@@ -1,5 +1,6 @@
-"""Future persistence models.
+"""SQLAlchemy model registry."""
 
-Sprint 01 intentionally defines no business entities.
-"""
+from app.models.entity import Entity
+from app.models.entity_alias import EntityAlias
 
+__all__ = ["Entity", "EntityAlias"]
