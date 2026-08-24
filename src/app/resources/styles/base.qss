@@ -1,0 +1,63 @@
+QMainWindow, QWidget {
+    background: #f5f7fa;
+    color: #1f2937;
+    font-family: "Segoe UI";
+    font-size: 14px;
+}
+
+QFrame#sidebar {
+    background: #172554;
+}
+
+QLabel#brand {
+    color: #ffffff;
+    font-size: 21px;
+    font-weight: 700;
+}
+
+QPushButton#navigationButton {
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #dbeafe;
+    padding: 11px 12px;
+    text-align: left;
+}
+
+QPushButton#navigationButton:hover {
+    background: #1e3a8a;
+    color: #ffffff;
+}
+
+QFrame#topbar {
+    background: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+QLabel#topbarTitle {
+    color: #172554;
+    font-size: 17px;
+    font-weight: 600;
+}
+
+QWidget#contentPage {
+    background: #f5f7fa;
+}
+
+QLabel#pageTitle {
+    color: #111827;
+    font-size: 28px;
+    font-weight: 700;
+}
+
+QLabel#pageDescription {
+    color: #6b7280;
+    font-size: 15px;
+}
+
+QStatusBar {
+    background: #ffffff;
+    border-top: 1px solid #e5e7eb;
+    color: #4b5563;
+}
+

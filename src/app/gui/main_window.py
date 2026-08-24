@@ -1,0 +1,63 @@
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QMainWindow,
+    QStackedWidget,
+    QStatusBar,
+    QVBoxLayout,
+    QWidget,
+)
+
+from app.core.config import Settings
+from app.gui.controllers.navigation_controller import NavigationController
+from app.gui.pages.administracao import AdministracaoPage
+from app.gui.pages.boe import BoePage
+from app.gui.pages.cadastros import CadastrosPage
+from app.gui.pages.dashboard import DashboardPage
+from app.gui.pages.financeiro import FinanceiroPage
+from app.gui.pages.metas import MetasPage
+from app.gui.pages.relatorios import RelatoriosPage
+from app.widgets.sidebar import Sidebar
+from app.widgets.topbar import TopBar
+
+
+class MainWindow(QMainWindow):
+    def __init__(self, settings: Settings) -> None:
+        super().__init__()
+        self.setObjectName("mainWindow")
+        self.setWindowTitle(settings.app_name)
+        self.resize(1200, 760)
+        self.setMinimumSize(900, 600)
+
+        pages = {
+            "dashboard": DashboardPage(),
+            "financeiro": FinanceiroPage(),
+            "boe": BoePage(),
+            "metas": MetasPage(),
+            "cadastros": CadastrosPage(),
+            "relatorios": RelatoriosPage(),
+            "administracao": AdministracaoPage(),
+        }
+        stack = QStackedWidget()
+        indexes = {key: stack.addWidget(page) for key, page in pages.items()}
+        self.navigation = NavigationController(stack, indexes)
+
+        body = QWidget()
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+        body_layout.addWidget(Sidebar(self.navigation.navigate_to))
+
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(TopBar("Fundação do sistema"))
+        content_layout.addWidget(stack)
+        body_layout.addWidget(content, 1)
+        self.setCentralWidget(body)
+
+        status = QStatusBar()
+        status.showMessage(f"Ambiente: {settings.app_env} | Pronto")
+        self.setStatusBar(status)
+        self.navigation.navigate_to("dashboard")
+

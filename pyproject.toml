@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ja-finance"
+version = "0.1.0"
+description = "Fundação do software desktop financeiro do CESPC/GO."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "PySide6>=6.8,<7",
+    "SQLAlchemy>=2.0,<3",
+    "alembic>=1.14,<2",
+    "python-dotenv>=1.0,<2",
+    "psycopg[binary]>=3.2,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-qt>=4.4,<5",
+]
+
+[project.scripts]
+ja-finance = "app.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+app = ["resources/styles/*.qss"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
+qt_api = "pyside6"
+
