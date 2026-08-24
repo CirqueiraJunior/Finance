@@ -2,10 +2,9 @@
 
 ## Escopo da Sprint 04
 
-O Fluxo de Caixa registra exclusivamente receitas. Receita Direta é criada a
-partir de uma importação BOE; Receita Indireta é informada manualmente. Despesas,
-saldo, orçamento, aplicações, resgates e contas bancárias não fazem parte desta
-Sprint.
+O Fluxo de Caixa registra Receita Direta do BOE, Receita Indireta manual e
+Despesa manual. Orçamento, aplicações, resgates, saldo aplicado, saldo acumulado
+e contas bancárias não fazem parte da Sprint 05.
 
 ## Lançamento financeiro
 
@@ -14,9 +13,12 @@ valor `Numeric(18, 4)`, referência opcional ao BOE, observação e timestamps.
 
 Valores controlados:
 
-- tipo: `RECEITA`;
+- tipo: `RECEITA` ou `DESPESA`;
 - origem: `BOE` ou `MANUAL`;
-- categoria: `RECEITA_DIRETA` ou `RECEITA_INDIRETA`.
+- categorias de receita: `RECEITA_DIRETA` e `RECEITA_INDIRETA`;
+- categorias de despesa: `ADMINISTRATIVO`, `DIRETORIA`, `EVENTOS`,
+  `OPERACIONAL`, `PESSOAL`, `INVESTIMENTO`, `IMPOSTOS_E_TAXAS`, `SOFTWARE`,
+  `VIAGEM` e `OUTROS`.
 
 O banco impede combinações incoerentes. Origem BOE exige Receita Direta e FK
 BOE; origem MANUAL exige Receita Indireta e FK nula. O valor deve ser positivo.
@@ -45,8 +47,23 @@ O usuário informa ano, mês, data, descrição, valor e observação opcional. 
 service fixa tipo `RECEITA`, origem `MANUAL`, categoria `RECEITA_INDIRETA` e
 mantém `boe_import_id` nulo. Ano, mês, descrição e valor positivo são validados.
 
+## Despesa manual
+
+Despesa usa tipo `DESPESA`, origem `MANUAL`, uma das categorias mínimas e FK BOE
+nula. O valor persistido permanece positivo; o tipo define seu efeito no saldo.
+Despesa com BOE ou categoria de receita é bloqueada pelo service e pelo banco.
+
+## Resumo mensal
+
+```text
+Receita Total = Receita Direta + Receita Indireta
+Saldo Mensal = Receita Total - Despesa Total
+```
+
+Todos os cálculos usam `Decimal`. Não há saldo acumulado nesta Sprint.
+
 ## Interface
 
-A página Fluxo de Caixa oferece filtro por ano/mês, resumo de Receita Direta,
-Receita Indireta e Receita Total, tabela somente leitura e diálogo exclusivo
-para Nova Receita Indireta. Lançamentos BOE não são editáveis.
+A página oferece filtro por ano/mês, cinco cards, tabela somente leitura e
+diálogo Novo Lançamento. Receita permite apenas Receita Indireta; Despesa mostra
+somente categorias de despesa. Lançamentos BOE não são editáveis.

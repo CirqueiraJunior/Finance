@@ -1,4 +1,5 @@
 from datetime import date
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy.exc import IntegrityError
@@ -6,12 +7,22 @@ from sqlalchemy.exc import IntegrityError
 from app.core.exceptions import CashflowDuplicateBOEError, CashflowValidationError
 from app.models.boe_import import BOEImport
 from app.models.cashflow_entry import (
+    EXPENSE_CATEGORIES,
     CashflowCategory,
     CashflowEntry,
     CashflowOrigin,
     CashflowType,
 )
 from app.repositories.cashflow_repository import CashflowRepository
+
+
+@dataclass(frozen=True, slots=True)
+class CashflowSummary:
+    direct_revenue: Decimal
+    indirect_revenue: Decimal
+    total_revenue: Decimal
+    total_expense: Decimal
+    monthly_balance: Decimal
 
 
 class CashflowService:
@@ -75,6 +86,35 @@ class CashflowService:
         )
         return self._persist(entry, commit=True)
 
+    def create_expense(
+        self,
+        *,
+        year: int,
+        month: int,
+        entry_date: date,
+        description: str,
+        category: CashflowCategory | str,
+        value: Decimal | str,
+        notes: str | None = None,
+    ) -> CashflowEntry:
+        if not isinstance(entry_date, date):
+            raise CashflowValidationError("A data do lançamento é inválida.")
+        normalized_category = self._expense_category(category)
+        normalized_notes = notes.strip() if notes and notes.strip() else None
+        entry = CashflowEntry(
+            periodo_ano=self._valid_year(year),
+            periodo_mes=self._valid_month(month),
+            data_lancamento=entry_date,
+            descricao=self._required_text(description, "descrição"),
+            tipo=CashflowType.EXPENSE.value,
+            origem=CashflowOrigin.MANUAL.value,
+            categoria=normalized_category.value,
+            valor=self._positive_decimal(value),
+            boe_import_id=None,
+            observacao=normalized_notes,
+        )
+        return self._persist(entry, commit=True)
+
     def get_entry(self, entry_id: int) -> CashflowEntry | None:
         return self.repository.get_by_id(entry_id)
 
@@ -84,6 +124,30 @@ class CashflowService:
     def list_entries_by_period(self, year: int, month: int) -> list[CashflowEntry]:
         return self.repository.list_by_period(
             self._valid_year(year), self._valid_month(month)
+        )
+
+    def get_monthly_summary(self, year: int, month: int) -> CashflowSummary:
+        entries = self.list_entries_by_period(year, month)
+        zero = Decimal("0.0000")
+        direct = sum(
+            (entry.valor for entry in entries if entry.categoria == CashflowCategory.DIRECT_REVENUE.value),
+            zero,
+        )
+        indirect = sum(
+            (entry.valor for entry in entries if entry.categoria == CashflowCategory.INDIRECT_REVENUE.value),
+            zero,
+        )
+        expenses = sum(
+            (entry.valor for entry in entries if entry.tipo == CashflowType.EXPENSE.value),
+            zero,
+        )
+        total_revenue = direct + indirect
+        return CashflowSummary(
+            direct_revenue=direct,
+            indirect_revenue=indirect,
+            total_revenue=total_revenue,
+            total_expense=expenses,
+            monthly_balance=total_revenue - expenses,
         )
 
     def _persist(self, entry: CashflowEntry, *, commit: bool) -> CashflowEntry:
@@ -141,3 +205,13 @@ class CashflowService:
         if not normalized:
             raise CashflowValidationError(f"O campo {field_name} é obrigatório.")
         return normalized
+
+    @staticmethod
+    def _expense_category(value: CashflowCategory | str) -> CashflowCategory:
+        try:
+            category = CashflowCategory(value)
+        except ValueError as error:
+            raise CashflowValidationError("A categoria de despesa é inválida.") from error
+        if category not in EXPENSE_CATEGORIES:
+            raise CashflowValidationError("A categoria de despesa é inválida.")
+        return category

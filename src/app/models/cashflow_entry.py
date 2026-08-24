@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 class CashflowType(StrEnum):
     REVENUE = "RECEITA"
+    EXPENSE = "DESPESA"
 
 
 class CashflowOrigin(StrEnum):
@@ -24,6 +25,30 @@ class CashflowOrigin(StrEnum):
 class CashflowCategory(StrEnum):
     DIRECT_REVENUE = "RECEITA_DIRETA"
     INDIRECT_REVENUE = "RECEITA_INDIRETA"
+    ADMINISTRATIVE = "ADMINISTRATIVO"
+    BOARD = "DIRETORIA"
+    EVENTS = "EVENTOS"
+    OPERATIONAL = "OPERACIONAL"
+    PERSONNEL = "PESSOAL"
+    INVESTMENT = "INVESTIMENTO"
+    TAXES = "IMPOSTOS_E_TAXAS"
+    SOFTWARE = "SOFTWARE"
+    TRAVEL = "VIAGEM"
+    OTHER = "OUTROS"
+
+
+EXPENSE_CATEGORIES = (
+    CashflowCategory.ADMINISTRATIVE,
+    CashflowCategory.BOARD,
+    CashflowCategory.EVENTS,
+    CashflowCategory.OPERATIONAL,
+    CashflowCategory.PERSONNEL,
+    CashflowCategory.INVESTMENT,
+    CashflowCategory.TAXES,
+    CashflowCategory.SOFTWARE,
+    CashflowCategory.TRAVEL,
+    CashflowCategory.OTHER,
+)
 
 
 class CashflowEntry(Base):
@@ -32,15 +57,26 @@ class CashflowEntry(Base):
         CheckConstraint("periodo_mes BETWEEN 1 AND 12", name="ck_cashflow_entries_month"),
         CheckConstraint("periodo_ano BETWEEN 2000 AND 9999", name="ck_cashflow_entries_year"),
         CheckConstraint("valor > 0", name="ck_cashflow_entries_positive_value"),
-        CheckConstraint("tipo = 'RECEITA'", name="ck_cashflow_entries_type"),
+        CheckConstraint(
+            "tipo IN ('RECEITA', 'DESPESA')", name="ck_cashflow_entries_type"
+        ),
         CheckConstraint("origem IN ('BOE', 'MANUAL')", name="ck_cashflow_entries_origin"),
         CheckConstraint(
-            "categoria IN ('RECEITA_DIRETA', 'RECEITA_INDIRETA')",
+            "categoria IN ('RECEITA_DIRETA', 'RECEITA_INDIRETA', "
+            "'ADMINISTRATIVO', 'DIRETORIA', 'EVENTOS', 'OPERACIONAL', "
+            "'PESSOAL', 'INVESTIMENTO', 'IMPOSTOS_E_TAXAS', 'SOFTWARE', "
+            "'VIAGEM', 'OUTROS')",
             name="ck_cashflow_entries_category",
         ),
         CheckConstraint(
-            "(origem = 'BOE' AND categoria = 'RECEITA_DIRETA' AND boe_import_id IS NOT NULL) OR "
-            "(origem = 'MANUAL' AND categoria = 'RECEITA_INDIRETA' AND boe_import_id IS NULL)",
+            "(tipo = 'RECEITA' AND origem = 'BOE' AND categoria = 'RECEITA_DIRETA' "
+            "AND boe_import_id IS NOT NULL) OR "
+            "(tipo = 'RECEITA' AND origem = 'MANUAL' AND categoria = 'RECEITA_INDIRETA' "
+            "AND boe_import_id IS NULL) OR "
+            "(tipo = 'DESPESA' AND origem = 'MANUAL' AND categoria IN "
+            "('ADMINISTRATIVO', 'DIRETORIA', 'EVENTOS', 'OPERACIONAL', 'PESSOAL', "
+            "'INVESTIMENTO', 'IMPOSTOS_E_TAXAS', 'SOFTWARE', 'VIAGEM', 'OUTROS') "
+            "AND boe_import_id IS NULL)",
             name="ck_cashflow_entries_source_consistency",
         ),
     )

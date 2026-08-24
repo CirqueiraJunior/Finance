@@ -36,6 +36,10 @@ importações, prepara o lançamento antes do commit único. Assim, falha no Flu
 de Caixa também reverte cabeçalho, totais e issues do BOE. A GUI segue
 `FinanceiroPage -> CashflowController -> CashflowService -> CashflowRepository`.
 
+Na Sprint 05, o mesmo fluxo atende lançamentos manuais de receita e despesa. O
+service valida categorias e calcula o resumo mensal com `Decimal`; a View apenas
+apresenta os valores e filtra as opções do diálogo por tipo.
+
 ## Banco de dados
 
 SQLAlchemy 2.x abstrai SQLite em desenvolvimento e PostgreSQL em produção. A URL
@@ -45,3 +49,5 @@ Sprint 03 adiciona exclusivamente `boe_imports`, `boe_entity_totals` e
 `boe_import_issues`. Os demais módulos funcionais continuam fora do escopo.
 A migration da Sprint 04 adiciona somente `cashflow_entries`, com constraints
 de coerência e FK única para `boe_imports`.
+A migration da Sprint 05 recria apenas as constraints necessárias para permitir
+despesas manuais, sem adicionar tabelas ou colunas.
