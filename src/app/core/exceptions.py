@@ -40,3 +40,15 @@ class CashflowValidationError(CashflowDomainError):
 
 class CashflowDuplicateBOEError(CashflowDomainError):
     """Raised when a BOE already has a direct revenue entry."""
+
+
+class BudgetDomainError(Exception):
+    """Base exception for budget validation errors."""
+
+
+class BudgetValidationError(BudgetDomainError):
+    """Raised when budget input is invalid."""
+
+
+class BudgetDuplicateError(BudgetDomainError):
+    """Raised when a period/type/category budget already exists."""

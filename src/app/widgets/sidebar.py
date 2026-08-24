@@ -7,6 +7,7 @@ class Sidebar(QFrame):
     ITEMS = (
         ("Dashboard", "dashboard"),
         ("Financeiro", "financeiro"),
+        ("Orçado x Realizado", "orcamento"),
         ("BOE", "boe"),
         ("Metas", "metas"),
         ("Cadastros", "cadastros"),
@@ -40,4 +41,3 @@ class Sidebar(QFrame):
             )
             layout.addWidget(button)
         layout.addStretch()
-

@@ -40,6 +40,12 @@ Na Sprint 05, o mesmo fluxo atende lançamentos manuais de receita e despesa. O
 service valida categorias e calcula o resumo mensal com `Decimal`; a View apenas
 apresenta os valores e filtra as opções do diálogo por tipo.
 
+Na Sprint 06, orçamento segue
+`OrcamentoPage -> BudgetController -> BudgetService -> BudgetRepository`. O
+service também consulta `CashflowRepository` na mesma sessão para calcular o
+realizado. Não há dependência do Fluxo de Caixa para o orçamento, nem valor
+realizado persistido em `budget_entries`.
+
 ## Banco de dados
 
 SQLAlchemy 2.x abstrai SQLite em desenvolvimento e PostgreSQL em produção. A URL
@@ -51,3 +57,4 @@ A migration da Sprint 04 adiciona somente `cashflow_entries`, com constraints
 de coerência e FK única para `boe_imports`.
 A migration da Sprint 05 recria apenas as constraints necessárias para permitir
 despesas manuais, sem adicionar tabelas ou colunas.
+A migration da Sprint 06 adiciona somente `budget_entries`.

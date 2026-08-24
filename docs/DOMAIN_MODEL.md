@@ -67,6 +67,16 @@ Na Sprint 05, `tipo` aceita `RECEITA` e `DESPESA`. Origem `BOE` exige categoria
 FK nula. Constraints reforçam as combinações, período válido e valor positivo.
 A unicidade da FK garante no máximo um lançamento por BOE.
 
+## BudgetEntry
+
+Representa o valor orçado de uma categoria em determinado mês. Guarda ano, mês,
+tipo, categoria, valor `Numeric(18, 4)`, observação e timestamps. A combinação
+ano + mês + tipo + categoria é única. O banco valida período, valor não negativo
+e coerência entre tipo e categoria.
+
+`BudgetEntry` não armazena realizado nem possui FK para lançamentos. O realizado
+é agregado de `CashflowEntry` no service usando as quatro dimensões comuns.
+
 ## Relacionamentos
 
 ```text

@@ -62,6 +62,9 @@ Saldo Mensal = Receita Total - Despesa Total
 
 Todos os cálculos usam `Decimal`. Não há saldo acumulado nesta Sprint.
 
+Os lançamentos do Fluxo de Caixa são a fonte exclusiva do realizado na comparação
+orçamentária. O módulo de orçamento não altera nem duplica esses valores.
+
 ## Interface
 
 A página oferece filtro por ano/mês, cinco cards, tabela somente leitura e
