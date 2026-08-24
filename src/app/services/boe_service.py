@@ -15,7 +15,9 @@ from app.models.boe_import import BOEImport
 from app.models.boe_import_issue import BOEImportIssue
 from app.models.entity import Entity
 from app.repositories.boe_repository import BOERepository
+from app.repositories.cashflow_repository import CashflowRepository
 from app.repositories.entity_repository import EntityRepository
+from app.services.cashflow_service import CashflowService
 
 
 class BOEService:
@@ -24,12 +26,20 @@ class BOEService:
         repository: BOERepository,
         entity_repository: EntityRepository,
         importer: BOEImporter,
+        cashflow_service: CashflowService | None = None,
     ) -> None:
         if repository.session is not entity_repository.session:
             raise ValueError("Os repositories do BOE devem compartilhar a mesma sessão.")
         self.repository = repository
         self.entity_repository = entity_repository
         self.importer = importer
+        self.cashflow_service = cashflow_service or CashflowService(
+            CashflowRepository(repository.session)
+        )
+        if (
+            self.cashflow_service.repository.session is not repository.session
+        ):
+            raise ValueError("BOE e Fluxo de Caixa devem compartilhar a mesma sessão.")
 
     def validate_file(self, file_path: str | Path) -> BOEValidationResult:
         result = self.importer.parse(file_path)
@@ -126,6 +136,9 @@ class BOEService:
                         severidade=issue.severidade.value,
                     )
                 )
+            self.cashflow_service.create_direct_revenue_from_boe(
+                boe_import, commit=False
+            )
             self.repository.session.commit()
         except IntegrityError as error:
             self.repository.session.rollback()
@@ -179,4 +192,3 @@ class BOEService:
                 codigo=codigo,
             )
         )
-

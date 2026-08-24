@@ -28,3 +28,15 @@ class BOEValidationError(BOEDomainError):
 
 class BOEDuplicateImportError(BOEDomainError):
     """Raised when a BOE file or reference period was already imported."""
+
+
+class CashflowDomainError(Exception):
+    """Base exception for cashflow validation and consistency errors."""
+
+
+class CashflowValidationError(CashflowDomainError):
+    """Raised when cashflow input violates an approved Sprint 04 rule."""
+
+
+class CashflowDuplicateBOEError(CashflowDomainError):
+    """Raised when a BOE already has a direct revenue entry."""

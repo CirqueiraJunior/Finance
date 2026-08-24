@@ -28,8 +28,13 @@ Na Sprint 03, o fluxo BOE segue:
 
 O `BOEImporter` é coordenado pelo service e devolve estruturas temporárias. Ele
 não persiste dados. O service valida Base Mestra, duplicidade e transação; o
-repository se limita a consultas e persistência. A página BOE é o único módulo
-operacional, e as demais páginas permanecem placeholders.
+repository se limita a consultas e persistência.
+
+Na Sprint 04, `CashflowService` concentra as regras de Receita Direta e Indireta.
+O `BOEService` recebe opcionalmente esse service com a mesma sessão e, em novas
+importações, prepara o lançamento antes do commit único. Assim, falha no Fluxo
+de Caixa também reverte cabeçalho, totais e issues do BOE. A GUI segue
+`FinanceiroPage -> CashflowController -> CashflowService -> CashflowRepository`.
 
 ## Banco de dados
 
@@ -38,3 +43,5 @@ vem de `DATABASE_URL`. O Alembic usa o mesmo valor e a metadata de `Base`.
 A migration da Sprint 02 contém `entities` e `entity_aliases`. A migration da
 Sprint 03 adiciona exclusivamente `boe_imports`, `boe_entity_totals` e
 `boe_import_issues`. Os demais módulos funcionais continuam fora do escopo.
+A migration da Sprint 04 adiciona somente `cashflow_entries`, com constraints
+de coerência e FK única para `boe_imports`.

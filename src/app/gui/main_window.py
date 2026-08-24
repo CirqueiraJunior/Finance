@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 from app.core.config import Settings
 from app.database.session import get_session_factory
 from app.gui.controllers.boe_controller import BOEController
+from app.gui.controllers.cashflow_controller import CashflowController
 from app.gui.controllers.navigation_controller import NavigationController
 from app.gui.pages.administracao import AdministracaoPage
 from app.gui.pages.boe import BoePage
@@ -21,8 +22,10 @@ from app.gui.pages.metas import MetasPage
 from app.gui.pages.relatorios import RelatoriosPage
 from app.importers.boe_importer import BOEImporter
 from app.repositories.boe_repository import BOERepository
+from app.repositories.cashflow_repository import CashflowRepository
 from app.repositories.entity_repository import EntityRepository
 from app.services.boe_service import BOEService
+from app.services.cashflow_service import CashflowService
 from app.widgets.sidebar import Sidebar
 from app.widgets.topbar import TopBar
 
@@ -36,19 +39,25 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 600)
 
         boe_page = BoePage()
+        financeiro_page = FinanceiroPage()
         self._boe_session = get_session_factory()()
+        cashflow_service = CashflowService(CashflowRepository(self._boe_session))
         self._boe_controller = BOEController(
             boe_page,
             BOEService(
                 BOERepository(self._boe_session),
                 EntityRepository(self._boe_session),
                 BOEImporter(),
+                cashflow_service,
             ),
+        )
+        self._cashflow_controller = CashflowController(
+            financeiro_page, cashflow_service
         )
 
         pages = {
             "dashboard": DashboardPage(),
-            "financeiro": FinanceiroPage(),
+            "financeiro": financeiro_page,
             "boe": boe_page,
             "metas": MetasPage(),
             "cadastros": CadastrosPage(),

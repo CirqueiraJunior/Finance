@@ -55,12 +55,25 @@ Persiste avisos não impeditivos associados à importação, com linha, código,
 mensagem e severidade. Erros anteriores à criação do histórico permanecem no
 resultado de validação em memória e impedem a transação.
 
+## CashflowEntry
+
+Representa um lançamento de receita no Fluxo de Caixa. Guarda ano, mês, data,
+descrição, tipo, origem, categoria, valor `Numeric(18, 4)`, referência opcional
+ao BOE, observação e timestamps.
+
+Na Sprint 04, `tipo` aceita somente `RECEITA`. Origem `BOE` exige categoria
+`RECEITA_DIRETA` e `boe_import_id`; origem `MANUAL` exige
+`RECEITA_INDIRETA` e FK nula. Constraints no banco reforçam essas combinações,
+período válido e valor maior que zero. A unicidade da FK garante no máximo um
+lançamento por BOE.
+
 ## Relacionamentos
 
 ```text
 Entity 1 ───── N EntityAlias
 Entity 1 ───── N BOEEntityTotal N ───── 1 BOEImport
 BOEImport 1 ───── N BOEImportIssue
+BOEImport 1 ───── 0..1 CashflowEntry
 ```
 
 O relacionamento SQLAlchemy é bidirecional por `Entity.aliases` e
@@ -84,10 +97,10 @@ A regra não reside na GUI nem no repository.
 
 - BOE: reconhece Entidades pelo código; nomes oficiais e aliases servem apenas
   para conferir divergências. O fluxo usa o resumo, nunca a aba `PRODUTO`.
-- Fluxo de Caixa: uma importação BOE futura originará Receita Direta automática,
-  rastreável e protegida contra duplicidade. Receita Indireta será manual.
+- Fluxo de Caixa: uma importação BOE origina Receita Direta automática,
+  rastreável e protegida contra duplicidade. Receita Indireta é manual.
 - Meta x Realizado: usará a base mestra para associar resultados às Entidades.
 - O código `7500` será calculado somente em resultados consolidados futuros.
 
-Somente a persistência resumida do BOE foi implementada na Sprint 03. As demais
-integrações continuam futuras.
+O Fluxo de Caixa inicial foi implementado na Sprint 04. Despesas e demais
+evoluções financeiras continuam futuras.

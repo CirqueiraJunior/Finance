@@ -76,6 +76,23 @@ QLabel#operationStatus[error="true"] {
     color: #991b1b;
 }
 
+QWidget#summaryCard {
+    background: #ffffff;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+}
+
+QLabel#summaryLabel {
+    color: #6b7280;
+    font-size: 13px;
+}
+
+QLabel#summaryValue {
+    color: #172554;
+    font-size: 20px;
+    font-weight: 700;
+}
+
 QLineEdit, QPlainTextEdit, QTableWidget {
     background: #ffffff;
     border: 1px solid #d1d5db;

@@ -1,10 +1,16 @@
 # Backlog
 
-Itens fora do escopo funcional da Sprint 02:
+Itens fora do escopo funcional da Sprint 04:
 
-- Gerar Receita Direta automática a partir do BOE.
-- Manter o cadastro da Receita Indireta como operação manual.
-- Preservar rastreabilidade entre BOE e Fluxo de Caixa.
+- Implementar Despesas.
+- Criar categorias financeiras parametrizáveis.
+- Implementar orçamento e Orçado x Realizado.
+- Implementar Aplicações, Resgates e Saldo aplicado.
+- Calcular Saldo mensal e Saldo acumulado.
+- Implementar edição controlada e exclusão lógica.
+- Implementar auditoria financeira completa.
+- Importar a planilha financeira legada.
+- Criar gráficos, dashboard e relatórios financeiros.
 - Avaliar análise BOE por produto apenas como evolução futura.
 - Implementar reprocessamento/cancelamento controlado de BOE.
 - Comparar períodos do BOE.
@@ -30,5 +36,6 @@ Itens fora do escopo funcional da Sprint 02:
 ## Registro de escopo
 
 A Sprint 01 foi homologada em 24/08/2026. A Sprint 02 implementou a Base Mestra
-de Entidades. A Sprint 03 implementa somente a importação resumida mensal do
-BOE; todos os itens acima continuam pendentes.
+de Entidades. A Sprint 03 implementou a importação resumida mensal do BOE. A
+Sprint 04 implementa somente Receita Direta do BOE e Receita Indireta manual;
+todos os itens acima continuam pendentes.

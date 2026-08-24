@@ -18,6 +18,7 @@ from app.database.base import Base
 if TYPE_CHECKING:
     from app.models.boe_entity_total import BOEEntityTotal
     from app.models.boe_import_issue import BOEImportIssue
+    from app.models.cashflow_entry import CashflowEntry
 
 
 class BOEImport(Base):
@@ -67,4 +68,6 @@ class BOEImport(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-
+    cashflow_entry: Mapped["CashflowEntry | None"] = relationship(
+        back_populates="boe_import", uselist=False
+    )
