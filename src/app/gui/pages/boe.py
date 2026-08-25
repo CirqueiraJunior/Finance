@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from app.importers.boe_types import BOEValidationResult
 from app.models.boe_import import BOEImport
+from app.services.boe_service import BOEImportDetails
 
 
 class BoePage(QWidget):
@@ -57,7 +59,7 @@ class BoePage(QWidget):
         self.validation_result = QPlainTextEdit()
         self.validation_result.setObjectName("boeValidationResult")
         self.validation_result.setReadOnly(True)
-        self.validation_result.setMaximumHeight(160)
+        self.validation_result.setMaximumHeight(110)
 
         history_label = QLabel("Histórico de importações")
         history_label.setObjectName("sectionTitle")
@@ -71,6 +73,37 @@ class BoePage(QWidget):
         self.history_table.setSelectionBehavior(
             QTableWidget.SelectionBehavior.SelectRows
         )
+        self.history_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.history_table.setMaximumHeight(180)
+
+        details_label = QLabel("Detalhamento por Entidade")
+        details_label.setObjectName("sectionTitle")
+        self.details_state = QLabel(
+            "Selecione uma importação para visualizar o detalhamento por Entidade."
+        )
+        self.details_state.setObjectName("pageDescription")
+
+        summary_layout = QHBoxLayout()
+        self.entities_total = self._create_summary_card(
+            summary_layout, "Entidades", "0"
+        )
+        self.queries_total = self._create_summary_card(
+            summary_layout, "Consultas", "0"
+        )
+        self.value_total = self._create_summary_card(
+            summary_layout, "Valor Total", self._format_currency(Decimal("0.0000"), 4)
+        )
+
+        self.details_table = QTableWidget(0, 4)
+        self.details_table.setObjectName("boeDetailsTable")
+        self.details_table.setHorizontalHeaderLabels(
+            ["Código", "Entidade", "Consultas", "Valor do Repasse"]
+        )
+        self.details_table.horizontalHeader().setStretchLastSection(True)
+        self.details_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.details_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
 
         self.operation_status = QLabel("Selecione um arquivo para iniciar.")
         self.operation_status.setObjectName("operationStatus")
@@ -82,8 +115,27 @@ class BoePage(QWidget):
         layout.addWidget(result_label)
         layout.addWidget(self.validation_result)
         layout.addWidget(history_label)
-        layout.addWidget(self.history_table, 1)
+        layout.addWidget(self.history_table)
+        layout.addWidget(details_label)
+        layout.addWidget(self.details_state)
+        layout.addLayout(summary_layout)
+        layout.addWidget(self.details_table, 1)
         layout.addWidget(self.operation_status)
+
+    @staticmethod
+    def _create_summary_card(layout: QHBoxLayout, title: str, value: str) -> QLabel:
+        card = QWidget()
+        card.setObjectName("summaryCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(14, 8, 14, 8)
+        label = QLabel(title)
+        label.setObjectName("summaryLabel")
+        amount = QLabel(value)
+        amount.setObjectName("summaryValue")
+        card_layout.addWidget(label)
+        card_layout.addWidget(amount)
+        layout.addWidget(card, 1)
+        return amount
 
     def show_validation(self, result: BOEValidationResult) -> None:
         status = "APROVADO" if result.aprovado else "REPROVADO"
@@ -109,6 +161,8 @@ class BoePage(QWidget):
         self.validation_result.setPlainText("\n".join(lines))
 
     def show_history(self, imports: list[BOEImport]) -> None:
+        self.history_table.clearSelection()
+        self.clear_details()
         self.history_table.setRowCount(len(imports))
         for row, item in enumerate(imports):
             values = [
@@ -120,8 +174,53 @@ class BoePage(QWidget):
                 item.status,
             ]
             for column, value in enumerate(values):
-                self.history_table.setItem(row, column, QTableWidgetItem(value))
+                table_item = QTableWidgetItem(value)
+                if column == 0:
+                    table_item.setData(Qt.ItemDataRole.UserRole, item.id)
+                self.history_table.setItem(row, column, table_item)
         self.history_table.resizeColumnsToContents()
+
+    def selected_import_id(self) -> int | None:
+        selected = self.history_table.selectedItems()
+        if not selected:
+            return None
+        identifier = self.history_table.item(selected[0].row(), 0).data(
+            Qt.ItemDataRole.UserRole
+        )
+        return int(identifier) if identifier is not None else None
+
+    def clear_details(self, message: str | None = None) -> None:
+        self.details_table.setRowCount(0)
+        self.entities_total.setText("0")
+        self.queries_total.setText("0")
+        self.value_total.setText(self._format_currency(Decimal("0.0000"), 4))
+        self.details_state.setText(
+            message
+            or "Selecione uma importação para visualizar o detalhamento por Entidade."
+        )
+
+    def show_details(self, details: BOEImportDetails) -> None:
+        self.details_table.setRowCount(len(details.entities))
+        for row, entity in enumerate(details.entities):
+            values = [
+                str(entity.code),
+                entity.entity_name,
+                self._format_integer(entity.queries),
+                self._format_currency(entity.value, 4),
+            ]
+            for column, value in enumerate(values):
+                self.details_table.setItem(row, column, QTableWidgetItem(value))
+        self.details_table.resizeColumnsToContents()
+        self.entities_total.setText(self._format_integer(details.total_entities))
+        self.queries_total.setText(self._format_integer(details.total_queries))
+        self.value_total.setText(self._format_currency(details.total_value, 4))
+        period = details.boe_import
+        self.details_state.setText(
+            f"Importação {period.periodo_mes:02d}/{period.periodo_ano} — "
+            f"{period.nome_arquivo}"
+            if details.entities
+            else "Nenhum detalhamento por Entidade disponível para esta importação."
+        )
 
     def set_status(self, message: str, *, error: bool = False) -> None:
         self.operation_status.setText(message)
@@ -130,6 +229,10 @@ class BoePage(QWidget):
         self.operation_status.style().polish(self.operation_status)
 
     @staticmethod
-    def _format_currency(value: Decimal) -> str:
-        formatted = f"{value:,.2f}"
+    def _format_currency(value: Decimal, decimals: int = 2) -> str:
+        formatted = f"{value:,.{decimals}f}"
         return "R$ " + formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+
+    @staticmethod
+    def _format_integer(value: int) -> str:
+        return f"{value:,}".replace(",", ".")

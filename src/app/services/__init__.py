@@ -1,6 +1,6 @@
 """Application services."""
 
-from app.services.boe_service import BOEService
+from app.services.boe_service import BOEEntityDetail, BOEImportDetails, BOEService
 from app.services.budget_service import (
     BudgetComparison,
     BudgetService,
@@ -15,7 +15,7 @@ from app.services.financial_flow_service import (
 )
 
 __all__ = [
-    "BOEService", "BudgetComparison", "BudgetService", "BudgetSummary",
+    "BOEEntityDetail", "BOEImportDetails", "BOEService", "BudgetComparison", "BudgetService", "BudgetSummary",
     "BudgetVsActual", "CashflowService", "CashflowSummary", "EntityService",
     "InvestmentMonthlySummary", "InvestmentService",
     "FinancialFlowService", "FinancialFlowSummary", "FinancialMovement",

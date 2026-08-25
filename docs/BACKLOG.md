@@ -1,6 +1,6 @@
 # Backlog
 
-Itens fora do escopo funcional da Sprint 07:
+Itens fora do escopo funcional da Sprint 08:
 
 - Criar categorias financeiras parametrizáveis.
 - Importar automaticamente o orçamento financeiro legado.
@@ -36,16 +36,16 @@ Itens fora do escopo funcional da Sprint 07:
 
 ## Sprint 08 — BOE detalhado por Entidade na GUI
 
-Ao selecionar uma importação BOE, permitir visualizar as 77 Entidades com:
+Implementado: ao selecionar uma importação BOE, a interface apresenta as
+Entidades persistidas com:
 
 - Código;
 - Entidade;
 - Quantidade de Consultas;
 - Valor do Repasse.
 
-Apresentar também Total de Entidades, Total de Consultas e Valor Total. Este
-detalhamento é obrigatório para Sprint futura e não foi implementado na Sprint
-07.
+Também são apresentados Total de Entidades, Total de Consultas e Valor Total. O
+código consolidado `7500` permanece excluído.
 
 
 ## Registro de escopo
@@ -54,6 +54,6 @@ A Sprint 01 foi homologada em 24/08/2026. A Sprint 02 implementou a Base Mestra
 de Entidades. A Sprint 03 implementou a importação resumida mensal do BOE. A
 Sprint 04 implementou Receita Direta do BOE e Receita Indireta manual. A Sprint
 05 implementou despesas manuais e saldo mensal. A Sprint 06 implementou orçamento
-mensal/anual e Orçado x Realizado. A Sprint 07 implementa aplicações, resgates
-e saldo aplicado;
+mensal/anual e Orçado x Realizado. A Sprint 07 implementou aplicações, resgates
+e saldo aplicado. A Sprint 08 implementou o detalhe BOE por Entidade na GUI;
 todos os itens acima continuam pendentes.

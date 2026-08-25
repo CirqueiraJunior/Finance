@@ -18,6 +18,9 @@ class BOEController(QObject):
         self.view.select_button.clicked.connect(self.select_file)
         self.view.validate_button.clicked.connect(self.validate_file)
         self.view.import_button.clicked.connect(self.import_file)
+        self.view.history_table.itemSelectionChanged.connect(
+            self.load_selected_details
+        )
         self.refresh_history()
 
     def select_file(self) -> None:
@@ -88,3 +91,20 @@ class BOEController(QObject):
                 "Histórico indisponível. Aplique as migrations do banco.",
                 error=True,
             )
+
+    def load_selected_details(self) -> None:
+        import_id = self.view.selected_import_id()
+        if import_id is None:
+            self.view.clear_details()
+            return
+        try:
+            details = self.service.get_import_details(import_id)
+        except SQLAlchemyError:
+            self.service.repository.session.rollback()
+            self.view.clear_details("Não foi possível carregar o detalhamento.")
+            self.view.set_status("Detalhamento BOE indisponível.", error=True)
+            return
+        if details is None:
+            self.view.clear_details("A importação selecionada não foi encontrada.")
+            return
+        self.view.show_details(details)

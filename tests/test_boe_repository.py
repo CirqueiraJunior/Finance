@@ -50,3 +50,9 @@ def test_repository_adds_and_lists_totals(db_session: Session) -> None:
 
     assert repository.list_totals_by_import(imported.id) == [total]
 
+
+def test_repository_returns_empty_detail_for_unknown_import(db_session: Session) -> None:
+    repository = BOERepository(db_session)
+
+    assert repository.get_import(999_999) is None
+    assert repository.list_totals_by_import(999_999) == []

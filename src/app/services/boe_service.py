@@ -1,5 +1,7 @@
 from pathlib import Path
 import unicodedata
+from dataclasses import dataclass
+from decimal import Decimal
 
 from sqlalchemy.exc import IntegrityError
 
@@ -18,6 +20,35 @@ from app.repositories.boe_repository import BOERepository
 from app.repositories.cashflow_repository import CashflowRepository
 from app.repositories.entity_repository import EntityRepository
 from app.services.cashflow_service import CashflowService
+
+
+@dataclass(frozen=True, slots=True)
+class BOEEntityDetail:
+    code: int
+    entity_name: str
+    source_name: str
+    queries: int
+    value: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class BOEImportDetails:
+    boe_import: BOEImport
+    entities: tuple[BOEEntityDetail, ...]
+    total_entities: int
+    total_queries: int
+    total_value: Decimal
+    inconsistencies: tuple[BOEImportIssue, ...]
+
+    @property
+    def entity_totals(self) -> list[BOEEntityTotal]:
+        """Compatibility access for infrastructure introduced before Sprint 08."""
+        return self.boe_import.entity_totals
+
+    @property
+    def issues(self) -> tuple[BOEImportIssue, ...]:
+        """Compatibility access for infrastructure introduced before Sprint 08."""
+        return self.inconsistencies
 
 
 class BOEService:
@@ -154,8 +185,40 @@ class BOEService:
     def list_imports(self) -> list[BOEImport]:
         return self.repository.list_imports()
 
-    def get_import_details(self, import_id: int) -> BOEImport | None:
-        return self.repository.get_import(import_id)
+    def get_import_details(self, import_id: int) -> BOEImportDetails | None:
+        boe_import = self.repository.get_import(import_id)
+        if boe_import is None:
+            return None
+
+        rows = []
+        for total in sorted(
+            boe_import.entity_totals,
+            key=lambda item: item.codigo_entidade_origem,
+        ):
+            if total.codigo_entidade_origem == 7500:
+                continue
+            official_name = None
+            if total.entity is not None:
+                official_name = total.entity.nome_oficial or total.entity.nome
+            rows.append(
+                BOEEntityDetail(
+                    code=total.codigo_entidade_origem,
+                    entity_name=official_name or total.nome_entidade_origem,
+                    source_name=total.nome_entidade_origem,
+                    queries=total.quantidade_consultas,
+                    value=total.valor_total,
+                )
+            )
+
+        entities = tuple(rows)
+        return BOEImportDetails(
+            boe_import=boe_import,
+            entities=entities,
+            total_entities=len(entities),
+            total_queries=sum(row.queries for row in entities),
+            total_value=sum((row.value for row in entities), Decimal("0.0000")),
+            inconsistencies=tuple(boe_import.issues),
+        )
 
     @classmethod
     def _name_matches(cls, entity: Entity, source_name: str) -> bool:

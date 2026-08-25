@@ -52,6 +52,13 @@ composição consulta `CashflowService` e `InvestmentService` com a mesma sessã
 Internamente, `InvestmentMovement` e `InvestmentRepository` permanecem
 especializados para preservar baixo acoplamento e a validação temporal do saldo.
 
+Na Sprint 08, a seleção do histórico BOE usa o mesmo fluxo em camadas da
+importação. `BOERepository` carrega importação, totais, Entidades e issues;
+`BOEService` converte esse agregado em um DTO imutável, aplica a exclusão
+defensiva do código consolidado `7500` e calcula os totais com `Decimal`;
+`BOEController` coordena a seleção; e `BoePage` somente apresenta os dados. A
+consulta usa exclusivamente o banco e não reabre a planilha Excel.
+
 ## Banco de dados
 
 SQLAlchemy 2.x abstrai SQLite em desenvolvimento e PostgreSQL em produção. A URL
@@ -65,3 +72,5 @@ A migration da Sprint 05 recria apenas as constraints necessárias para permitir
 despesas manuais, sem adicionar tabelas ou colunas.
 A migration da Sprint 06 adiciona somente `budget_entries`.
 A migration da Sprint 07 adiciona somente `investment_movements`.
+A Sprint 08 não exige migration: utiliza as tabelas BOE já existentes desde a
+Sprint 03.

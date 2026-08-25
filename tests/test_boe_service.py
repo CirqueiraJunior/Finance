@@ -17,7 +17,11 @@ from tests.boe_helpers import add_boe_import, create_boe_workbook
 @pytest.fixture
 def boe_service(db_session):
     entities = [
-        Entity(codigo_entidade=7501, nome="CDL GOIANIA/GO"),
+        Entity(
+            codigo_entidade=7501,
+            nome="CDL GOIANIA/GO",
+            nome_oficial="Câmara de Dirigentes Lojistas de Goiânia",
+        ),
         Entity(codigo_entidade=7544, nome="CDL ANAPOLIS/GO"),
     ]
     db_session.add_all(entities)
@@ -104,6 +108,73 @@ def test_import_persists_header_totals_and_warning(boe_service, tmp_path):
     assert details is not None
     assert len(details.entity_totals) == 1
     assert len(details.issues) == 1
+
+
+def test_detail_aggregates_rows_and_prefers_official_entity_name(
+    boe_service, tmp_path
+):
+    path = create_boe_workbook(tmp_path / "BOE - 07.26.xlsx")
+    imported = boe_service.import_file(path)
+
+    details = boe_service.get_import_details(imported.id)
+
+    assert details is not None
+    assert [row.code for row in details.entities] == [7501, 7544]
+    assert details.entities[0].entity_name == "Câmara de Dirigentes Lojistas de Goiânia"
+    assert details.entities[0].source_name == "CDL GOIANIA/GO"
+    assert details.total_entities == 2
+    assert details.total_queries == 150
+    assert details.total_value == Decimal("10.3950")
+    assert isinstance(details.total_value, Decimal)
+
+
+def test_detail_returns_none_for_unknown_import(boe_service):
+    assert boe_service.get_import_details(999_999) is None
+
+
+def test_detail_handles_import_without_entity_rows(boe_service):
+    imported = add_boe_import(
+        boe_service.repository.session,
+        year=2026,
+        month=8,
+        file_hash="8" * 64,
+    )
+
+    details = boe_service.get_import_details(imported.id)
+
+    assert details is not None
+    assert details.entities == ()
+    assert details.total_entities == 0
+    assert details.total_queries == 0
+    assert details.total_value == Decimal("0.0000")
+
+
+def test_detail_defensively_excludes_consolidated_code_7500(boe_service):
+    session = boe_service.repository.session
+    consolidated = Entity(codigo_entidade=7500, nome="TOTAL CONSOLIDADO")
+    session.add(consolidated)
+    session.commit()
+    imported = add_boe_import(
+        session, year=2026, month=8, file_hash="7" * 64
+    )
+    session.add(
+        BOEEntityTotal(
+            boe_import_id=imported.id,
+            entity_id=consolidated.id,
+            codigo_entidade_origem=7500,
+            nome_entidade_origem=consolidated.nome,
+            quantidade_consultas=999,
+            valor_total=Decimal("999.0000"),
+        )
+    )
+    session.commit()
+
+    details = boe_service.get_import_details(imported.id)
+
+    assert details is not None
+    assert details.entities == ()
+    assert details.total_queries == 0
+    assert details.total_value == Decimal("0.0000")
 
 
 def test_import_rejects_invalid_file_without_persisting(boe_service, tmp_path):
