@@ -1,5 +1,6 @@
 import sys
 
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
 from app.core.config import get_settings
@@ -13,6 +14,7 @@ def create_application(argv: list[str] | None = None) -> QApplication:
     configure_logging(settings)
     application = QApplication(argv if argv is not None else sys.argv)
     application.setApplicationName(settings.app_name)
+    application.setFont(QFont("Segoe UI", 10))
     application.setStyleSheet(load_stylesheet())
     return application
 
@@ -26,4 +28,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -220,6 +220,12 @@ class BOEService:
             inconsistencies=tuple(boe_import.issues),
         )
 
+    def get_period_details(self, year: int, month: int) -> BOEImportDetails | None:
+        boe_import = self.repository.get_import_by_period(year, month)
+        if boe_import is None:
+            return None
+        return self.get_import_details(boe_import.id)
+
     @classmethod
     def _name_matches(cls, entity: Entity, source_name: str) -> bool:
         source = cls._normalize_name(source_name)

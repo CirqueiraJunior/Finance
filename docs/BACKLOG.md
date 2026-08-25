@@ -1,6 +1,6 @@
 # Backlog
 
-Itens fora do escopo funcional da Sprint 09:
+Itens fora do escopo funcional da Sprint 10:
 
 - Criar categorias financeiras parametrizáveis.
 - Importar automaticamente o orçamento financeiro legado.
@@ -10,7 +10,7 @@ Itens fora do escopo funcional da Sprint 09:
 - Implementar edição controlada e exclusão lógica.
 - Implementar auditoria financeira completa.
 - Importar a planilha financeira legada.
-- Criar gráficos, dashboard e relatórios financeiros.
+- Criar relatórios financeiros.
 - Avaliar análise BOE por produto apenas como evolução futura.
 - Implementar reprocessamento/cancelamento controlado de BOE.
 - Comparar períodos do BOE.
@@ -33,6 +33,7 @@ Itens fora do escopo funcional da Sprint 09:
 - Definir empacotamento e distribuição do aplicativo desktop.
 - Planejar release e publicação após homologação das funcionalidades previstas.
 - Preparar configuração segura e operação do PostgreSQL em produção.
+- Avaliar comparações históricas e detalhamento interativo do Dashboard.
 
 ## Sprint 08 — BOE detalhado por Entidade na GUI
 
@@ -56,12 +57,17 @@ consolidação e página funcional. A importação automática permanece no Back
 ## Itens preservados após a Sprint 09
 
 - Importação automática de Meta e Realizado;
-- Dashboard executivo;
 - Relatórios;
 - CSV;
 - WordPress;
 - Administração;
 - Release 1.0.
+
+## Sprint 10 — Dashboard Executivo
+
+Implementado o painel consolidado mensal com indicadores financeiros, BOE,
+Orçado x Realizado e Meta x Realizado, além de três gráficos simples. O painel
+tolera módulos sem dados e não persiste snapshots ou cálculos próprios.
 
 
 ## Registro de escopo
@@ -72,5 +78,6 @@ Sprint 04 implementou Receita Direta do BOE e Receita Indireta manual. A Sprint
 05 implementou despesas manuais e saldo mensal. A Sprint 06 implementou orçamento
 mensal/anual e Orçado x Realizado. A Sprint 07 implementou aplicações, resgates
 e saldo aplicado. A Sprint 08 implementou o detalhe BOE por Entidade na GUI. A
-Sprint 09 implementou Meta x Realizado operacional;
-os itens da lista inicial e da seção preservada continuam pendentes.
+Sprint 09 implementou Meta x Realizado operacional. A Sprint 10 implementou o
+Dashboard Executivo; os demais itens da lista inicial e da seção preservada
+continuam pendentes.

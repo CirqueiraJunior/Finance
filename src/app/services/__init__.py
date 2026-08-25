@@ -19,6 +19,15 @@ from app.services.target_service import (
     TargetSummary,
     TargetVsActual,
 )
+from app.services.dashboard_service import (
+    BOEDashboardSummary,
+    BudgetDashboardSummary,
+    DashboardService,
+    DashboardSummary,
+    FinancialDashboardSummary,
+    IndicatorDashboardSummary,
+    TargetDashboardSummary,
+)
 
 __all__ = [
     "BOEEntityDetail", "BOEImportDetails", "BOEService", "BudgetComparison", "BudgetService", "BudgetSummary",
@@ -26,4 +35,7 @@ __all__ = [
     "InvestmentMonthlySummary", "InvestmentService",
     "FinancialFlowService", "FinancialFlowSummary", "FinancialMovement",
     "TargetComparison", "TargetService", "TargetSummary", "TargetVsActual",
+    "BOEDashboardSummary", "BudgetDashboardSummary", "DashboardService",
+    "DashboardSummary", "FinancialDashboardSummary",
+    "IndicatorDashboardSummary", "TargetDashboardSummary",
 ]

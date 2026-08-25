@@ -67,6 +67,14 @@ com `Decimal` e consolida somente Entidades reais. O Realizado operacional vem
 conceitualmente da aba `Faturamento` da planilha oficial e, por ainda não existir
 em outro módulo, é persistido no próprio registro sem importação automática.
 
+Na Sprint 10, o Dashboard Executivo segue
+`DashboardPage -> DashboardController -> DashboardService`. O service é uma
+camada de composição somente leitura: reutiliza `FinancialFlowService`,
+`BOEService`, `BudgetService` e `TargetService`, todos na mesma sessão, e devolve
+DTOs imutáveis. A View apenas formata os indicadores e constrói no máximo três
+gráficos simples. Ausência de dados em um módulo não impede a apresentação dos
+demais.
+
 ## Banco de dados
 
 SQLAlchemy 2.x abstrai SQLite em desenvolvimento e PostgreSQL em produção. A URL
@@ -83,3 +91,5 @@ A migration da Sprint 07 adiciona somente `investment_movements`.
 A Sprint 08 não exige migration: utiliza as tabelas BOE já existentes desde a
 Sprint 03.
 A migration da Sprint 09 adiciona somente `target_entries`.
+A Sprint 10 não exige migration nem novos modelos: o Dashboard consulta
+exclusivamente os domínios já persistidos.
