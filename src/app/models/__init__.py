@@ -14,6 +14,7 @@ from app.models.cashflow_entry import (
 from app.models.entity import Entity
 from app.models.entity_alias import EntityAlias
 from app.models.investment_movement import InvestmentMovement, InvestmentMovementType
+from app.models.target_entry import TargetEntry, TargetIndicator
 
 __all__ = [
     "BOEEntityTotal",
@@ -29,4 +30,6 @@ __all__ = [
     "EntityAlias",
     "InvestmentMovement",
     "InvestmentMovementType",
+    "TargetEntry",
+    "TargetIndicator",
 ]

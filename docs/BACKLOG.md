@@ -1,6 +1,6 @@
 # Backlog
 
-Itens fora do escopo funcional da Sprint 08:
+Itens fora do escopo funcional da Sprint 09:
 
 - Criar categorias financeiras parametrizáveis.
 - Importar automaticamente o orçamento financeiro legado.
@@ -24,7 +24,7 @@ Itens fora do escopo funcional da Sprint 08:
 - Importar Entidades futuramente a partir das fontes legadas.
 - Integrar com CSVs do site em etapa futura.
 - Avaliar integração futura com WordPress.
-- Implementar Meta x Realizado.
+- Importar automaticamente metas e realizados operacionais das fontes legadas.
 - Definir autenticação, perfis e permissões.
 - Planejar CRUDs de cadastros após validação do domínio.
 - Planejar importação e saneamento dos dados legados.
@@ -47,6 +47,22 @@ Entidades persistidas com:
 Também são apresentados Total de Entidades, Total de Consultas e Valor Total. O
 código consolidado `7500` permanece excluído.
 
+## Sprint 09 — Meta x Realizado
+
+Implementado o domínio mensal por Entidade para os indicadores Consultas e
+Registros, com cadastro, edição controlada, cálculo de Diferença e Atingimento,
+consolidação e página funcional. A importação automática permanece no Backlog.
+
+## Itens preservados após a Sprint 09
+
+- Importação automática de Meta e Realizado;
+- Dashboard executivo;
+- Relatórios;
+- CSV;
+- WordPress;
+- Administração;
+- Release 1.0.
+
 
 ## Registro de escopo
 
@@ -55,5 +71,6 @@ de Entidades. A Sprint 03 implementou a importação resumida mensal do BOE. A
 Sprint 04 implementou Receita Direta do BOE e Receita Indireta manual. A Sprint
 05 implementou despesas manuais e saldo mensal. A Sprint 06 implementou orçamento
 mensal/anual e Orçado x Realizado. A Sprint 07 implementou aplicações, resgates
-e saldo aplicado. A Sprint 08 implementou o detalhe BOE por Entidade na GUI;
-todos os itens acima continuam pendentes.
+e saldo aplicado. A Sprint 08 implementou o detalhe BOE por Entidade na GUI. A
+Sprint 09 implementou Meta x Realizado operacional;
+os itens da lista inicial e da seção preservada continuam pendentes.

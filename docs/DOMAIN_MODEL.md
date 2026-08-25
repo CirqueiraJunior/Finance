@@ -89,6 +89,18 @@ receita, embora ambos pertençam ao fluxo operacional do Financeiro. O service
 soma aplicações e subtrai resgates até uma data de corte,
 impedindo saldo aplicado negativo e o uso de movimentos futuros na validação.
 
+## TargetEntry
+
+Representa uma Meta operacional mensal de uma Entidade para `CONSULTAS` ou
+`REGISTROS`. Guarda ano, mês, indicador, Meta, Realizado disponível,
+observação e timestamps. Meta e Realizado usam `Numeric(18,4)` e não aceitam
+valores negativos.
+
+A combinação Entidade + ano + mês + indicador é única. O Realizado é necessário
+porque a fonte oficial está na aba `Faturamento` e ainda não existe em outro
+domínio do sistema. Diferença, percentual e consolidados são derivados no
+service e não persistidos.
+
 ## Relacionamentos
 
 ```text
@@ -97,6 +109,7 @@ Entity 1 ───── N BOEEntityTotal N ───── 1 BOEImport
 BOEImport 1 ───── N BOEImportIssue
 BOEImport 1 ───── 0..1 CashflowEntry
 InvestmentMovement (histórico financeiro independente)
+Entity 1 ───── N TargetEntry
 ```
 
 O relacionamento SQLAlchemy é bidirecional por `Entity.aliases` e
@@ -122,9 +135,11 @@ A regra não reside na GUI nem no repository.
   para conferir divergências. O fluxo usa o resumo, nunca a aba `PRODUTO`.
 - Fluxo de Caixa: uma importação BOE origina Receita Direta automática,
   rastreável e protegida contra duplicidade. Receita Indireta é manual.
-- Meta x Realizado: usará a base mestra para associar resultados às Entidades.
-- O código `7500` será calculado somente em resultados consolidados futuros.
+- Meta x Realizado: usa a base mestra para associar Consultas e Registros às
+  Entidades pelo código funcional.
+- O código `7500` é calculado somente como consolidado e nunca persistido como
+  Entidade ou Meta.
 
 Despesas manuais e saldo mensal foram adicionados na Sprint 05, orçamento na
-Sprint 06 e aplicações/resgates com saldo aplicado na Sprint 07. Rendimentos e
-demais evoluções continuam futuras.
+Sprint 06, aplicações/resgates com saldo aplicado na Sprint 07 e Meta x
+Realizado na Sprint 09. Rendimentos e demais evoluções continuam futuras.

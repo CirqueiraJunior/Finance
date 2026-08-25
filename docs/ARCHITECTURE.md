@@ -59,6 +59,14 @@ defensiva do código consolidado `7500` e calcula os totais com `Decimal`;
 `BOEController` coordena a seleção; e `BoePage` somente apresenta os dados. A
 consulta usa exclusivamente o banco e não reabre a planilha Excel.
 
+Na Sprint 09, Meta x Realizado segue
+`MetasPage -> TargetController -> TargetService -> TargetRepository -> SQLAlchemy`.
+`TargetEntry` é um domínio próprio e não reutiliza `BudgetEntry`. O service
+valida a Base Mestra, protege o código `7500`, calcula diferença e atingimento
+com `Decimal` e consolida somente Entidades reais. O Realizado operacional vem
+conceitualmente da aba `Faturamento` da planilha oficial e, por ainda não existir
+em outro módulo, é persistido no próprio registro sem importação automática.
+
 ## Banco de dados
 
 SQLAlchemy 2.x abstrai SQLite em desenvolvimento e PostgreSQL em produção. A URL
@@ -74,3 +82,4 @@ A migration da Sprint 06 adiciona somente `budget_entries`.
 A migration da Sprint 07 adiciona somente `investment_movements`.
 A Sprint 08 não exige migration: utiliza as tabelas BOE já existentes desde a
 Sprint 03.
+A migration da Sprint 09 adiciona somente `target_entries`.

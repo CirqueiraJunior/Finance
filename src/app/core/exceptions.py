@@ -64,3 +64,15 @@ class InvestmentValidationError(InvestmentDomainError):
 
 class InvestmentBalanceError(InvestmentDomainError):
     """Raised when a redemption exceeds the balance available on its date."""
+
+
+class TargetDomainError(Exception):
+    """Base exception for operational target errors."""
+
+
+class TargetValidationError(TargetDomainError):
+    """Raised when a Meta x Realizado input is invalid."""
+
+
+class TargetDuplicateError(TargetDomainError):
+    """Raised when an Entity already has a target for the period/indicator."""

@@ -13,10 +13,17 @@ from app.services.investment_service import InvestmentMonthlySummary, Investment
 from app.services.financial_flow_service import (
     FinancialFlowService, FinancialFlowSummary, FinancialMovement,
 )
+from app.services.target_service import (
+    TargetComparison,
+    TargetService,
+    TargetSummary,
+    TargetVsActual,
+)
 
 __all__ = [
     "BOEEntityDetail", "BOEImportDetails", "BOEService", "BudgetComparison", "BudgetService", "BudgetSummary",
     "BudgetVsActual", "CashflowService", "CashflowSummary", "EntityService",
     "InvestmentMonthlySummary", "InvestmentService",
     "FinancialFlowService", "FinancialFlowSummary", "FinancialMovement",
+    "TargetComparison", "TargetService", "TargetSummary", "TargetVsActual",
 ]

@@ -14,6 +14,7 @@ from app.gui.controllers.boe_controller import BOEController
 from app.gui.controllers.budget_controller import BudgetController
 from app.gui.controllers.cashflow_controller import CashflowController
 from app.gui.controllers.navigation_controller import NavigationController
+from app.gui.controllers.target_controller import TargetController
 from app.gui.pages.administracao import AdministracaoPage
 from app.gui.pages.boe import BoePage
 from app.gui.pages.cadastros import CadastrosPage
@@ -28,10 +29,12 @@ from app.repositories.budget_repository import BudgetRepository
 from app.repositories.cashflow_repository import CashflowRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.investment_repository import InvestmentRepository
+from app.repositories.target_repository import TargetRepository
 from app.services.boe_service import BOEService
 from app.services.budget_service import BudgetService
 from app.services.cashflow_service import CashflowService
 from app.services.investment_service import InvestmentService
+from app.services.target_service import TargetService
 from app.widgets.sidebar import Sidebar
 from app.widgets.topbar import TopBar
 
@@ -47,6 +50,7 @@ class MainWindow(QMainWindow):
         boe_page = BoePage()
         financeiro_page = FinanceiroPage()
         orcamento_page = OrcamentoPage()
+        metas_page = MetasPage()
         self._boe_session = get_session_factory()()
         cashflow_service = CashflowService(CashflowRepository(self._boe_session))
         self._boe_controller = BOEController(
@@ -71,13 +75,20 @@ class MainWindow(QMainWindow):
                 CashflowRepository(self._boe_session),
             ),
         )
+        self._target_controller = TargetController(
+            metas_page,
+            TargetService(
+                TargetRepository(self._boe_session),
+                EntityRepository(self._boe_session),
+            ),
+        )
 
         pages = {
             "dashboard": DashboardPage(),
             "financeiro": financeiro_page,
             "orcamento": orcamento_page,
             "boe": boe_page,
-            "metas": MetasPage(),
+            "metas": metas_page,
             "cadastros": CadastrosPage(),
             "relatorios": RelatoriosPage(),
             "administracao": AdministracaoPage(),
