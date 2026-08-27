@@ -15,6 +15,7 @@ class FinancialMovement:
     category: str | None
     origin: str | None
     value: Decimal
+    boe: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,14 +46,19 @@ class FinancialFlowService:
         movements = [
             FinancialMovement(
                 item.data_lancamento, item.tipo, item.descricao,
-                item.categoria, item.origem, item.valor,
+                item.categoria, item.origem, item.valor, item.boe,
             )
             for item in self.cashflow.list_entries_by_period(year, month)
         ]
         movements.extend(
             FinancialMovement(
                 item.data_movimento, item.tipo, item.descricao,
-                None, None, item.valor,
+                (
+                    "INVESTIMENTO"
+                    if item.tipo == InvestmentMovementType.APPLICATION.value
+                    else "RESGATE"
+                ),
+                "MANUAL", item.valor, False,
             )
             for item in self.investments.list_by_period(year, month)
         )

@@ -69,6 +69,9 @@ def test_controller_creates_budget(qtbot, db_session, monkeypatch):
         def setValue(self, _value):
             pass
 
+        def set_month(self, _value):
+            pass
+
     monkeypatch.setattr("app.gui.controllers.budget_controller.BudgetDialog", FakeDialog)
     controller.open_new_dialog()
     assert len(service.list_by_period(2026, 7)) == 1

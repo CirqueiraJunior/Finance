@@ -42,7 +42,7 @@ class TargetController(QObject):
         dialog = TargetDialog(entities, self.view)
         year, month, indicator, entity_id = self.view.selected_filters()
         dialog.year.setValue(year)
-        dialog.month.setValue(month)
+        dialog.month.set_month(month)
         dialog.indicator.setCurrentIndex(dialog.indicator.findData(indicator))
         if entity_id is not None:
             dialog.entity.setCurrentIndex(dialog.entity.findData(entity_id))

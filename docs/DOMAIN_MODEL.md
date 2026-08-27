@@ -143,3 +143,31 @@ A regra não reside na GUI nem no repository.
 Despesas manuais e saldo mensal foram adicionados na Sprint 05, orçamento na
 Sprint 06, aplicações/resgates com saldo aplicado na Sprint 07 e Meta x
 Realizado na Sprint 09. Rendimentos e demais evoluções continuam futuras.
+
+
+## Sprint 11 — Associação e histórico de exportação CSV
+
+`AssociationEntry` representa os valores mensais de Captação e Execução por
+Entidade, necessários ao contrato `wp25_membros_associacao.csv`.
+
+Chave funcional:
+
+`entity_id + periodo_ano + periodo_mes`
+
+`CSVExport` registra cada tentativa de geração dos cinco CSVs do site, incluindo
+ano, status, diretório, arquivos e relatório. Os CSVs são derivados dos dados
+persistidos e não constituem fonte de verdade.
+
+
+## Fluxo de Caixa — Sprint 11A
+
+### CashflowCatalogEntry
+
+Catálogo parametrizável das combinações oficiais de `Descrição`, `Categoria` e
+`Tipo` oriundas da aba `Lista Suspensa`.
+
+### CashflowEntry.boe
+
+Booleano obrigatório (`False` por padrão) correspondente à coluna `BOE`
+(`Sim`/`Não`) da planilha oficial. Registros existentes permanecem válidos e
+recebem `False` na migration.

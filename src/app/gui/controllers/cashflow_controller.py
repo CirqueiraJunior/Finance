@@ -6,7 +6,9 @@ from app.core.exceptions import CashflowDomainError, InvestmentDomainError
 from app.gui.pages.financeiro import CashflowEntryDialog, FinanceiroPage
 from app.models.cashflow_entry import CashflowType
 from app.models.investment_movement import InvestmentMovementType
+from app.repositories.cashflow_catalog_repository import CashflowCatalogRepository
 from app.repositories.investment_repository import InvestmentRepository
+from app.services.cashflow_catalog_service import CashflowCatalogService
 from app.services.cashflow_service import CashflowService
 from app.services.financial_flow_service import FinancialFlowService
 from app.services.investment_service import InvestmentService
@@ -24,6 +26,9 @@ class CashflowController(QObject):
             InvestmentRepository(service.repository.session)
         )
         self.financial_flow = FinancialFlowService(service, self.investment_service)
+        self.catalog_service = CashflowCatalogService(
+            CashflowCatalogRepository(service.repository.session)
+        )
         self.view.filter_button.clicked.connect(self.refresh_entries)
         self.view.new_entry_button.clicked.connect(self.open_new_entry_dialog)
         self.refresh_entries()
@@ -40,34 +45,39 @@ class CashflowController(QObject):
             self.view.set_status(f"Falha ao carregar lançamentos: {error}", error=True)
 
     def open_new_entry_dialog(self) -> None:
-        dialog = CashflowEntryDialog(self.view)
+        year, month = self.view.selected_period()
+        dialog = CashflowEntryDialog(
+            self.view,
+            self.catalog_service.list_options(),
+            period_year=year,
+            period_month=month,
+        )
 
         def update_balance() -> None:
             dialog.set_available_balance(
-                self.investment_service.get_applied_balance(
-                    dialog.entry_date.date().toPython()
-                )
+                self.investment_service.get_applied_balance(dialog.movement_date())
             )
 
-        dialog.entry_type.currentIndexChanged.connect(update_balance)
-        dialog.entry_date.dateChanged.connect(update_balance)
+        dialog.category.currentIndexChanged.connect(update_balance)
+        dialog.year_input.valueChanged.connect(update_balance)
+        dialog.month_input.currentIndexChanged.connect(update_balance)
         update_balance()
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        entry_type, entry_date, description, category, value, notes = dialog.values()
-        year, month = self.view.selected_period()
+        entry_type, entry_date, description, category, value, notes, boe = dialog.values()
+        year, month = entry_date.year, entry_date.month
         try:
             if entry_type == CashflowType.REVENUE.value:
                 self.service.create_indirect_revenue(
                     year=year, month=month, entry_date=entry_date,
-                    description=description, value=value, notes=notes,
+                    description=description, value=value, notes=notes, boe=boe,
                 )
                 message = "Receita Indireta cadastrada com sucesso."
             elif entry_type == CashflowType.EXPENSE.value:
                 self.service.create_expense(
                     year=year, month=month, entry_date=entry_date,
                     description=description, category=category,
-                    value=value, notes=notes,
+                    value=value, notes=notes, boe=boe,
                 )
                 message = "Despesa cadastrada com sucesso."
             elif entry_type == InvestmentMovementType.APPLICATION.value:

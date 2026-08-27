@@ -3,7 +3,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -93,6 +93,7 @@ class CashflowEntry(Base):
     boe_import_id: Mapped[int | None] = mapped_column(
         ForeignKey("boe_imports.id", ondelete="RESTRICT"), unique=True, index=True
     )
+    boe: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     observacao: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

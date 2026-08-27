@@ -35,7 +35,7 @@ class BudgetController(QObject):
         year, month = self.view.selected_period()
         dialog.year.setValue(year)
         if month is not None:
-            dialog.month.setValue(month)
+            dialog.month.set_month(month)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         year, month, entry_type, category, value, notes = dialog.create_values()

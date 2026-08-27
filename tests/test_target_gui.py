@@ -77,6 +77,9 @@ def test_controller_creates_and_edits_target(qtbot, db_session, monkeypatch):
         def setValue(self, _value):
             pass
 
+        def set_month(self, _value):
+            pass
+
         def setCurrentIndex(self, _value):
             pass
 

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 from app.models.budget_entry import BudgetEntry
 from app.models.cashflow_entry import EXPENSE_CATEGORIES, CashflowCategory, CashflowType
 from app.services.budget_service import BudgetVsActual, REVENUE_CATEGORIES
+from app.widgets import BRLCurrencyEdit, MonthComboBox
 
 
 class BudgetDialog(QDialog):
@@ -24,15 +25,13 @@ class BudgetDialog(QDialog):
         self.year = QSpinBox()
         self.year.setRange(2000, 9999)
         self.year.setValue(budget.periodo_ano if budget else date.today().year)
-        self.month = QSpinBox()
-        self.month.setRange(1, 12)
-        self.month.setValue(budget.periodo_mes if budget else date.today().month)
+        self.month = MonthComboBox()
+        self.month.set_month(budget.periodo_mes if budget else date.today().month)
         self.entry_type = QComboBox()
         self.entry_type.addItem("Receita", CashflowType.REVENUE.value)
         self.entry_type.addItem("Despesa", CashflowType.EXPENSE.value)
         self.category = QComboBox()
-        self.budgeted_value = QLineEdit()
-        self.budgeted_value.setPlaceholderText("0,0000")
+        self.budgeted_value = BRLCurrencyEdit()
         self.notes = QPlainTextEdit()
         self.notes.setMaximumHeight(90)
         layout.addRow("Ano", self.year)
@@ -45,6 +44,8 @@ class BudgetDialog(QDialog):
             QDialogButtonBox.StandardButton.Save
             | QDialogButtonBox.StandardButton.Cancel
         )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Salvar")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
@@ -57,7 +58,7 @@ class BudgetDialog(QDialog):
         if budget:
             category_index = self.category.findData(budget.categoria)
             self.category.setCurrentIndex(category_index)
-            self.budgeted_value.setText(self.format_decimal(budget.valor_orcado))
+            self.budgeted_value.set_decimal_value(budget.valor_orcado)
             self.notes.setPlainText(budget.observacao or "")
             for widget in (self.year, self.month, self.entry_type, self.category):
                 widget.setEnabled(False)
@@ -78,7 +79,7 @@ class BudgetDialog(QDialog):
 
     def create_values(self) -> tuple[int, int, str, str, str, str]:
         return (
-            self.year.value(), self.month.value(), self.entry_type.currentData(),
+            self.year.value(), self.month.month(), self.entry_type.currentData(),
             self.category.currentData(), self.normalized_value(),
             self.notes.toPlainText(),
         )
@@ -87,7 +88,7 @@ class BudgetDialog(QDialog):
         return self.normalized_value(), self.notes.toPlainText()
 
     def normalized_value(self) -> str:
-        return self.budgeted_value.text().replace(".", "").replace(",", ".")
+        return str(self.budgeted_value.decimal_value())
 
     @staticmethod
     def category_label(value: str) -> str:
@@ -114,10 +115,7 @@ class OrcamentoPage(QWidget):
         self.year_filter = QSpinBox()
         self.year_filter.setRange(2000, 9999)
         self.year_filter.setValue(date.today().year)
-        self.month_filter = QComboBox()
-        self.month_filter.addItem("Ano completo", 0)
-        for month in range(1, 13):
-            self.month_filter.addItem(f"{month:02d}", month)
+        self.month_filter = MonthComboBox(include_all=True)
         self.filter_button = QPushButton("Aplicar filtro")
         self.new_button = QPushButton("Novo Orçamento")
         self.new_button.setObjectName("primaryButton")
@@ -174,7 +172,7 @@ class OrcamentoPage(QWidget):
 
     def set_period(self, year: int, month: int | None) -> None:
         self.year_filter.setValue(year)
-        self.month_filter.setCurrentIndex(0 if month is None else month)
+        self.month_filter.set_month(month)
 
     def show_result(
         self, result: BudgetVsActual, budgets: list[BudgetEntry]

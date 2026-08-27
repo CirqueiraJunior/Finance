@@ -75,3 +75,28 @@ tabela do Financeiro. O Saldo Aplicado considera o histórico até o fim do per�
 A página oferece filtro por ano/mês, sete indicadores, tabela unificada e diálogo
 Novo Lançamento com os quatro tipos. Receita permite apenas Receita Indireta;
 Receita Direta continua automática via BOE.
+
+
+## Sprint 11A — Catálogo oficial de lançamentos
+
+O Novo Lançamento passa a seguir `Lista Suspensa` da planilha oficial.
+Descrição não é campo livre: a seleção filtra as Categorias válidas e o Tipo é
+derivado da combinação. O campo BOE (`Sim`/`Não`) é persistido nos lançamentos
+operacionais.
+
+Descrições que possuem múltiplas Categorias, como Viagem, Hospedagem,
+Premiação e Reembolso, exigem a escolha entre as Categorias permitidas.
+
+`Saldo Aplicado` permanece calculado pelo domínio de Aplicações/Resgates e não
+é cadastrado manualmente nesta etapa.
+### Período operacional
+
+O novo lançamento expõe somente **Ano** e **Mês**. Para compatibilidade com a
+coluna existente `data_lancamento`, o sistema grava internamente o primeiro dia
+do mês selecionado. O dia não é uma informação operacional, não aparece no
+diálogo e não é exibido na tabela do Fluxo de Caixa.
+
+O mês é selecionado pelo nome, de Janeiro a Dezembro, mantendo internamente os
+valores de 1 a 12. O campo Valor recebe apenas dígitos e interpreta os dois
+últimos como centavos (`123456` → `R$ 1.234,56`), convertendo o resultado
+diretamente para `Decimal` antes do domínio financeiro.

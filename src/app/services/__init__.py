@@ -1,5 +1,6 @@
 """Application services."""
 
+from app.services.association_service import AssociationService
 from app.services.boe_service import BOEEntityDetail, BOEImportDetails, BOEService
 from app.services.budget_service import (
     BudgetComparison,
@@ -30,6 +31,9 @@ from app.services.dashboard_service import (
 )
 
 __all__ = [
+    "AssociationService",
+    "AnnualReport", "MonthlyReportRow", "ReportService",
+    "CSVExportResult", "CSVValidationResult", "SiteCSVService",
     "BOEEntityDetail", "BOEImportDetails", "BOEService", "BudgetComparison", "BudgetService", "BudgetSummary",
     "BudgetVsActual", "CashflowService", "CashflowSummary", "EntityService",
     "InvestmentMonthlySummary", "InvestmentService",
@@ -39,3 +43,8 @@ __all__ = [
     "DashboardSummary", "FinancialDashboardSummary",
     "IndicatorDashboardSummary", "TargetDashboardSummary",
 ]
+
+from app.services.report_service import AnnualReport, MonthlyReportRow, ReportService
+from app.services.site_csv_service import CSVExportResult, CSVValidationResult, SiteCSVService
+
+from app.services.cashflow_catalog_service import CashflowCatalogOption, CashflowCatalogService

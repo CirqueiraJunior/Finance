@@ -23,6 +23,9 @@ class CashflowSummary:
     total_revenue: Decimal
     total_expense: Decimal
     monthly_balance: Decimal
+    boe_expense: Decimal = Decimal("0.0000")
+    non_boe_expense: Decimal = Decimal("0.0000")
+    net_direct_revenue: Decimal = Decimal("0.0000")
 
 
 class CashflowService:
@@ -55,6 +58,7 @@ class CashflowService:
             categoria=CashflowCategory.DIRECT_REVENUE.value,
             valor=self._positive_decimal(boe_import.valor_total),
             boe_import_id=boe_import.id,
+            boe=False,
             observacao=f"Gerada automaticamente a partir de {boe_import.nome_arquivo}.",
         )
         return self._persist(entry, commit=commit)
@@ -68,6 +72,7 @@ class CashflowService:
         description: str,
         value: Decimal | str,
         notes: str | None = None,
+        boe: bool = False,
     ) -> CashflowEntry:
         if not isinstance(entry_date, date):
             raise CashflowValidationError("A data do lançamento é inválida.")
@@ -82,6 +87,7 @@ class CashflowService:
             categoria=CashflowCategory.INDIRECT_REVENUE.value,
             valor=self._positive_decimal(value),
             boe_import_id=None,
+            boe=bool(boe),
             observacao=normalized_notes,
         )
         return self._persist(entry, commit=True)
@@ -96,6 +102,7 @@ class CashflowService:
         category: CashflowCategory | str,
         value: Decimal | str,
         notes: str | None = None,
+        boe: bool = False,
     ) -> CashflowEntry:
         if not isinstance(entry_date, date):
             raise CashflowValidationError("A data do lançamento é inválida.")
@@ -111,6 +118,7 @@ class CashflowService:
             categoria=normalized_category.value,
             valor=self._positive_decimal(value),
             boe_import_id=None,
+            boe=bool(boe),
             observacao=normalized_notes,
         )
         return self._persist(entry, commit=True)
@@ -142,12 +150,21 @@ class CashflowService:
             zero,
         )
         total_revenue = direct + indirect
+        boe_expense = sum(
+            (entry.valor for entry in entries
+             if entry.tipo == CashflowType.EXPENSE.value and entry.boe),
+            zero,
+        )
+        non_boe_expense = expenses - boe_expense
         return CashflowSummary(
             direct_revenue=direct,
             indirect_revenue=indirect,
             total_revenue=total_revenue,
             total_expense=expenses,
             monthly_balance=total_revenue - expenses,
+            boe_expense=boe_expense,
+            non_boe_expense=non_boe_expense,
+            net_direct_revenue=direct - boe_expense,
         )
 
     def _persist(self, entry: CashflowEntry, *, commit: bool) -> CashflowEntry:

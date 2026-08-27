@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 from app.models.entity import Entity
 from app.models.target_entry import TargetEntry, TargetIndicator
 from app.services.target_service import TargetVsActual
+from app.widgets import BrazilianDecimalEdit, MonthComboBox
 
 
 class TargetDialog(QDialog):
@@ -25,9 +26,8 @@ class TargetDialog(QDialog):
         self.year = QSpinBox()
         self.year.setRange(2000, 9999)
         self.year.setValue(target.periodo_ano if target else date.today().year)
-        self.month = QSpinBox()
-        self.month.setRange(1, 12)
-        self.month.setValue(target.periodo_mes if target else date.today().month)
+        self.month = MonthComboBox()
+        self.month.set_month(target.periodo_mes if target else date.today().month)
         self.entity = QComboBox()
         for entity in entities:
             name = entity.nome_oficial or entity.nome
@@ -35,10 +35,8 @@ class TargetDialog(QDialog):
         self.indicator = QComboBox()
         self.indicator.addItem("Consultas", TargetIndicator.QUERIES.value)
         self.indicator.addItem("Registros", TargetIndicator.REGISTRATIONS.value)
-        self.target_value = QLineEdit()
-        self.target_value.setPlaceholderText("0,0000")
-        self.actual_value = QLineEdit()
-        self.actual_value.setPlaceholderText("0,0000")
+        self.target_value = BrazilianDecimalEdit()
+        self.actual_value = BrazilianDecimalEdit()
         self.notes = QPlainTextEdit()
         self.notes.setMaximumHeight(90)
         layout.addRow("Ano", self.year)
@@ -52,14 +50,16 @@ class TargetDialog(QDialog):
             QDialogButtonBox.StandardButton.Save
             | QDialogButtonBox.StandardButton.Cancel
         )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Salvar")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
         if target:
             self.entity.setCurrentIndex(self.entity.findData(target.entity_id))
             self.indicator.setCurrentIndex(self.indicator.findData(target.indicador))
-            self.target_value.setText(self.format_decimal(target.valor_meta))
-            self.actual_value.setText(self.format_decimal(target.valor_realizado))
+            self.target_value.set_decimal_value(target.valor_meta)
+            self.actual_value.set_decimal_value(target.valor_realizado)
             self.notes.setPlainText(target.observacao or "")
             for widget in (
                 self.year, self.month, self.entity, self.indicator, self.actual_value,
@@ -68,13 +68,13 @@ class TargetDialog(QDialog):
 
     def create_values(self) -> tuple[int, int, int, str, str, str, str]:
         return (
-            self.year.value(), self.month.value(), self.entity.currentData(),
-            self.indicator.currentData(), self.normalized(self.target_value.text()),
-            self.normalized(self.actual_value.text()), self.notes.toPlainText(),
+            self.year.value(), self.month.month(), self.entity.currentData(),
+            self.indicator.currentData(), str(self.target_value.decimal_value()),
+            str(self.actual_value.decimal_value()), self.notes.toPlainText(),
         )
 
     def update_values(self) -> tuple[str, str]:
-        return self.normalized(self.target_value.text()), self.notes.toPlainText()
+        return str(self.target_value.decimal_value()), self.notes.toPlainText()
 
     @staticmethod
     def normalized(value: str) -> str:
@@ -103,10 +103,8 @@ class MetasPage(QWidget):
         self.year_filter = QSpinBox()
         self.year_filter.setRange(2000, 9999)
         self.year_filter.setValue(date.today().year)
-        self.month_filter = QComboBox()
-        for month in range(1, 13):
-            self.month_filter.addItem(f"{month:02d}", month)
-        self.month_filter.setCurrentIndex(date.today().month - 1)
+        self.month_filter = MonthComboBox()
+        self.month_filter.set_month(date.today().month)
         self.indicator_filter = QComboBox()
         self.indicator_filter.addItem("Consultas", TargetIndicator.QUERIES.value)
         self.indicator_filter.addItem("Registros", TargetIndicator.REGISTRATIONS.value)

@@ -93,3 +93,17 @@ Sprint 03.
 A migration da Sprint 09 adiciona somente `target_entries`.
 A Sprint 10 não exige migration nem novos modelos: o Dashboard consulta
 exclusivamente os domínios já persistidos.
+
+
+Na Sprint 11, `RelatoriosPage -> ReportController -> ReportService/SiteCSVService`. O relatório anual apenas compõe serviços existentes. `SiteCSVService` lê Base Mestra, Meta x Realizado e Associação persistida, valida os 12 meses e grava histórico em `csv_exports`; os arquivos usam os contratos oficiais e não dependem de Excel ou WordPress.
+
+
+## Catálogo de Fluxo de Caixa — Sprint 11A
+
+`cashflow_catalog_entries` é a fonte parametrizável para as combinações
+Descrição/Categoria/Tipo do lançamento manual. A GUI consulta o catálogo por
+`CashflowCatalogService`; regras não ficam hardcoded no Controller.
+
+A coluna `cashflow_entries.boe` preserva o marcador Sim/Não da planilha
+financeira oficial. O catálogo inclui `SALDO`, porém o saldo aplicado continua
+derivado de `investment_movements`.

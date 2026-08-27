@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.services.dashboard_service import DashboardSummary
+from app.widgets import MonthComboBox
 
 
 class DashboardPage(QWidget):
@@ -53,10 +54,8 @@ class DashboardPage(QWidget):
         self.year_filter = QSpinBox()
         self.year_filter.setRange(2000, 9999)
         self.year_filter.setValue(date.today().year)
-        self.month_filter = QComboBox()
-        for month in range(1, 13):
-            self.month_filter.addItem(f"{month:02d}", month)
-        self.month_filter.setCurrentIndex(date.today().month - 1)
+        self.month_filter = MonthComboBox()
+        self.month_filter.set_month(date.today().month)
         self.refresh_button = QPushButton("Atualizar")
         self.refresh_button.setObjectName("primaryButton")
         filters.addWidget(QLabel("Ano"))
@@ -201,7 +200,7 @@ class DashboardPage(QWidget):
 
     def set_period(self, year: int, month: int) -> None:
         self.year_filter.setValue(year)
-        self.month_filter.setCurrentIndex(month - 1)
+        self.month_filter.set_month(month)
 
     def show_summary(self, summary: DashboardSummary) -> None:
         financial = summary.financial

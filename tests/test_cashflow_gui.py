@@ -24,7 +24,7 @@ def make_controller(page, db_session):
 def test_cashflow_page_contains_unified_table_and_seven_cards(qtbot):
     page = FinanceiroPage()
     qtbot.addWidget(page)
-    assert page.entries_table.columnCount() == 6
+    assert page.entries_table.columnCount() == 7
     assert page.new_entry_button.text() == "Novo Lançamento"
     assert page.entries_table.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
     assert page.applications_total.text() == "R$ 0,0000"
@@ -75,7 +75,10 @@ def test_filters_show_cashflow_and_investments_together(qtbot, db_session):
         row for row in range(3)
         if page.entries_table.item(row, 1).text() in {"APLICACAO", "RESGATE"}
     ]
-    assert all(page.entries_table.item(row, 3).text() == "—" for row in investment_rows)
+    assert {
+        page.entries_table.item(row, 3).text() for row in investment_rows
+    } == {"Investimento", "Resgate"}
+    assert all(page.entries_table.item(row, 5).text() == "Não" for row in investment_rows)
 
 
 def test_homologation_cards_use_correct_semantics(qtbot, db_session):

@@ -76,3 +76,23 @@ class TargetValidationError(TargetDomainError):
 
 class TargetDuplicateError(TargetDomainError):
     """Raised when an Entity already has a target for the period/indicator."""
+
+class AssociationDomainError(Exception):
+    """Base exception for Association data errors."""
+
+
+class AssociationValidationError(AssociationDomainError):
+    """Raised when Association input is invalid."""
+
+
+class CSVExportDomainError(Exception):
+    """Base exception for CESPC/GO CSV export errors."""
+
+
+class CSVExportValidationError(CSVExportDomainError):
+    """Raised when the five official CSV contracts cannot be generated safely."""
+
+    def __init__(self, errors: tuple[str, ...] | list[str]) -> None:
+        self.errors = tuple(errors)
+        message = self.errors[0] if self.errors else "Exportação CSV inválida."
+        super().__init__(message)
