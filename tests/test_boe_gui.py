@@ -104,10 +104,10 @@ def test_boe_page_displays_selected_import_details(qtbot):
     assert page.details_table.item(0, 0).text() == "7501"
     assert page.details_table.item(0, 1).text() == "Entidade oficial"
     assert page.details_table.item(0, 2).text() == "1.000"
-    assert page.details_table.item(0, 3).text() == "R$ 69,3000"
+    assert page.details_table.item(0, 3).text() == "R$ 69,30"
     assert page.entities_total.text() == "1"
     assert page.queries_total.text() == "1.000"
-    assert page.value_total.text() == "R$ 69,3000"
+    assert page.value_total.text() == "R$ 69,30"
 
 
 def test_boe_page_shows_empty_detail_state(qtbot):

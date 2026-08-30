@@ -54,10 +54,10 @@ def test_dashboard_page_displays_complete_summary(qtbot):
 
     page.show_summary(summary())
 
-    assert page.financial_cards["total_revenue"].text() == "R$ 22.067,2684"
+    assert page.financial_cards["total_revenue"].text() == "R$ 22.067,27"
     assert page.boe_entities.text() == "77"
     assert page.boe_queries.text() == "316.988"
-    assert page.budget_table.item(0, 1).text() == "R$ 20.200,0000"
+    assert page.budget_table.item(0, 1).text() == "R$ 20.200,00"
     assert page.query_achievement.text() == "90,6805%"
     assert page.registration_achievement.text() == "104,1968%"
     assert not page.boe_state.isVisible()
@@ -97,5 +97,5 @@ def test_controller_updates_all_blocks_when_filter_changes(qtbot):
     controller.refresh()
 
     assert service.calls[-1] == (2026, 8)
-    assert page.financial_cards["total_revenue"].text() == "R$ 100,0000"
+    assert page.financial_cards["total_revenue"].text() == "R$ 100,00"
     assert "08/2026" in page.status.text()

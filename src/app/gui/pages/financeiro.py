@@ -70,7 +70,7 @@ class CashflowEntryDialog(QDialog):
         self.value.setPlaceholderText("R$ 0,00")
         self.notes = QPlainTextEdit()
         self.notes.setMaximumHeight(90)
-        self.available_balance = QLabel("Saldo aplicado disponível: R$ 0,0000")
+        self.available_balance = QLabel("Saldo aplicado disponível: R$ 0,00")
 
         # Tipo por botões de seleção, derivado do catálogo.
         self.type_widget = QWidget()
@@ -431,7 +431,7 @@ class FinanceiroPage(QWidget):
         card_layout = QVBoxLayout(card)
         label = QLabel(title)
         label.setObjectName("summaryLabel")
-        value = QLabel("R$ 0,0000")
+        value = QLabel("R$ 0,00")
         value.setObjectName("summaryValue")
         card_layout.addWidget(label)
         card_layout.addWidget(value)
@@ -480,7 +480,7 @@ class FinanceiroPage(QWidget):
 
     @staticmethod
     def format_currency(value: Decimal) -> str:
-        formatted = f"{value:,.4f}"
+        formatted = f"{value:,.2f}"
         return "R$ " + formatted.replace(",", "_").replace(".", ",").replace("_", ".")
 
     @staticmethod

@@ -4,19 +4,21 @@ from decimal import Decimal
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
+    QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from app.models.budget_entry import BudgetEntry
 from app.models.cashflow_entry import EXPENSE_CATEGORIES, CashflowCategory, CashflowType
 from app.services.budget_service import BudgetVsActual, REVENUE_CATEGORIES
+from app.services.cashflow_catalog_service import CashflowCatalogOption
 from app.widgets import BRLCurrencyEdit, MonthComboBox
 
 
 class BudgetDialog(QDialog):
     def __init__(
-        self, parent: QWidget | None = None, budget: BudgetEntry | None = None
+        self, parent: QWidget | None = None, budget: BudgetEntry | None = None,
+        *, catalog_options: tuple[CashflowCatalogOption, ...] = (),
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Editar Orçamento" if budget else "Novo Orçamento")
@@ -30,14 +32,40 @@ class BudgetDialog(QDialog):
         self.entry_type = QComboBox()
         self.entry_type.addItem("Receita", CashflowType.REVENUE.value)
         self.entry_type.addItem("Despesa", CashflowType.EXPENSE.value)
+        self.entry_type.setEnabled(False)
         self.category = QComboBox()
+        self.description = QComboBox()
+        options = [
+            option for option in catalog_options
+            if option.movement_type in {
+                CashflowType.REVENUE.value, CashflowType.EXPENSE.value
+            }
+            and (budget is None or (
+                option.category == budget.categoria
+                and option.movement_type == budget.tipo
+            ))
+        ]
+        if budget and budget.descricao and not any(
+            option.description == budget.descricao
+            and option.category == budget.categoria
+            and option.movement_type == budget.tipo
+            for option in options
+        ):
+            options.append(CashflowCatalogOption(
+                budget.descricao, budget.categoria, budget.tipo
+            ))
+        self._catalog_options = tuple(options)
+        self.description.addItem("Selecione a descrição...", None)
+        for value in dict.fromkeys(option.description for option in self._catalog_options):
+            self.description.addItem(value, value)
         self.budgeted_value = BRLCurrencyEdit()
         self.notes = QPlainTextEdit()
         self.notes.setMaximumHeight(90)
         layout.addRow("Ano", self.year)
         layout.addRow("Mês", self.month)
-        layout.addRow("Tipo", self.entry_type)
+        layout.addRow("Descrição", self.description)
         layout.addRow("Categoria", self.category)
+        layout.addRow("Tipo", self.entry_type)
         layout.addRow("Valor Orçado", self.budgeted_value)
         layout.addRow("Observação", self.notes)
         buttons = QDialogButtonBox(
@@ -46,46 +74,62 @@ class BudgetDialog(QDialog):
         )
         buttons.button(QDialogButtonBox.StandardButton.Save).setText("Salvar")
         buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self._accept_if_valid)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
-        self.entry_type.currentIndexChanged.connect(self.update_categories)
-        if budget:
-            self.entry_type.setCurrentIndex(
-                0 if budget.tipo == CashflowType.REVENUE.value else 1
-            )
+        self.description.currentIndexChanged.connect(self.update_categories)
+        self.category.currentIndexChanged.connect(self.update_type)
         self.update_categories()
         if budget:
+            description_index = self.description.findData(budget.descricao)
+            self.description.setCurrentIndex(description_index)
             category_index = self.category.findData(budget.categoria)
             self.category.setCurrentIndex(category_index)
+            self.update_type()
             self.budgeted_value.set_decimal_value(budget.valor_orcado)
             self.notes.setPlainText(budget.observacao or "")
             for widget in (self.year, self.month, self.entry_type, self.category):
                 widget.setEnabled(False)
 
     def update_categories(self) -> None:
-        selected = self.category.currentData()
+        description = self.description.currentData()
         self.category.clear()
-        categories = (
-            REVENUE_CATEGORIES
-            if self.entry_type.currentData() == CashflowType.REVENUE.value
-            else EXPENSE_CATEGORIES
-        )
-        for category in categories:
-            self.category.addItem(self.category_label(category.value), category.value)
-        index = self.category.findData(selected)
-        if index >= 0:
-            self.category.setCurrentIndex(index)
+        matches = [option for option in self._catalog_options
+                   if option.description == description]
+        if not matches:
+            self.category.addItem("Selecione a categoria...", None)
+        elif len(matches) > 1:
+            self.category.addItem("Selecione a categoria...", None)
+        for option in matches:
+            self.category.addItem(self.category_label(option.category), option.category)
+        self.update_type()
 
-    def create_values(self) -> tuple[int, int, str, str, str, str]:
+    def update_type(self) -> None:
+        description = self.description.currentData()
+        category = self.category.currentData()
+        option = next((item for item in self._catalog_options
+                       if item.description == description and item.category == category), None)
+        index = self.entry_type.findData(option.movement_type if option else None)
+        self.entry_type.setCurrentIndex(index)
+
+    def _accept_if_valid(self) -> None:
+        if self.description.currentData() is None:
+            QMessageBox.warning(self, "Descrição obrigatória", "Selecione a Descrição.")
+            return
+        if self.category.currentData() is None or self.entry_type.currentData() is None:
+            QMessageBox.warning(self, "Catálogo inválido", "Selecione uma combinação válida de Descrição e Categoria.")
+            return
+        self.accept()
+
+    def create_values(self) -> tuple[int, int, str, str, str, str, str]:
         return (
             self.year.value(), self.month.month(), self.entry_type.currentData(),
-            self.category.currentData(), self.normalized_value(),
+            self.category.currentData(), self.description.currentData(), self.normalized_value(),
             self.notes.toPlainText(),
         )
 
-    def update_values(self) -> tuple[str, str]:
-        return self.normalized_value(), self.notes.toPlainText()
+    def update_values(self) -> tuple[str, str, str]:
+        return self.description.currentData(), self.normalized_value(), self.notes.toPlainText()
 
     def normalized_value(self) -> str:
         return str(self.budgeted_value.decimal_value())
@@ -136,9 +180,9 @@ class OrcamentoPage(QWidget):
         self.actual_expense = self._card("Despesa Realizada", cards)
         self.actual_result = self._card("Resultado Realizado", cards)
 
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
-            ["Tipo", "Categoria", "Orçado", "Realizado", "Desvio", "Desvio %"]
+            ["Tipo", "Descrição", "Categoria", "Orçado", "Realizado", "Desvio", "Desvio %", "Observação"]
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -159,7 +203,7 @@ class OrcamentoPage(QWidget):
         card_layout = QVBoxLayout(card)
         label = QLabel(title)
         label.setObjectName("summaryLabel")
-        value = QLabel("R$ 0,0000")
+        value = QLabel("R$ 0,00")
         value.setObjectName("summaryValue")
         card_layout.addWidget(label)
         card_layout.addWidget(value)
@@ -180,16 +224,22 @@ class OrcamentoPage(QWidget):
         budget_ids = {
             (budget.tipo, budget.categoria): budget.id for budget in budgets
         }
+        budget_notes = {
+            (budget.tipo, budget.categoria): (budget.observacao or "—")
+            for budget in budgets
+        }
         self.table.setRowCount(len(result.comparisons))
         for row, comparison in enumerate(result.comparisons):
             values = [
                 comparison.entry_type,
+                comparison.description or "—",
                 BudgetDialog.category_label(comparison.category),
                 self.currency(comparison.budgeted),
                 self.currency(comparison.actual),
                 self.currency(comparison.absolute_variance),
                 "—" if comparison.percentage_variance is None
                 else f"{comparison.percentage_variance:.4f}%".replace(".", ","),
+                budget_notes.get((comparison.entry_type, comparison.category), "—"),
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -221,5 +271,5 @@ class OrcamentoPage(QWidget):
 
     @staticmethod
     def currency(value: Decimal) -> str:
-        formatted = f"{value:,.4f}"
+        formatted = f"{value:,.2f}"
         return "R$ " + formatted.replace(",", "_").replace(".", ",").replace("_", ".")

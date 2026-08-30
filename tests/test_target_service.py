@@ -101,12 +101,18 @@ def test_duplicate_unknown_entity_consolidated_and_invalid_inputs(target_context
             entity_id=entity.id, year=2026, month=7, indicator="CONSULTAS",
             target_value="2", actual_value="2",
         )
-    for entity_id in (999999, consolidated.id, inactive.id):
+    for entity_id in (999999, consolidated.id):
         with pytest.raises(TargetValidationError):
             service.create_target(
                 entity_id=entity_id, year=2026, month=7, indicator="REGISTROS",
                 target_value="1", actual_value="1",
             )
+
+    target_inactive = service.create_target(
+        entity_id=inactive.id, year=2026, month=7, indicator="REGISTROS",
+        target_value="1", actual_value="1",
+    )
+    assert target_inactive.entity_id == inactive.id
     for kwargs in (
         {"month": 13},
         {"indicator": "INVALIDO"},
@@ -124,6 +130,8 @@ def test_duplicate_unknown_entity_consolidated_and_invalid_inputs(target_context
             service.create_target(**values)
 
 
-def test_entity_lists_exclude_7500_and_inactive(target_context):
-    service, active, second, *_ = target_context
-    assert service.list_entities() == [active, second]
+def test_entity_lists_exclude_only_7500(target_context):
+    service, active, second, consolidated, inactive = target_context
+    entities = service.list_entities()
+    assert entities == [active, second, inactive]
+    assert consolidated not in entities

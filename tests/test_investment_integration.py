@@ -20,7 +20,7 @@ def test_investment_movements_do_not_change_cashflow_totals(db_session):
     )
     cashflow.create_expense(
         year=2026, month=7, entry_date=date(2026, 7, 20),
-        description="Software", category="SOFTWARE", value=Decimal("500.0000"),
+        description="Software", category="ADMINISTRATIVO", value=Decimal("500.0000"),
     )
     before = cashflow.get_monthly_summary(2026, 7)
     investments = InvestmentService(InvestmentRepository(db_session))

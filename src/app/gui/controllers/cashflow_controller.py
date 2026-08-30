@@ -18,6 +18,8 @@ class CashflowController(QObject):
     def __init__(
         self, view: FinanceiroPage, service: CashflowService,
         investment_service: InvestmentService | None = None,
+        financial_flow=None,
+        catalog_service=None,
     ) -> None:
         super().__init__(view)
         self.view = view
@@ -25,8 +27,8 @@ class CashflowController(QObject):
         self.investment_service = investment_service or InvestmentService(
             InvestmentRepository(service.repository.session)
         )
-        self.financial_flow = FinancialFlowService(service, self.investment_service)
-        self.catalog_service = CashflowCatalogService(
+        self.financial_flow = financial_flow or FinancialFlowService(service, self.investment_service)
+        self.catalog_service = catalog_service or CashflowCatalogService(
             CashflowCatalogRepository(service.repository.session)
         )
         self.view.filter_button.clicked.connect(self.refresh_entries)
@@ -40,7 +42,7 @@ class CashflowController(QObject):
                 self.financial_flow.list_by_period(year, month),
                 self.financial_flow.get_summary(year, month),
             )
-        except (CashflowDomainError, InvestmentDomainError, SQLAlchemyError) as error:
+        except (CashflowDomainError, InvestmentDomainError, SQLAlchemyError, RuntimeError) as error:
             self.service.repository.session.rollback()
             self.view.set_status(f"Falha ao carregar lançamentos: {error}", error=True)
 
@@ -92,7 +94,7 @@ class CashflowController(QObject):
                     value=value, notes=notes,
                 )
                 message = "Resgate cadastrado com sucesso."
-        except (CashflowDomainError, InvestmentDomainError) as error:
+        except (CashflowDomainError, InvestmentDomainError, RuntimeError) as error:
             self.view.set_status(str(error), error=True)
             return
         self.view.set_status(message)

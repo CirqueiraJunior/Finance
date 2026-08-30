@@ -18,14 +18,15 @@ def service(db_session):
 
 def test_create_update_and_list_budget(service):
     budget = service.create_budget(
-        year=2026, month=7, entry_type="DESPESA", category="SOFTWARE",
-        budgeted_value=Decimal("2000.0000"), notes="Inicial",
+        year=2026, month=7, entry_type="DESPESA", category="ADMINISTRATIVO",
+        descricao="Licenças", budgeted_value=Decimal("2000.0000"), notes="Inicial",
     )
     updated = service.update_budget(
         budget.id, budgeted_value=Decimal("2500.0000"), notes="Revisado"
     )
     assert updated.valor_orcado == Decimal("2500.0000")
     assert updated.observacao == "Revisado"
+    assert updated.descricao == "Licenças"
     assert service.get_budget(budget.id) is updated
     assert service.list_by_period(2026, 7) == [updated]
     assert service.list_by_year(2026) == [updated]
@@ -33,7 +34,7 @@ def test_create_update_and_list_budget(service):
 
 def test_service_rejects_duplicate(service):
     values = dict(
-        year=2026, month=7, entry_type="DESPESA", category="SOFTWARE",
+        year=2026, month=7, entry_type="DESPESA", category="ADMINISTRATIVO",
         budgeted_value=Decimal("1"),
     )
     service.create_budget(**values)
@@ -44,9 +45,9 @@ def test_service_rejects_duplicate(service):
 @pytest.mark.parametrize(
     "values",
     [
-        {"year": 1999, "month": 7, "entry_type": "DESPESA", "category": "SOFTWARE"},
-        {"year": 2026, "month": 13, "entry_type": "DESPESA", "category": "SOFTWARE"},
-        {"year": 2026, "month": 7, "entry_type": "RECEITA", "category": "SOFTWARE"},
+        {"year": 1999, "month": 7, "entry_type": "DESPESA", "category": "ADMINISTRATIVO"},
+        {"year": 2026, "month": 13, "entry_type": "DESPESA", "category": "ADMINISTRATIVO"},
+        {"year": 2026, "month": 7, "entry_type": "RECEITA", "category": "ADMINISTRATIVO"},
         {"year": 2026, "month": 7, "entry_type": "DESPESA", "category": "RECEITA_DIRETA"},
     ],
 )
@@ -56,7 +57,7 @@ def test_service_rejects_invalid_budget(service, values):
 
 
 def test_service_rejects_negative_and_float(service):
-    base = dict(year=2026, month=7, entry_type="DESPESA", category="SOFTWARE")
+    base = dict(year=2026, month=7, entry_type="DESPESA", category="ADMINISTRATIVO")
     with pytest.raises(BudgetValidationError):
         service.create_budget(**base, budgeted_value=Decimal("-1"))
     with pytest.raises(BudgetValidationError):
@@ -75,7 +76,7 @@ def test_budget_vs_actual_and_favorable_variances(service, db_session):
     )
     cashflow.create_expense(
         year=2026, month=7, entry_date=date(2026, 7, 20),
-        description="Software", category="SOFTWARE", value=Decimal("500.0000"),
+        description="Software", category="ADMINISTRATIVO", value=Decimal("500.0000"),
     )
     service.create_budget(
         year=2026, month=7, entry_type="RECEITA", category="RECEITA_DIRETA",
@@ -86,16 +87,17 @@ def test_budget_vs_actual_and_favorable_variances(service, db_session):
         budgeted_value=Decimal("100.0000"),
     )
     service.create_budget(
-        year=2026, month=7, entry_type="DESPESA", category="SOFTWARE",
-        budgeted_value=Decimal("2000.0000"),
+        year=2026, month=7, entry_type="DESPESA", category="ADMINISTRATIVO",
+        descricao="Software mensal", budgeted_value=Decimal("2000.0000"),
     )
 
     result = service.get_budget_vs_actual(2026, 7)
     by_category = {item.category: item for item in result.comparisons}
 
     assert by_category["RECEITA_DIRETA"].absolute_variance == Decimal("1967.2684")
-    assert by_category["SOFTWARE"].absolute_variance == Decimal("1500.0000")
-    assert by_category["SOFTWARE"].percentage_variance == Decimal("75.0000")
+    assert by_category["ADMINISTRATIVO"].absolute_variance == Decimal("1500.0000")
+    assert by_category["ADMINISTRATIVO"].percentage_variance == Decimal("75.0000")
+    assert by_category["ADMINISTRATIVO"].description == "Software mensal"
     assert result.summary.budgeted_revenue == Decimal("20100.0000")
     assert result.summary.actual_revenue == Decimal("22067.2684")
     assert result.summary.budgeted_expense == Decimal("2000.0000")
@@ -116,8 +118,16 @@ def test_zero_budget_returns_null_percentage(service):
 def test_annual_view_sums_months(service):
     for month in (7, 8):
         service.create_budget(
-            year=2026, month=month, entry_type="DESPESA", category="SOFTWARE",
+            year=2026, month=month, entry_type="DESPESA", category="ADMINISTRATIVO",
             budgeted_value=Decimal("1000"),
         )
     result = service.get_budget_vs_actual(2026)
     assert result.summary.budgeted_expense == Decimal("2000.0000")
+
+
+def test_blank_description_is_rejected_when_explicitly_provided(service):
+    with pytest.raises(BudgetValidationError, match="descrição"):
+        service.create_budget(
+            year=2026, month=7, entry_type="DESPESA", category="ADMINISTRATIVO",
+            descricao="   ", budgeted_value="10",
+        )

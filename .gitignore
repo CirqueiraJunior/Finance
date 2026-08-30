@@ -16,3 +16,10 @@ build/
 work/
 logs/
 backups/
+exports/
+*.xlsx
+*.xlsm
+*.tmp
+*.bak
+*.pem
+*.key

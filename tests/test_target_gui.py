@@ -25,7 +25,8 @@ def test_page_has_filters_cards_table_and_empty_state(qtbot):
     page = MetasPage()
     qtbot.addWidget(page)
 
-    assert page.table.columnCount() == 7
+    assert page.table.columnCount() == 8
+    assert page.table.horizontalHeaderItem(7).text() == "Observação"
     assert page.new_button.text() == "Nova Meta"
     assert page.indicator_filter.count() == 2
     assert page.table.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers

@@ -129,5 +129,5 @@ class RelatoriosPage(QWidget):
 
     @staticmethod
     def currency(value) -> str:
-        formatted = f"{value:,.4f}".replace(",", "_").replace(".", ",").replace("_", ".")
+        formatted = f"{value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
         return f"R$ {formatted}"

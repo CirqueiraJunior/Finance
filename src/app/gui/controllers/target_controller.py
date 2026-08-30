@@ -5,23 +5,40 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.exceptions import TargetDomainError
 from app.gui.pages.metas import MetasPage, TargetDialog
 from app.services.target_service import TargetService
+from app.services.ranking_service import RankingService
 
 
 class TargetController(QObject):
-    def __init__(self, view: MetasPage, service: TargetService) -> None:
+    def __init__(self, view: MetasPage, service: TargetService,
+                 ranking: RankingService | None = None) -> None:
         super().__init__(view)
         self.view = view
         self.service = service
+        self.ranking = ranking
         self.view.filter_button.clicked.connect(self.refresh)
         self.view.new_button.clicked.connect(self.open_new_dialog)
         self.view.edit_button.clicked.connect(self.open_edit_dialog)
+        self.view.ranking_refresh.clicked.connect(self.refresh_ranking)
+        self.view.ranking_entity.currentIndexChanged.connect(self.refresh_ranking)
         self.refresh_entities()
         self.refresh()
+        self.refresh_ranking()
+
+    def refresh_ranking(self) -> None:
+        if self.ranking is None:
+            return
+        try:
+            year = self.view.ranking_year.value()
+            rows = self.ranking.quarterly(year, self.view.ranking_quarter.currentData())
+            self.view.show_ranking(rows, self.ranking.annual(year))
+        except (ValueError, SQLAlchemyError, RuntimeError) as error:
+            self.service.repository.session.rollback()
+            self.view.set_status(f"Falha ao carregar Ranking: {error}", error=True)
 
     def refresh_entities(self) -> None:
         try:
             self.view.set_entities(self.service.list_entities())
-        except SQLAlchemyError:
+        except (SQLAlchemyError, RuntimeError):
             self.service.repository.session.rollback()
             self.view.set_entities([])
 
@@ -30,7 +47,7 @@ class TargetController(QObject):
         try:
             result = self.service.get_target_vs_actual(year, month, indicator, entity_id)
             self.view.show_result(result)
-        except (TargetDomainError, SQLAlchemyError) as error:
+        except (TargetDomainError, SQLAlchemyError, RuntimeError) as error:
             self.service.repository.session.rollback()
             self.view.set_status(f"Falha ao carregar Meta x Realizado: {error}", error=True)
 
@@ -54,7 +71,7 @@ class TargetController(QObject):
                 entity_id=entity_id, year=year, month=month, indicator=indicator,
                 target_value=target, actual_value=actual, notes=notes,
             )
-        except TargetDomainError as error:
+        except (TargetDomainError, RuntimeError) as error:
             self.view.set_status(str(error), error=True)
             return
         self.view.set_status("Meta cadastrada com sucesso.")
@@ -75,7 +92,7 @@ class TargetController(QObject):
         value, notes = dialog.update_values()
         try:
             self.service.update_target(target.id, target_value=value, notes=notes)
-        except TargetDomainError as error:
+        except (TargetDomainError, RuntimeError) as error:
             self.view.set_status(str(error), error=True)
             return
         self.view.set_status("Meta atualizada com sucesso.")

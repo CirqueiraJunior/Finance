@@ -37,6 +37,7 @@ class BOEController(QObject):
         self.view.validate_button.setEnabled(True)
         self.view.import_button.setEnabled(False)
         self.view.validation_result.clear()
+        self.view.clear_import_result()
         self.view.set_status("Arquivo selecionado. Execute a validação.")
 
     def validate_file(self) -> None:
@@ -64,18 +65,22 @@ class BOEController(QObject):
             imported = self.service.import_file(self._selected_file)
         except BOEValidationError as error:
             self.view.show_validation(error.result)
+            self.view.show_import_error(str(error))
             self.view.import_button.setEnabled(False)
             self.view.set_status(str(error), error=True)
             return
         except BOEDomainError as error:
+            self.view.show_import_error(str(error))
             self.view.import_button.setEnabled(False)
             self.view.set_status(str(error), error=True)
             return
         except Exception as error:  # defensive GUI boundary
+            self.view.show_import_error(str(error))
             self.view.import_button.setEnabled(False)
             self.view.set_status(f"Falha ao importar: {error}", error=True)
             return
         self.view.import_button.setEnabled(False)
+        self.view.show_import_success(imported)
         self.view.set_status(
             f"BOE {imported.periodo_mes:02d}/{imported.periodo_ano} importado com sucesso."
         )
@@ -84,7 +89,7 @@ class BOEController(QObject):
     def refresh_history(self) -> None:
         try:
             self.view.show_history(self.service.list_imports())
-        except SQLAlchemyError:
+        except (SQLAlchemyError, RuntimeError):
             self.service.repository.session.rollback()
             self.view.show_history([])
             self.view.set_status(
@@ -99,7 +104,7 @@ class BOEController(QObject):
             return
         try:
             details = self.service.get_import_details(import_id)
-        except SQLAlchemyError:
+        except (SQLAlchemyError, RuntimeError):
             self.service.repository.session.rollback()
             self.view.clear_details("Não foi possível carregar o detalhamento.")
             self.view.set_status("Detalhamento BOE indisponível.", error=True)

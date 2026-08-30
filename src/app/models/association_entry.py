@@ -40,6 +40,10 @@ class AssociationEntry(Base):
             "valor_execucao >= 0",
             name="ck_association_entries_execution",
         ),
+        CheckConstraint(
+            "valor_cancelamento >= 0",
+            name="ck_association_entries_cancellation",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -50,6 +54,10 @@ class AssociationEntry(Base):
     periodo_mes: Mapped[int] = mapped_column(Integer, nullable=False)
     valor_captacao: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     valor_execucao: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    valor_cancelamento: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0.0000"),
+        server_default="0.0000",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

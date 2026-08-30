@@ -20,6 +20,7 @@ class TargetComparison:
     actual: Decimal
     difference: Decimal
     achievement_percentage: Decimal | None
+    notes: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +125,7 @@ class TargetService:
         return [
             entity
             for entity in self.entity_repository.list_all()
-            if entity.codigo_entidade != 7500 and entity.ativa
+            if entity.codigo_entidade != 7500
         ]
 
     def get_target_vs_actual(
@@ -175,6 +176,7 @@ class TargetService:
             actual=actual,
             difference=actual - target,
             achievement_percentage=cls._achievement(actual, target),
+            notes=entry.observacao,
         )
 
     @staticmethod
@@ -185,8 +187,8 @@ class TargetService:
 
     def _valid_entity(self, entity_id: int) -> Entity:
         entity = self.entity_repository.get_by_id(entity_id)
-        if entity is None or not entity.ativa:
-            raise TargetValidationError("Entidade não encontrada ou inativa.")
+        if entity is None:
+            raise TargetValidationError("Entidade não encontrada.")
         if entity.codigo_entidade == 7500:
             raise TargetValidationError("O código 7500 é consolidado, não Entidade.")
         return entity

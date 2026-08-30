@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QScrollArea,
     QSpinBox,
     QTableWidget,
@@ -27,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from app.services.dashboard_service import DashboardSummary
 from app.widgets import MonthComboBox
+from app.widgets.buttons import PrimaryButton
 
 
 class DashboardPage(QWidget):
@@ -56,8 +56,7 @@ class DashboardPage(QWidget):
         self.year_filter.setValue(date.today().year)
         self.month_filter = MonthComboBox()
         self.month_filter.set_month(date.today().month)
-        self.refresh_button = QPushButton("Atualizar")
-        self.refresh_button.setObjectName("primaryButton")
+        self.refresh_button = PrimaryButton("Atualizar")
         filters.addWidget(QLabel("Ano"))
         filters.addWidget(self.year_filter)
         filters.addWidget(QLabel("Mês"))
@@ -101,9 +100,11 @@ class DashboardPage(QWidget):
         self.budget_table = QTableWidget(3, 3)
         self.budget_table.setObjectName("dashboardBudgetTable")
         self.budget_table.setHorizontalHeaderLabels(["Grupo", "Orçado", "Realizado"])
-        self.budget_table.setVerticalHeaderLabels(["Receitas", "Despesas", "Resultado"])
+        self.budget_table.verticalHeader().setVisible(False)
         self.budget_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.budget_table.setMaximumHeight(155)
+        self.budget_table.setMinimumHeight(155)
+        self.budget_table.setMaximumHeight(190)
+        self.budget_table.verticalHeader().setDefaultSectionSize(34)
         self.budget_table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.budget_table)
 
@@ -144,7 +145,7 @@ class DashboardPage(QWidget):
         return label
 
     @staticmethod
-    def _card(title: str, initial: str = "R$ 0,0000") -> tuple[QWidget, QLabel]:
+    def _card(title: str, initial: str = "R$ 0,00") -> tuple[QWidget, QLabel]:
         card = QWidget()
         card.setObjectName("summaryCard")
         card_layout = QVBoxLayout(card)
@@ -158,7 +159,7 @@ class DashboardPage(QWidget):
         return card, value
 
     @classmethod
-    def _add_card(cls, layout: QHBoxLayout, title: str, initial="R$ 0,0000") -> QLabel:
+    def _add_card(cls, layout: QHBoxLayout, title: str, initial="R$ 0,00") -> QLabel:
         card, value = cls._card(title, initial)
         layout.addWidget(card, 1)
         return value
@@ -217,8 +218,9 @@ class DashboardPage(QWidget):
             (budget.budgeted_expense, budget.actual_expense),
             (budget.budgeted_result, budget.actual_result),
         )
+        budget_labels = ("Receitas", "Despesas", "Resultado")
         for row, values in enumerate(budget_rows):
-            self.budget_table.setItem(row, 0, QTableWidgetItem(self.budget_table.verticalHeaderItem(row).text()))
+            self.budget_table.setItem(row, 0, QTableWidgetItem(budget_labels[row]))
             self.budget_table.setItem(row, 1, QTableWidgetItem(self.currency(values[0])))
             self.budget_table.setItem(row, 2, QTableWidgetItem(self.currency(values[1])))
 
@@ -288,10 +290,12 @@ class DashboardPage(QWidget):
         chart.legend().setVisible(True)
         chart.legend().setFont(QFont("Segoe UI", 8))
         axis_x = QBarCategoryAxis()
+        axis_x.setLabelsFont(QFont("Segoe UI", 8))
         axis_x.append(categories)
         chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
         series.attachAxis(axis_x)
         axis_y = QValueAxis()
+        axis_y.setLabelsFont(QFont("Segoe UI", 8))
         axis_y.setRange(0, maximum * 1.15 if maximum > 0 else 1)
         axis_y.setLabelFormat("%.1f")
         chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
@@ -306,7 +310,8 @@ class DashboardPage(QWidget):
 
     @staticmethod
     def currency(value: Decimal) -> str:
-        return "R$ " + DashboardPage.number(value)
+        formatted = f"{value:,.2f}"
+        return "R$ " + formatted.replace(",", "_").replace(".", ",").replace("_", ".")
 
     @staticmethod
     def number(value: Decimal) -> str:

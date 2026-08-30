@@ -62,7 +62,7 @@ def upgrade() -> None:
         sa.Column("descricao", sa.String(length=255), nullable=False),
         sa.Column("categoria", sa.String(length=50), nullable=False),
         sa.Column("tipo", sa.String(length=20), nullable=False),
-        sa.Column("ativa", sa.Boolean(), server_default=sa.text("1"), nullable=False),
+        sa.Column("ativa", sa.Boolean(), server_default=sa.true(), nullable=False),
         sa.Column(
             "created_at", sa.DateTime(timezone=True),
             server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False,
@@ -95,7 +95,7 @@ def upgrade() -> None:
 
     with op.batch_alter_table("cashflow_entries") as batch_op:
         batch_op.add_column(
-            sa.Column("boe", sa.Boolean(), server_default=sa.text("0"), nullable=False)
+            sa.Column("boe", sa.Boolean(), server_default=sa.false(), nullable=False)
         )
 
 

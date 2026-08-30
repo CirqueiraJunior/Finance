@@ -1,5 +1,11 @@
 # Backlog
 
+- Ajuste visual pequeno: limpar “Selecione uma Entidade.” ao trocar para a aba Catálogo.
+- Centralizar backup e importação histórica na API; enquanto isso, essas ações ficam bloqueadas no modo servidor, sem acesso alternativo ao SQLite.
+
+- Validar Sprint 12.A em PostgreSQL isolado na infraestrutura de deploy e homologar envio SMTP real.
+- Migrar dados oficiais SQLite → PostgreSQL somente após autorização formal e plano de reversão aprovado.
+
 Itens fora do escopo funcional da Sprint 10:
 
 - Criar categorias financeiras parametrizáveis.
@@ -99,14 +105,38 @@ Implementados relatório financeiro anual e motor dos cinco CSVs oficiais do sit
 Importação histórica controlada das planilhas oficiais para evitar redigitação
 dos meses anteriores.
 
-Deverá contemplar Fluxo de Caixa, BOE, Meta x Realizado e os dados necessários
+Contempla Fluxo de Caixa, BOE, Meta x Realizado e os dados necessários
 de Associação, com validação antes de gravar, preview, backup, prevenção de
 duplicidade, relatório de inconsistências e reconciliação de totais.
 
-### Preservado para evolução posterior
+### Preservado para evolução posterior após a Release 1.0
 
-- migração/importação dos lançamentos históricos da planilha;
 - tratamento de saldo inicial/saldo aplicado histórico;
-- administração visual do catálogo de descrições;
-- importação automática de Meta e Realizado;
 - integração direta com WordPress.
+
+Os itens de importação histórica, Cadastros, Administração e backup foram
+concluídos na Sprint 12. Permanecem no backlog os itens futuros já registrados,
+como autenticação/permissões, PostgreSQL de produção, auditoria completa,
+empacotamento/distribuição e integrações avançadas.
+
+## J.A. Finance 1.1 — Arquitetura Multiusuário
+
+- PostgreSQL central;
+- API FastAPI;
+- autenticação;
+- login;
+- cadastro de usuário;
+- esqueci minha senha;
+- alteração de senha;
+- perfis;
+- permissões;
+- auditoria;
+- sessões;
+- atualização compartilhada de dados;
+- identificação de usuário em lançamentos;
+- segurança;
+- deploy central.
+
+Proposta inicial de perfis, ainda sujeita à validação: Administrador, Gestor,
+Operador Financeiro, Operador BOE e Consulta. Nenhum item desta arquitetura foi
+implementado na Release 1.0.

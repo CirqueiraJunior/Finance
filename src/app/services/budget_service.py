@@ -26,6 +26,7 @@ REVENUE_CATEGORIES = (
 @dataclass(frozen=True, slots=True)
 class BudgetComparison:
     entry_type: str
+    description: str | None
     category: str
     budgeted: Decimal
     actual: Decimal
@@ -68,6 +69,7 @@ class BudgetService:
         entry_type: CashflowType | str,
         category: CashflowCategory | str,
         budgeted_value: Decimal | str,
+        descricao: str | None = None,
         notes: str | None = None,
     ) -> BudgetEntry:
         normalized_year = self._valid_year(year)
@@ -89,6 +91,7 @@ class BudgetService:
             periodo_mes=normalized_month,
             tipo=normalized_type.value,
             categoria=normalized_category.value,
+            descricao=self._description(descricao),
             valor_orcado=self._non_negative_decimal(budgeted_value),
             observacao=self._optional_text(notes),
         )
@@ -99,12 +102,15 @@ class BudgetService:
         budget_id: int,
         *,
         budgeted_value: Decimal | str,
+        descricao: str | None = None,
         notes: str | None = None,
     ) -> BudgetEntry:
         budget = self.repository.get_by_id(budget_id)
         if budget is None:
             raise BudgetValidationError("Orçamento não encontrado.")
         budget.valor_orcado = self._non_negative_decimal(budgeted_value)
+        if descricao is not None:
+            budget.descricao = self._description(descricao)
         budget.observacao = self._optional_text(notes)
         try:
             self.repository.session.commit()
@@ -144,10 +150,13 @@ class BudgetService:
 
         zero = Decimal("0.0000")
         budget_values: dict[tuple[str, str], Decimal] = {}
+        budget_descriptions: dict[tuple[str, str], set[str]] = {}
         actual_values: dict[tuple[str, str], Decimal] = {}
         for budget in budgets:
             key = (budget.tipo, budget.categoria)
             budget_values[key] = budget_values.get(key, zero) + budget.valor_orcado
+            if budget.descricao:
+                budget_descriptions.setdefault(key, set()).add(budget.descricao)
         for entry in actual_entries:
             key = (entry.tipo, entry.categoria)
             actual_values[key] = actual_values.get(key, zero) + entry.valor
@@ -168,7 +177,9 @@ class BudgetService:
                 )
             comparisons.append(
                 BudgetComparison(
-                    entry_type, category, budgeted, actual, variance, percentage
+                    entry_type,
+                    " / ".join(sorted(budget_descriptions.get((entry_type, category), set()))) or None,
+                    category, budgeted, actual, variance, percentage
                 )
             )
 
@@ -265,3 +276,14 @@ class BudgetService:
     def _optional_text(value: str | None) -> str | None:
         normalized = value.strip() if isinstance(value, str) else ""
         return normalized or None
+
+    @staticmethod
+    def _description(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise BudgetValidationError("A descrição é obrigatória.")
+        if len(normalized) > 255:
+            raise BudgetValidationError("A descrição deve possuir no máximo 255 caracteres.")
+        return normalized

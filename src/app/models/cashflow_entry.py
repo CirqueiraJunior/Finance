@@ -44,9 +44,6 @@ EXPENSE_CATEGORIES = (
     CashflowCategory.OPERATIONAL,
     CashflowCategory.PERSONNEL,
     CashflowCategory.INVESTMENT,
-    CashflowCategory.TAXES,
-    CashflowCategory.SOFTWARE,
-    CashflowCategory.TRAVEL,
     CashflowCategory.OTHER,
 )
 
@@ -64,8 +61,7 @@ class CashflowEntry(Base):
         CheckConstraint(
             "categoria IN ('RECEITA_DIRETA', 'RECEITA_INDIRETA', "
             "'ADMINISTRATIVO', 'DIRETORIA', 'EVENTOS', 'OPERACIONAL', "
-            "'PESSOAL', 'INVESTIMENTO', 'IMPOSTOS_E_TAXAS', 'SOFTWARE', "
-            "'VIAGEM', 'OUTROS')",
+            "'PESSOAL', 'INVESTIMENTO', 'OUTROS')",
             name="ck_cashflow_entries_category",
         ),
         CheckConstraint(
@@ -75,7 +71,7 @@ class CashflowEntry(Base):
             "AND boe_import_id IS NULL) OR "
             "(tipo = 'DESPESA' AND origem = 'MANUAL' AND categoria IN "
             "('ADMINISTRATIVO', 'DIRETORIA', 'EVENTOS', 'OPERACIONAL', 'PESSOAL', "
-            "'INVESTIMENTO', 'IMPOSTOS_E_TAXAS', 'SOFTWARE', 'VIAGEM', 'OUTROS') "
+            "'INVESTIMENTO', 'OUTROS') "
             "AND boe_import_id IS NULL)",
             name="ck_cashflow_entries_source_consistency",
         ),
@@ -101,5 +97,8 @@ class CashflowEntry(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    updated_by_user_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     boe_import: Mapped["BOEImport | None"] = relationship(back_populates="cashflow_entry")

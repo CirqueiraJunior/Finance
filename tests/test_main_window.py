@@ -8,5 +8,4 @@ def test_main_window_has_required_shell(qtbot) -> None:
 
     assert window.centralWidget() is not None
     assert window.statusBar() is not None
-    assert window.windowTitle() == "J.A. Finance"
-
+    assert window.windowTitle() == "Finance"

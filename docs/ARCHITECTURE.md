@@ -1,5 +1,9 @@
 # Arquitetura
 
+No modo servidor (`FINANCE_API_URL` configurada), o `MainWindow` seleciona exclusivamente adapters HTTP antes de criar qualquer sessão. Repositories SQLAlchemy do desktop são instanciados apenas no modo local. Financeiro, BOE, Orçamento, Metas, Ranking, Dashboard, Relatórios, Entidades e Catálogo usam rotas explícitas `/api/v1`; não existe fallback silencioso para SQLite.
+
+> Produção na pré-release 1.0.0: Desktop PySide6 → HTTPS → FastAPI → PostgreSQL. O acesso direto do desktop ao PostgreSQL é proibido. Veja `MULTIUSER_ARCHITECTURE.md`.
+
 O J.A. Finance utiliza arquitetura em camadas e separa apresentação, aplicação,
 persistência e infraestrutura.
 
@@ -107,3 +111,20 @@ Descrição/Categoria/Tipo do lançamento manual. A GUI consulta o catálogo por
 A coluna `cashflow_entries.boe` preserva o marcador Sim/Não da planilha
 financeira oficial. O catálogo inclui `SALDO`, porém o saldo aplicado continua
 derivado de `investment_movements`.
+
+## Release 1.0 — Sprint 12
+
+Cadastros segue `CadastrosPage -> RegistrationController ->
+EntityService/CashflowCatalogService -> repositories`. Alterar o catálogo não
+reescreve lançamentos históricos.
+
+Administração segue `AdministracaoPage -> AdministrationController ->
+AdministrationService/BackupService`. O backup SQLite usa a API nativa de
+backup, nome único e validação do arquivo resultante.
+
+A importação histórica segue `HistoricalImportDialog ->
+HistoricalImportController -> HistoricalImportService ->
+HistoricalWorkbookImporter`. O importer é somente leitura; o service valida a
+Base Mestra e o catálogo, detecta duplicidades, cria backup antes da persistência
+e executa commit único ou rollback integral. O BOE reutiliza exclusivamente o
+`BOEImporter` homologado. Nenhum novo modelo ou migration foi necessário.

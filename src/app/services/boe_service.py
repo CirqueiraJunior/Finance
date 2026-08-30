@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 import unicodedata
 from dataclasses import dataclass
 from decimal import Decimal
@@ -20,6 +21,9 @@ from app.repositories.boe_repository import BOERepository
 from app.repositories.cashflow_repository import CashflowRepository
 from app.repositories.entity_repository import EntityRepository
 from app.services.cashflow_service import CashflowService
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +184,11 @@ class BOEService:
             self.repository.session.rollback()
             raise
         self.repository.session.refresh(boe_import)
+        logger.info(
+            "Importação BOE concluída: arquivo=%s período=%02d/%s entidades=%s",
+            boe_import.nome_arquivo, boe_import.periodo_mes,
+            boe_import.periodo_ano, boe_import.quantidade_entidades,
+        )
         return boe_import
 
     def list_imports(self) -> list[BOEImport]:

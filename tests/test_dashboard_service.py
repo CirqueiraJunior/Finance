@@ -82,7 +82,7 @@ def add_financial(services):
     )
     cashflow.create_expense(
         year=2026, month=7, entry_date=date(2026, 7, 3),
-        description="Despesa", category="SOFTWARE", value="500.0000",
+        description="Despesa", category="ADMINISTRATIVO", value="500.0000",
     )
     investments.create_application(
         movement_date=date(2026, 7, 4), description="Aplicação", value="10000.0000"
@@ -100,7 +100,7 @@ def add_financial(services):
     )
     budget.create_budget(
         year=2026, month=7, entry_type="DESPESA",
-        category="SOFTWARE", budgeted_value="2000.0000",
+        category="ADMINISTRATIVO", budgeted_value="2000.0000",
     )
 
 
@@ -188,7 +188,7 @@ def test_period_without_budget_keeps_actual_values(db_session):
     _, cashflow, *_ = services
     cashflow.create_expense(
         year=2026, month=7, entry_date=date(2026, 7, 1),
-        description="Despesa", category="SOFTWARE", value="50",
+        description="Despesa", category="ADMINISTRATIVO", value="50",
     )
 
     summary = services[0].get_dashboard_summary(2026, 7)

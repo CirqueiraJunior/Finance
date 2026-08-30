@@ -1,10 +1,13 @@
-# J.A. Finance
+# Finance
 
-Aplicativo desktop em construção para substituir as planilhas de Controle
+Produto Finance 1.0.0 da J.A. Technology. A pré-release multiusuário usa PySide6 → HTTPS/FastAPI → PostgreSQL; SQLite é restrito a desenvolvimento e testes. Consulte `docs/MULTIUSER_ARCHITECTURE.md`, `docs/SECURITY.md` e `docs/DEPLOYMENT.md`.
+
+Aplicativo desktop profissional para substituir as planilhas de Controle
 Financeiro, Meta x Realizado e BOE utilizadas pelo CESPC/GO.
 
-Esta versão (`0.1.0`) contém apenas a fundação da Sprint 01. Não contém regras de
-negócio, CRUD, importação, exportação nem estrutura definitiva do banco.
+Versão atual: **1.0.0**. A Release 1.0 reúne Dashboard, Financeiro, Orçamento,
+BOE, Metas, Cadastros, Relatórios, Administração, CSV, backup e importação
+histórica controlada com preview.
 
 ## Requisitos
 
@@ -56,16 +59,13 @@ pytest
 
 ## Migrações
 
-O Alembic está configurado, mas não há tabelas ou revisões de negócio nesta
-sprint.
-
 ```powershell
 alembic current
 alembic revision --autogenerate -m "descricao"
 alembic upgrade head
 ```
 
-Só crie revisões quando os modelos tiverem sido aprovados para uma sprint futura.
+O head da Release 1.0 é `20260827_09`. Nunca altere migrations anteriores.
 
 ## Arquitetura
 
@@ -82,7 +82,10 @@ Consulte:
 
 - [Arquitetura](docs/ARCHITECTURE.md)
 - [Estrutura](docs/STRUCTURE.md)
-- [Registro da Sprint 01](docs/SPRINT_01.md)
+- [Manual do Usuário](docs/USER_MANUAL.md)
+- [Manual Técnico](docs/TECHNICAL_MANUAL.md)
+- [Playbook](docs/PLAYBOOK.md)
+- [Release 1.0](docs/RELEASE_1_0.md)
 - [Backlog](docs/BACKLOG.md)
 
 ## Configuração
@@ -96,20 +99,8 @@ Consulte:
 | `LOG_LEVEL` | `INFO` | Nível mínimo de log |
 | `LOG_DIR` | `logs` | Diretório de logs |
 
-## Estado da Sprint 01
+## Release 1.0
 
-Entregue: infraestrutura, shell visual, navegação e placeholders. O escopo
-funcional das planilhas permanece intencionalmente no backlog para levantamento
-e planejamento da Sprint 02.
-
-## Status da Sprint 01
-
-APROVADA em 24/08/2026.
-
-Ambiente homologado:
-- Python 3.13.15
-- Venv: C:\Users\jose.alves\.venvs\Finance
-- Workspace: C:\Users\jose.alves\J.A. Technology\Finance
-- Testes: 5 passed in 0.94s
-
-A Sprint 01 contem apenas a fundacao tecnica. Nenhuma regra de negocio da Sprint 02 foi iniciada.
+Workspace oficial: `C:\Users\jose.alves\J.A. Technology\Finance`.
+Venv oficial: `C:\Users\jose.alves\.venvs\Finance`.
+Consulte `docs/RELEASE_1_0.md` para escopo, validações e limitações.

@@ -38,8 +38,7 @@ class BudgetEntry(Base):
             "('RECEITA_DIRETA', 'RECEITA_INDIRETA')) OR "
             "(tipo = 'DESPESA' AND categoria IN "
             "('ADMINISTRATIVO', 'DIRETORIA', 'EVENTOS', 'OPERACIONAL', "
-            "'PESSOAL', 'INVESTIMENTO', 'IMPOSTOS_E_TAXAS', 'SOFTWARE', "
-            "'VIAGEM', 'OUTROS'))",
+            "'PESSOAL', 'INVESTIMENTO', 'OUTROS'))",
             name="ck_budget_entries_type_category",
         ),
     )
@@ -49,6 +48,7 @@ class BudgetEntry(Base):
     periodo_mes: Mapped[int] = mapped_column(Integer, nullable=False)
     tipo: Mapped[str] = mapped_column(String(20), nullable=False)
     categoria: Mapped[str] = mapped_column(String(30), nullable=False)
+    descricao: Mapped[str | None] = mapped_column(String(255))
     valor_orcado: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     observacao: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(

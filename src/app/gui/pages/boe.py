@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPlainTextEdit,
+    QPlainTextEdit, QScrollArea,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -23,9 +23,24 @@ class BoePage(QWidget):
         super().__init__()
         self.setObjectName("contentPage")
 
-        layout = QVBoxLayout(self)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setObjectName("boeScrollArea")
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        content = QWidget()
+        content.setObjectName("boeScrollContent")
+
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(12)
+        layout.setSpacing(14)
+
+        self.scroll_area.setWidget(content)
+        outer_layout.addWidget(self.scroll_area)
 
         title = QLabel("Faturamento BOE")
         title.setObjectName("pageTitle")
@@ -54,12 +69,35 @@ class BoePage(QWidget):
         action_layout.addWidget(self.import_button)
         action_layout.addStretch()
 
+        result_layout = QHBoxLayout()
+        result_layout.setSpacing(12)
+
+        validation_layout = QVBoxLayout()
         result_label = QLabel("Resultado da validação")
         result_label.setObjectName("sectionTitle")
         self.validation_result = QPlainTextEdit()
         self.validation_result.setObjectName("boeValidationResult")
         self.validation_result.setReadOnly(True)
-        self.validation_result.setMaximumHeight(110)
+        self.validation_result.setMinimumHeight(115)
+        self.validation_result.setMaximumHeight(150)
+        validation_layout.addWidget(result_label)
+        validation_layout.addWidget(self.validation_result)
+        result_layout.addLayout(validation_layout, 1)
+
+        import_layout = QVBoxLayout()
+        import_result_label = QLabel("Resultado da importação")
+        import_result_label.setObjectName("sectionTitle")
+        self.import_result = QPlainTextEdit()
+        self.import_result.setObjectName("boeImportResult")
+        self.import_result.setReadOnly(True)
+        self.import_result.setMinimumHeight(115)
+        self.import_result.setMaximumHeight(150)
+        self.import_result.setPlaceholderText(
+            "Nenhuma importação executada nesta sessão."
+        )
+        import_layout.addWidget(import_result_label)
+        import_layout.addWidget(self.import_result)
+        result_layout.addLayout(import_layout, 1)
 
         history_label = QLabel("Histórico de importações")
         history_label.setObjectName("sectionTitle")
@@ -74,7 +112,8 @@ class BoePage(QWidget):
             QTableWidget.SelectionBehavior.SelectRows
         )
         self.history_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        self.history_table.setMaximumHeight(180)
+        self.history_table.setMinimumHeight(220)
+        self.history_table.setMaximumHeight(320)
 
         details_label = QLabel("Detalhamento por Entidade")
         details_label.setObjectName("sectionTitle")
@@ -91,7 +130,7 @@ class BoePage(QWidget):
             summary_layout, "Consultas", "0"
         )
         self.value_total = self._create_summary_card(
-            summary_layout, "Valor Total", self._format_currency(Decimal("0.0000"), 4)
+            summary_layout, "Valor Total", self._format_currency(Decimal("0.0000"))
         )
 
         self.details_table = QTableWidget(0, 4)
@@ -104,6 +143,7 @@ class BoePage(QWidget):
         self.details_table.setSelectionBehavior(
             QTableWidget.SelectionBehavior.SelectRows
         )
+        self.details_table.setMinimumHeight(320)
 
         self.operation_status = QLabel("Selecione um arquivo para iniciar.")
         self.operation_status.setObjectName("operationStatus")
@@ -112,14 +152,13 @@ class BoePage(QWidget):
         layout.addWidget(description)
         layout.addLayout(file_layout)
         layout.addLayout(action_layout)
-        layout.addWidget(result_label)
-        layout.addWidget(self.validation_result)
+        layout.addLayout(result_layout)
         layout.addWidget(history_label)
         layout.addWidget(self.history_table)
         layout.addWidget(details_label)
         layout.addWidget(self.details_state)
         layout.addLayout(summary_layout)
-        layout.addWidget(self.details_table, 1)
+        layout.addWidget(self.details_table)
         layout.addWidget(self.operation_status)
 
     @staticmethod
@@ -160,6 +199,26 @@ class BoePage(QWidget):
             )
         self.validation_result.setPlainText("\n".join(lines))
 
+    def clear_import_result(self) -> None:
+        self.import_result.clear()
+
+    def show_import_success(self, imported: BOEImport) -> None:
+        lines = [
+            "Status: IMPORTADO COM SUCESSO",
+            f"Período: {imported.periodo_mes:02d}/{imported.periodo_ano}",
+            f"Arquivo: {imported.nome_arquivo}",
+            f"Entidades: {imported.quantidade_entidades}",
+            f"Inconsistências: {imported.quantidade_inconsistencias}",
+            f"Valor total: {self._format_currency(imported.valor_total)}",
+        ]
+        self.import_result.setPlainText("\n".join(lines))
+
+    def show_import_error(self, message: str) -> None:
+        self.import_result.setPlainText(
+            "Status: FALHA NA IMPORTAÇÃO\n"
+            f"Mensagem: {message}"
+        )
+
     def show_history(self, imports: list[BOEImport]) -> None:
         self.history_table.clearSelection()
         self.clear_details()
@@ -193,7 +252,7 @@ class BoePage(QWidget):
         self.details_table.setRowCount(0)
         self.entities_total.setText("0")
         self.queries_total.setText("0")
-        self.value_total.setText(self._format_currency(Decimal("0.0000"), 4))
+        self.value_total.setText(self._format_currency(Decimal("0.0000")))
         self.details_state.setText(
             message
             or "Selecione uma importação para visualizar o detalhamento por Entidade."
@@ -206,14 +265,14 @@ class BoePage(QWidget):
                 str(entity.code),
                 entity.entity_name,
                 self._format_integer(entity.queries),
-                self._format_currency(entity.value, 4),
+                self._format_currency(entity.value),
             ]
             for column, value in enumerate(values):
                 self.details_table.setItem(row, column, QTableWidgetItem(value))
         self.details_table.resizeColumnsToContents()
         self.entities_total.setText(self._format_integer(details.total_entities))
         self.queries_total.setText(self._format_integer(details.total_queries))
-        self.value_total.setText(self._format_currency(details.total_value, 4))
+        self.value_total.setText(self._format_currency(details.total_value))
         period = details.boe_import
         self.details_state.setText(
             f"Importação {period.periodo_mes:02d}/{period.periodo_ano} — "

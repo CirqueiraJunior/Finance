@@ -63,6 +63,39 @@ class EntityService:
     def list_entities(self) -> list[Entity]:
         return self.repository.list_all()
 
+    def update_entity(
+        self,
+        entity_id: int,
+        *,
+        nome: str,
+        nome_oficial: str | None = None,
+        municipio: str | None = None,
+        uf: str | None = None,
+        sigla: str | None = None,
+        ativa: bool | None = None,
+    ) -> Entity:
+        entity = self.repository.get_by_id(entity_id)
+        if entity is None:
+            raise ValueError("Entidade não encontrada.")
+        entity.nome = self._required_text(nome, "nome")
+        entity.nome_oficial = self._optional_text(nome_oficial)
+        entity.municipio = self._optional_text(municipio)
+        entity.uf = self._normalize_uf(uf)
+        entity.sigla = self._optional_text(sigla)
+        if ativa is not None:
+            entity.ativa = bool(ativa)
+        self.repository.session.commit()
+        self.repository.session.refresh(entity)
+        return entity
+
+    def set_active(self, entity_id: int, active: bool) -> Entity:
+        entity = self.repository.get_by_id(entity_id)
+        if entity is None:
+            raise ValueError("Entidade não encontrada.")
+        entity.ativa = bool(active)
+        self.repository.session.commit()
+        return entity
+
     def add_alias(
         self, entity: Entity, alias: str, origem: str | None = None
     ) -> EntityAlias:
@@ -120,4 +153,3 @@ class EntityService:
         if len(normalized) != 2:
             raise ValueError("A UF deve possuir exatamente 2 caracteres.")
         return normalized.upper()
-

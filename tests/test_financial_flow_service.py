@@ -22,7 +22,7 @@ def test_unified_flow_keeps_types_and_calculates_cash_movement(db_session):
     )
     cashflow.create_expense(
         year=2026, month=7, entry_date=date(2026, 7, 15),
-        description="Software", category="SOFTWARE", value="500.0000",
+        description="Software", category="ADMINISTRATIVO", value="500.0000",
     )
     investments = InvestmentService(InvestmentRepository(db_session))
     investments.create_application(

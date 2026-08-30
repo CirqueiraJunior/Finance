@@ -6,6 +6,7 @@ from sqlalchemy import engine_from_config, pool
 from app.core.config import get_settings
 from app.database.base import Base
 from app import models  # noqa: F401
+from finance_server import models as server_models  # noqa: F401
 
 config = context.config
 settings = get_settings()
@@ -49,4 +50,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

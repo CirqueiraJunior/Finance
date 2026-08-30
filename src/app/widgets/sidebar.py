@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QPushButton, QVBoxLayout, QWidget
 
 
 class Sidebar(QFrame):
@@ -23,21 +23,29 @@ class Sidebar(QFrame):
         super().__init__(parent)
         self.setObjectName("sidebar")
         self.setFixedWidth(220)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 24, 16, 24)
-        layout.setSpacing(8)
+        layout.setContentsMargins(16, 18, 16, 24)
+        layout.setSpacing(10)
 
-        brand = QLabel("J.A. Finance")
-        brand.setObjectName("brand")
-        layout.addWidget(brand)
-        layout.addSpacing(24)
-
+        self.buttons = {}
         for label, key in self.ITEMS:
             button = QPushButton(label)
             button.setObjectName("navigationButton")
             button.setProperty("pageKey", key)
+            button.setCheckable(True)
+            button.setAutoExclusive(True)
             button.clicked.connect(
-                lambda checked=False, page_key=key: on_navigate(page_key)
+                lambda checked=False, page_key=key: self._activate(
+                    page_key, on_navigate
+                )
             )
+            self.buttons[key] = button
             layout.addWidget(button)
+
         layout.addStretch()
+        self.buttons["dashboard"].setChecked(True)
+
+    def _activate(self, page_key: str, callback: Callable[[str], None]) -> None:
+        self.buttons[page_key].setChecked(True)
+        callback(page_key)

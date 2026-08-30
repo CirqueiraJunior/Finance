@@ -21,6 +21,22 @@ class CashflowCatalogRepository(BaseRepository[CashflowCatalogEntry]):
         )
         return list(self.session.scalars(statement))
 
+    def list_all(self) -> list[CashflowCatalogEntry]:
+        statement = select(CashflowCatalogEntry).order_by(
+            CashflowCatalogEntry.descricao,
+            CashflowCatalogEntry.categoria,
+            CashflowCatalogEntry.tipo,
+        )
+        return list(self.session.scalars(statement))
+
+    def get_by_id(self, entry_id: int) -> CashflowCatalogEntry | None:
+        return self.session.get(CashflowCatalogEntry, entry_id)
+
+    def add(self, entry: CashflowCatalogEntry) -> CashflowCatalogEntry:
+        self.session.add(entry)
+        self.session.flush()
+        return entry
+
     def list_by_description(self, description: str) -> list[CashflowCatalogEntry]:
         statement = (
             select(CashflowCatalogEntry)

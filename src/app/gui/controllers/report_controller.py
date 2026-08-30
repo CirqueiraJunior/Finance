@@ -30,14 +30,14 @@ class ReportController(QObject):
                 self.report_service.get_annual_report(self.view.selected_year())
             )
             self.view.set_status("Relatório anual atualizado.")
-        except (ValueError, SQLAlchemyError) as error:
+        except (ValueError, SQLAlchemyError, RuntimeError) as error:
             self._rollback()
             self.view.set_status(f"Falha ao carregar relatório: {error}", error=True)
 
     def validate_csv(self) -> None:
         try:
             result = self.csv_service.validate_year(self.view.selected_year())
-        except (CSVExportValidationError, SQLAlchemyError) as error:
+        except (CSVExportValidationError, SQLAlchemyError, RuntimeError) as error:
             self._rollback()
             self.view.set_status(f"Falha na validação: {error}", error=True)
             return
@@ -70,7 +70,7 @@ class ReportController(QObject):
             )
             self.view.set_status("Corrija as inconsistências antes de exportar.", error=True)
             return
-        except (OSError, SQLAlchemyError) as error:
+        except (OSError, SQLAlchemyError, RuntimeError) as error:
             self._rollback()
             self.view.set_status(f"Falha ao exportar: {error}", error=True)
             return

@@ -22,6 +22,7 @@ class DashboardController(QObject):
                 self.service.get_dashboard_summary(year, month)
             )
             self.view.set_status(f"Dashboard atualizado para {month:02d}/{year}.")
-        except SQLAlchemyError as error:
-            self.service.boe.repository.session.rollback()
+        except (SQLAlchemyError, RuntimeError) as error:
+            if hasattr(self.service, "boe"):
+                self.service.boe.repository.session.rollback()
             self.view.set_status(f"Falha ao carregar Dashboard: {error}", error=True)

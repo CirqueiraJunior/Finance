@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
+import logging
 from decimal import Decimal
 from pathlib import Path
 
@@ -12,6 +13,9 @@ from app.repositories.association_repository import AssociationRepository
 from app.repositories.csv_export_repository import CSVExportRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.target_repository import TargetRepository
+
+
+logger = logging.getLogger(__name__)
 
 
 MONTHS = ("JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ")
@@ -176,6 +180,7 @@ class SiteCSVService:
         report = self._success_report(year, created, validation)
         report_file.write_text(report, encoding="utf-8")
         self._record(year, destination, "SUCCESS", created, report)
+        logger.info("Exportação CSV concluída para %s em %s", year, destination)
         return CSVExportResult(
             year=year,
             directory=destination,
@@ -241,7 +246,7 @@ class SiteCSVService:
     @staticmethod
     def _validation_report(result: CSVValidationResult) -> str:
         lines = [
-            "J.A. Finance - Validação de Exportação CSV",
+            "Finance - Validação de Exportação CSV",
             f"Status: {'APROVADO' if result.valid else 'BLOQUEADO'}",
             f"Entidades: {result.entity_count}",
             f"Registros Meta/Realizado: {result.target_rows}",
@@ -255,7 +260,7 @@ class SiteCSVService:
     def _success_report(year: int, files: list[Path], validation: CSVValidationResult) -> str:
         return "\n".join(
             [
-                "J.A. Finance - Relatório de Exportação CSV",
+                "Finance - Relatório de Exportação CSV",
                 "Status: SUCESSO",
                 f"Ano: {year}",
                 f"Entidades: {validation.entity_count}",
