@@ -43,9 +43,10 @@ QLabel#headerVersion {
 }
 QLabel#headerTagline {
     color: #ffffff;
-    font-size: 16pt;
-    font-weight: 700;
-    letter-spacing: 1px;
+    font-family: "Segoe UI";
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0px;
 }
 QLabel#headerUser {
     color: #ffffff;
@@ -78,8 +79,8 @@ QLabel#headerVersion {
 QFrame#topbar { background: #ffffff; border-bottom: 1px solid #e5e7eb; }
 QLabel#topbarTitle { color: #172554; font-size: 13pt; font-weight: 600; }
 QWidget#contentPage { background: #f5f7fa; }
-QLabel#pageTitle { color: #111827; font-size: 21pt; font-weight: 700; }
-QLabel#pageDescription { color: #6b7280; font-size: 11pt; }
+QLabel#pageTitle { color: #003B71; font-size: 30px; font-weight: 700; }
+QLabel#pageDescription { color: #4A5568; font-size: 16px; }
 QLabel#sectionTitle {
     color: #172554;
     font-size: 11pt;

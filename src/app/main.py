@@ -12,7 +12,7 @@ from app.database.session import get_engine
 from app.database.startup import DatabaseStartupError, validate_database_startup
 from app.gui.login_dialog import LoginDialog
 from app.gui.main_window import MainWindow
-from app.gui.splash import show_splash
+from app.gui.splash import hold_splash, show_splash
 from app.resources import load_stylesheet
 from app.widgets.buttons import ButtonStyleFilter
 
@@ -42,6 +42,9 @@ def _close_splash(application: QApplication, splash) -> None:
 def main() -> int:
     application = create_application()
     splash = show_splash(application)
+    hold_splash(splash)
+    _close_splash(application, splash)
+    splash = None
     settings = get_settings()
 
     if not settings.api_url:
@@ -50,7 +53,6 @@ def main() -> int:
         except DatabaseStartupError as error:
             logging.getLogger(__name__).critical("%s", error)
             print(str(error), file=sys.stderr)
-            _close_splash(application, splash)
             return 1
 
     api_client = None
@@ -61,13 +63,9 @@ def main() -> int:
         try:
             api_client.health()
         except APIConnectionError as error:
-            _close_splash(application, splash)
             QMessageBox.critical(None, "Finance indisponível", str(error))
             api_client.close()
             return 1
-
-        _close_splash(application, splash)
-        splash = None
 
         login = LoginDialog(api_client)
         if login.exec() != QDialog.DialogCode.Accepted:
@@ -81,9 +79,6 @@ def main() -> int:
         authenticated_user=authenticated_user,
     )
     window.show()
-
-    if splash is not None:
-        splash.finish(window)
 
     return application.exec()
 

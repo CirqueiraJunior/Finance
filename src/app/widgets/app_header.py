@@ -12,15 +12,15 @@ class AppHeader(QFrame):
     def __init__(self, parent=None, *, user_name: str = "", user_role: str = "") -> None:
         super().__init__(parent)
         self.setObjectName("appHeader")
-        self.setFixedHeight(96)
+        self.setFixedHeight(64)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(28, 10, 28, 10)
-        layout.setSpacing(18)
+        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setSpacing(16)
 
         self.logo = QLabel()
         self.logo.setObjectName("headerLogo")
-        self.logo.setFixedSize(72, 72)
+        self.logo.setFixedSize(52, 52)
         self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         if OFFICIAL_LOGO.is_file():
@@ -33,7 +33,7 @@ class AppHeader(QFrame):
                 )
             )
 
-        self.tagline = QLabel("GESTÃO • CONTROLE • RESULTADOS")
+        self.tagline = QLabel("Gestão • Controle • Resultados")
         self.tagline.setObjectName("headerTagline")
 
         self.user = QLabel(f"{user_name}\n{user_role}" if user_name else "")

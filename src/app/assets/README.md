@@ -1,13 +1,16 @@
-# Assets oficiais — J.A. Finance
+# Assets legados preservados — J.A. Finance
 
-Este diretório é o ponto único dos assets visuais aprovados do produto.
+Este diretório permanece preservado por compatibilidade histórica, mas não é mais
+a fonte da identidade visual oficial em runtime.
 
-Arquivos esperados da identidade **Opção 03**:
+Os assets homologados estão centralizados em `assets/branding/`, na raiz do
+projeto, com os nomes:
 
-- `finance_icon_option03.png`: logo oficial para header, aplicação e janelas;
-- `finance_splash_option03.png`: arte oficial da abertura, com versão embutida;
-- `finance_option_03.ico`: ícone multirresolução da aplicação e do futuro executável.
+- `finance_icon_FINAL.png`;
+- `finance_mark_transparent_FINAL.png`;
+- `finance_desktop_v100.png`;
+- `finance_desktop_v100.ico`;
+- `finance_splash_reference.png`.
 
-Os arquivos devem representar exatamente o F prateado, círculo e seta dourados
-sobre fundo azul-marinho. A aplicação não gera nem usa uma marca substituta quando
-esses arquivos não estão presentes.
+`finance_splash_reference.png` é somente uma referência visual. A splash da
+aplicação é composta com widgets e textos nativos do PySide6.
