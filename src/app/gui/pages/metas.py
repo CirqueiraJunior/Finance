@@ -4,7 +4,7 @@ from decimal import Decimal
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
+    QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget, QTabWidget,
 )
 
@@ -13,6 +13,27 @@ from app.models.target_entry import TargetEntry, TargetIndicator
 from app.services.target_service import TargetVsActual
 from app.services.ranking_service import AnnualRankingEntry, RankingEntry
 from app.widgets import BrazilianDecimalEdit, MonthComboBox
+
+
+class TargetImportProgressDialog(QDialog):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Importação de Metas")
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
+        self.setMinimumWidth(380)
+        layout = QVBoxLayout(self)
+        title = QLabel("Processando importação...")
+        title.setObjectName("sectionTitle")
+        description = QLabel("Esta operação pode levar alguns instantes.")
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addWidget(self.progress)
+
+    def reject(self) -> None:
+        return
 
 
 class TargetDialog(QDialog):
@@ -119,6 +140,7 @@ class MetasPage(QWidget):
         self.new_button = QPushButton("Nova Meta")
         self.new_button.setObjectName("primaryButton")
         self.edit_button = QPushButton("Editar Meta")
+        self.import_file_button = QPushButton("Importar Metas")
         filters.addWidget(QLabel("Ano"))
         filters.addWidget(self.year_filter)
         filters.addWidget(QLabel("Mês"))
@@ -130,6 +152,27 @@ class MetasPage(QWidget):
         filters.addWidget(self.filter_button)
         filters.addWidget(self.edit_button)
         filters.addWidget(self.new_button)
+        filters.addWidget(self.import_file_button)
+
+        import_area = QWidget()
+        import_area.setObjectName("sectionCard")
+        import_layout = QVBoxLayout(import_area)
+        self.import_summary = QLabel("Selecione um arquivo para validar a importação de Metas.")
+        self.import_summary.setWordWrap(True)
+        self.import_preview = QTableWidget(0, 6)
+        self.import_preview.setHorizontalHeaderLabels(
+            ["Linha", "Entidade", "Período", "Indicador", "Meta", "Realizado"]
+        )
+        self.import_preview.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.import_issues = QLabel()
+        self.import_issues.setWordWrap(True)
+        self.confirm_import_button = QPushButton("Confirmar importação")
+        self.confirm_import_button.setObjectName("primaryButton")
+        self.confirm_import_button.setEnabled(False)
+        import_layout.addWidget(self.import_summary)
+        import_layout.addWidget(self.import_preview)
+        import_layout.addWidget(self.import_issues)
+        import_layout.addWidget(self.confirm_import_button)
 
         cards = QHBoxLayout()
         self.entity_count = self._card("Entidades", cards, "0")
@@ -155,6 +198,7 @@ class MetasPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(description)
         layout.addLayout(filters)
+        layout.addWidget(import_area)
         layout.addLayout(cards)
         layout.addWidget(self.empty_state)
         layout.addWidget(self.table, 1)
@@ -210,6 +254,57 @@ class MetasPage(QWidget):
         ranking_layout.addWidget(self.annual_table, 1)
         self.tabs.addTab(self.ranking_tab, "Ranking e Premiação")
         outer.addWidget(self.tabs)
+
+    def set_import_available(self, available: bool) -> None:
+        self.import_file_button.setEnabled(available)
+        self.confirm_import_button.setEnabled(False)
+        if not available:
+            self.import_summary.setText(
+                "Importação central disponível somente no modo servidor."
+            )
+
+    def show_import_validation(self, value: dict) -> None:
+        metadata = value.get("metadata", {})
+        totals = value.get("totals", {})
+        self.import_summary.setText(
+            f"Arquivo: {metadata.get('file_name', '—')} | "
+            f"Tipo: {metadata.get('detected_type', '—')} | "
+            f"Ano: {metadata.get('year') or '—'} | "
+            f"Registros: {totals.get('rows', 0)} | "
+            f"Meta: {totals.get('target', 0)} | Realizado: {totals.get('actual', 0)}"
+        )
+        rows = value.get("preview", [])
+        self.import_preview.setRowCount(min(len(rows), 500))
+        for index, row in enumerate(rows[:500]):
+            values = (
+                row.get("line", "—"),
+                f"{row.get('entity_code', '—')} — {row.get('entity_name') or 'Não cadastrada'}",
+                f"{row.get('month', 0):02d}/{row.get('year', '—')}",
+                row.get("indicator", "—"), row.get("target", 0), row.get("actual", 0),
+            )
+            for column, text in enumerate(values):
+                self.import_preview.setItem(index, column, QTableWidgetItem(str(text)))
+        messages = [f"ERRO: {item}" for item in value.get("errors", [])]
+        messages.extend(f"AVISO: {item}" for item in value.get("warnings", []))
+        self.import_issues.setText("\n".join(messages) or "Nenhuma inconsistência.")
+        self.confirm_import_button.setEnabled(bool(value.get("can_import")))
+        self.import_preview.resizeColumnsToContents()
+        self.set_status(
+            "Arquivo validado e pronto para importação."
+            if value.get("can_import") else
+            "Arquivo com inconsistências bloqueantes.",
+            error=not value.get("can_import"),
+        )
+
+    def show_import_result(self, value: dict) -> None:
+        self.import_summary.setText(
+            f"Importação concluída: {value.get('imported', 0)} registros | "
+            f"Ano: {value.get('year') or '—'} | "
+            f"Meta: {value.get('target_total', 0)} | "
+            f"Realizado: {value.get('actual_total', 0)}"
+        )
+        self.confirm_import_button.setEnabled(False)
+        self.set_status("Metas importadas com sucesso.")
 
     @staticmethod
     def _card(title: str, layout: QHBoxLayout, initial: str = "0,0000") -> QLabel:

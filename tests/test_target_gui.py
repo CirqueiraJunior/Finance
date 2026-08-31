@@ -1,13 +1,22 @@
 from decimal import Decimal
+import threading
+from types import SimpleNamespace
 
-from PySide6.QtWidgets import QAbstractItemView, QDialog
+import httpx
+import pytest
+from PySide6.QtWidgets import QAbstractItemView, QDialog, QLabel
 
+from app.api_client import APIClient, APIConnectionError, APIReadTimeoutError
 from app.gui.controllers.target_controller import TargetController
-from app.gui.pages.metas import MetasPage, TargetDialog
+from app.gui.pages.metas import (
+    MetasPage, TargetDialog, TargetImportProgressDialog,
+)
 from app.models.entity import Entity
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.target_repository import TargetRepository
 from app.services.target_service import TargetService
+from app.services.target_service import TargetSummary, TargetVsActual
+from app.services.remote_services import RemoteTargetService
 
 
 def make_context(db_session):
@@ -31,6 +40,28 @@ def test_page_has_filters_cards_table_and_empty_state(qtbot):
     assert page.indicator_filter.count() == 2
     assert page.table.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
     assert page.empty_state.isVisibleTo(page)
+    assert page.import_file_button.text() == "Importar Metas"
+
+
+def test_import_preview_enables_confirmation_only_when_valid(qtbot):
+    page = MetasPage()
+    qtbot.addWidget(page)
+    base = {
+        "metadata": {"file_name": "metas.xlsx", "detected_type": "META_REALIZADO", "year": 2026},
+        "preview": [{"line": 4, "entity_code": 7001, "entity_name": "Inativa",
+                     "year": 2026, "month": 1, "indicator": "CONSULTAS",
+                     "target": "100.0000", "actual": "80.0000"}],
+        "warnings": [], "totals": {"rows": 1, "target": "100.0000", "actual": "80.0000"},
+    }
+    page.show_import_validation({**base, "errors": [], "can_import": True})
+    assert page.confirm_import_button.isEnabled()
+    assert page.import_preview.rowCount() == 1
+
+    page.show_import_validation({
+        **base, "errors": ["Duplicidade"], "can_import": False,
+    })
+    assert not page.confirm_import_button.isEnabled()
+    assert "Duplicidade" in page.import_issues.text()
 
 
 def test_dialog_has_real_indicators_and_excludes_7500(qtbot, db_session):
@@ -121,3 +152,167 @@ def test_controller_creates_and_edits_target(qtbot, db_session, monkeypatch):
     assert service.get_target(target.id).valor_meta == Decimal("120.0000")
     assert service.get_target(target.id).valor_realizado == Decimal("80.0000")
     assert service.get_target(target.id).observacao == "Revisada"
+
+
+class _RemoteImportService:
+    def __init__(self, *, result=None, error=None, wait=False):
+        self.repository = SimpleNamespace(
+            session=SimpleNamespace(rollback=lambda: None)
+        )
+        self.result = result or {
+            "imported": 2, "year": 2026,
+            "target_total": "220", "actual_total": "170",
+        }
+        self.error = error
+        self.wait = wait
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.calls = 0
+        self.worker_thread = None
+        self.refresh_calls = 0
+
+    def validate_import(self, _path):
+        return {"can_import": True}
+
+    def import_file(self, _path):
+        self.calls += 1
+        self.worker_thread = threading.get_ident()
+        self.started.set()
+        if self.wait:
+            self.release.wait(3)
+        if self.error:
+            raise self.error
+        return self.result
+
+    def list_entities(self):
+        return []
+
+    def get_target_vs_actual(self, *_args):
+        self.refresh_calls += 1
+        return TargetVsActual(
+            (), TargetSummary(0, Decimal(0), Decimal(0), Decimal(0), None)
+        )
+
+
+class _Ranking:
+    def __init__(self):
+        self.calls = 0
+
+    def quarterly(self, *_args):
+        self.calls += 1
+        return []
+
+    def annual(self, *_args):
+        return []
+
+
+def _async_controller(qtbot, service):
+    page = MetasPage()
+    qtbot.addWidget(page)
+    ranking = _Ranking()
+    controller = TargetController(page, service, ranking)
+    controller.import_file_path = "metas.xlsx"
+    page.confirm_import_button.setEnabled(True)
+    return page, controller, ranking
+
+
+def test_import_runs_off_ui_thread_blocks_duplicate_and_refreshes(qtbot):
+    service = _RemoteImportService(wait=True)
+    page, controller, ranking = _async_controller(qtbot, service)
+    main_thread = threading.get_ident()
+
+    controller.import_validated_file()
+    qtbot.waitUntil(service.started.is_set)
+
+    assert service.worker_thread != main_thread
+    assert not page.confirm_import_button.isEnabled()
+    assert not page.import_file_button.isEnabled()
+    assert isinstance(controller._import_dialog, TargetImportProgressDialog)
+    assert controller._import_dialog.isVisible()
+    assert controller._import_dialog.windowTitle() == "Importação de Metas"
+    modal_texts = {
+        label.text() for label in controller._import_dialog.findChildren(QLabel)
+    }
+    assert "Processando importação..." in modal_texts
+    assert "Esta operação pode levar alguns instantes." in modal_texts
+    assert (controller._import_dialog.progress.minimum(),
+            controller._import_dialog.progress.maximum()) == (0, 0)
+    controller.import_validated_file()
+    assert service.calls == 1
+
+    service.release.set()
+    qtbot.waitUntil(lambda: controller._import_thread is None)
+
+    assert controller._import_dialog is None
+    assert page.import_file_button.isEnabled()
+    assert not page.confirm_import_button.isEnabled()
+    assert "Metas importadas com sucesso" in page.status.text()
+    assert service.refresh_calls >= 2
+    assert ranking.calls >= 2
+
+
+@pytest.mark.parametrize(
+    "error, expected, confirmation_enabled",
+    [
+        (RuntimeError("falha segura"), "falha segura", True),
+        (APIReadTimeoutError(
+            "A importação está demorando mais que o esperado. "
+            "Verifique o resultado antes de tentar novamente."
+        ), "Verifique o resultado antes de tentar novamente", False),
+        (APIConnectionError(
+            "Servidor Finance indisponível. Verifique a conexão e tente novamente."
+        ), "Servidor Finance indisponível", True),
+    ],
+)
+def test_import_error_closes_progress_and_restores_controls(
+    qtbot, error, expected, confirmation_enabled,
+):
+    service = _RemoteImportService(error=error)
+    page, controller, _ = _async_controller(qtbot, service)
+
+    controller.import_validated_file()
+    qtbot.waitUntil(lambda: controller._import_thread is None)
+
+    assert controller._import_dialog is None
+    assert page.import_file_button.isEnabled()
+    assert page.confirm_import_button.isEnabled() is confirmation_enabled
+    assert expected in page.status.text()
+    if isinstance(error, APIReadTimeoutError):
+        assert "Servidor Finance indisponível" not in page.status.text()
+
+
+def test_remote_target_import_uses_specific_import_timeout_flag():
+    class API:
+        def upload(self, path, file_path, **kwargs):
+            return path, file_path, kwargs
+
+    path, file_path, kwargs = RemoteTargetService(API()).import_file("metas.xlsx")
+
+    assert path == "/api/v1/targets/import"
+    assert file_path == "metas.xlsx"
+    assert kwargs == {"import_file": True}
+
+
+@pytest.mark.parametrize(
+    "transport_error, exception, message",
+    [
+        (httpx.ReadTimeout("demora"), APIReadTimeoutError,
+         "Verifique o resultado antes de tentar novamente"),
+        (httpx.ConnectError("offline"), APIConnectionError,
+         "Servidor Finance indisponível. Verifique a conexão"),
+    ],
+)
+def test_import_distinguishes_timeout_from_connection_error(
+    tmp_path, monkeypatch, transport_error, exception, message,
+):
+    path = tmp_path / "metas.xlsx"
+    path.write_bytes(b"arquivo")
+    client = APIClient("http://127.0.0.1:8000")
+
+    def fail(*_args, **_kwargs):
+        raise transport_error
+
+    monkeypatch.setattr(client._client, "request", fail)
+    with pytest.raises(exception, match=message):
+        client.upload("/api/v1/targets/import", str(path), import_file=True)
+    client.close()

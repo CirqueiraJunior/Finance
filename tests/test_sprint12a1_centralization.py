@@ -140,10 +140,22 @@ def test_boe_upload_validates_imports_and_generates_direct_revenue(tmp_path):
 class FakeRemoteAPI:
     def __init__(self):
         self.health_calls = 0
+        self.uploads = []
 
     def health(self):
         self.health_calls += 1
         return {"status": "ok", "version": "1.0.0"}
+
+    def upload(self, path, file_path):
+        self.uploads.append((path, file_path))
+        if path == "/api/v1/targets/import/validate":
+            return {
+                "metadata": {"file_name": "metas.xlsx", "detected_type": "META_REALIZADO", "year": 2026},
+                "preview": [], "warnings": [], "errors": ["Sem dados"],
+                "can_import": False,
+                "totals": {"rows": 0, "target": 0, "actual": 0},
+            }
+        raise AssertionError(path)
 
     def get(self, path):
         zero = "0.0000"
@@ -178,9 +190,14 @@ def test_server_mode_main_window_never_opens_sqlite(qtbot, monkeypatch, tmp_path
     before = local_db.read_bytes()
     monkeypatch.setattr(module, "get_session_factory", lambda: (_ for _ in ()).throw(AssertionError("SQLite proibido")))
     settings = Settings("Finance", "production", False, f"sqlite:///{local_db.as_posix()}", "INFO", tmp_path)
-    window = module.MainWindow(settings, api_client=FakeRemoteAPI())
+    api = FakeRemoteAPI()
+    window = module.MainWindow(settings, api_client=api)
     qtbot.addWidget(window)
     assert window._boe_session is None
+    window._target_controller.validate_import_file(str(tmp_path / "metas.xlsx"))
+    assert api.uploads == [
+        ("/api/v1/targets/import/validate", str(tmp_path / "metas.xlsx"))
+    ]
     assert local_db.read_bytes() == before
 
 
@@ -270,4 +287,28 @@ def test_remote_budget_catalog_uses_only_active_revenue_and_expense():
     options = RemoteCatalogService(API()).list_budget_options()
     assert [(item.description, item.movement_type) for item in options] == [
         ("Receita", "RECEITA"), ("Despesa", "DESPESA")
+    ]
+
+
+def test_remote_target_import_uses_authenticated_api_upload_only(tmp_path):
+    from app.services.remote_services import RemoteTargetService
+
+    class API:
+        def __init__(self):
+            self.uploads = []
+
+        def upload(self, path, file_path, **kwargs):
+            self.uploads.append((path, file_path, kwargs))
+            return {"can_import": path.endswith("validate")}
+
+    file_path = tmp_path / "metas.xlsx"
+    file_path.write_bytes(b"workbook")
+    api = API()
+    service = RemoteTargetService(api)
+
+    assert service.validate_import(file_path)["can_import"] is True
+    service.import_file(file_path)
+    assert api.uploads == [
+        ("/api/v1/targets/import/validate", str(file_path), {}),
+        ("/api/v1/targets/import", str(file_path), {"import_file": True}),
     ]

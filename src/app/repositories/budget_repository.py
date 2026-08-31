@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -34,17 +36,43 @@ class BudgetRepository(BaseRepository[BudgetEntry]):
         self.session.flush()
         return budget
 
+    def add_all(self, budgets: Iterable[BudgetEntry]) -> None:
+        self.session.add_all(list(budgets))
+
+    def existing_keys(
+        self, years: Iterable[int]
+    ) -> set[tuple[int, int, str, str]]:
+        scoped_years = tuple(sorted(set(years)))
+        if not scoped_years:
+            return set()
+
+        rows = self.session.execute(
+            select(
+                BudgetEntry.periodo_ano,
+                BudgetEntry.periodo_mes,
+                BudgetEntry.tipo,
+                BudgetEntry.categoria,
+            ).where(BudgetEntry.periodo_ano.in_(scoped_years))
+        )
+
+        return {tuple(row) for row in rows}
+
     def list_all(self) -> list[BudgetEntry]:
         statement = select(BudgetEntry).order_by(
-            BudgetEntry.periodo_ano, BudgetEntry.periodo_mes,
-            BudgetEntry.tipo, BudgetEntry.categoria,
+            BudgetEntry.periodo_ano,
+            BudgetEntry.periodo_mes,
+            BudgetEntry.tipo,
+            BudgetEntry.categoria,
         )
         return list(self.session.scalars(statement))
 
     def list_by_period(self, year: int, month: int) -> list[BudgetEntry]:
         statement = (
             select(BudgetEntry)
-            .where(BudgetEntry.periodo_ano == year, BudgetEntry.periodo_mes == month)
+            .where(
+                BudgetEntry.periodo_ano == year,
+                BudgetEntry.periodo_mes == month,
+            )
             .order_by(BudgetEntry.tipo, BudgetEntry.categoria)
         )
         return list(self.session.scalars(statement))
@@ -53,6 +81,10 @@ class BudgetRepository(BaseRepository[BudgetEntry]):
         statement = (
             select(BudgetEntry)
             .where(BudgetEntry.periodo_ano == year)
-            .order_by(BudgetEntry.periodo_mes, BudgetEntry.tipo, BudgetEntry.categoria)
+            .order_by(
+                BudgetEntry.periodo_mes,
+                BudgetEntry.tipo,
+                BudgetEntry.categoria,
+            )
         )
         return list(self.session.scalars(statement))

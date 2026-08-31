@@ -11,6 +11,10 @@ class APIConnectionError(RuntimeError):
     pass
 
 
+class APIReadTimeoutError(APIConnectionError):
+    pass
+
+
 class AuthenticationError(RuntimeError):
     pass
 
@@ -69,20 +73,39 @@ class APIClient:
         return self._request("PATCH", path, json=payload)
 
     def upload(self, path: str, file_path: str, *, import_file: bool = False) -> Any:
+        # Importações são atômicas no servidor e podem continuar após o cliente
+        # desistir. O read timeout maior é exclusivo deste fluxo; conexão e pool
+        # continuam com limites curtos para detectar indisponibilidade real.
+        timeout = (
+            httpx.Timeout(connect=10.0, read=900.0, write=120.0, pool=10.0)
+            if import_file else
+            httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0)
+        )
         with open(file_path, "rb") as handle:
             return self._request(
                 "POST", path,
                 files={"file": (file_path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1], handle)},
                 data={"import_file": str(import_file).lower()},
-                timeout=120.0,
+                timeout=timeout,
+                _timeout_message=(
+                    "A importação está demorando mais que o esperado. "
+                    "Verifique o resultado antes de tentar novamente."
+                    if import_file else None
+                ),
             )
 
     def download(self, path: str, payload: dict[str, Any]) -> bytes:
         headers = {"Authorization": f"Bearer {self._access_token}"} if self._access_token else {}
         try:
             response = self._client.post(path, headers=headers, json=payload)
+        except httpx.ReadTimeout as error:
+            raise APIReadTimeoutError(
+                "A operação excedeu o tempo limite de resposta."
+            ) from error
         except httpx.RequestError as error:
-            raise APIConnectionError("Servidor Finance indisponível. Verifique a rede e tente novamente.") from error
+            raise APIConnectionError(
+                "Servidor Finance indisponível. Verifique a conexão e tente novamente."
+            ) from error
         if response.is_error:
             try:
                 detail = response.json().get("detail")
@@ -92,14 +115,21 @@ class APIClient:
         return response.content
 
     def _request(self, method: str, path: str, *, authenticated: bool = True,
-                 _allow_refresh: bool = True, **kwargs: Any) -> Any:
+                 _allow_refresh: bool = True,
+                 _timeout_message: str | None = None, **kwargs: Any) -> Any:
         headers = dict(kwargs.pop("headers", {}))
         if authenticated and self._access_token:
             headers["Authorization"] = f"Bearer {self._access_token}"
         try:
             response = self._client.request(method, path, headers=headers, **kwargs)
+        except httpx.ReadTimeout as error:
+            raise APIReadTimeoutError(
+                _timeout_message or "A operação excedeu o tempo limite de resposta."
+            ) from error
         except httpx.RequestError as error:
-            raise APIConnectionError("Servidor Finance indisponível. Verifique a rede e tente novamente.") from error
+            raise APIConnectionError(
+                "Servidor Finance indisponível. Verifique a conexão e tente novamente."
+            ) from error
         if (response.status_code == 401 and authenticated and _allow_refresh
                 and self._refresh_token and path != "/api/v1/auth/refresh"):
             refreshed = self._request(
@@ -108,7 +138,10 @@ class APIClient:
             )
             self._access_token = refreshed["access_token"]
             self._refresh_token = refreshed["refresh_token"]
-            return self._request(method, path, authenticated=True, _allow_refresh=False, **kwargs)
+            return self._request(
+                method, path, authenticated=True, _allow_refresh=False,
+                _timeout_message=_timeout_message, **kwargs
+            )
         if response.status_code == 401:
             raise AuthenticationError("Usuário ou senha inválidos, ou sessão expirada.")
         if response.is_error:

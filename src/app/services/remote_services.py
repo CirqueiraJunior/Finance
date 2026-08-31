@@ -174,6 +174,14 @@ class RemoteBudgetService:
         return _entry(self.api.patch(f"/api/v1/budgets/{budget_id}", {
             "description": description,
             "budgeted_value": str(values["budgeted_value"]), "notes": values.get("notes")}))
+    def validate_import(self, file_path):
+        return self.api.upload(
+            "/api/v1/budgets/import/validate", str(file_path)
+        )
+    def import_file(self, file_path):
+        return self.api.upload(
+            "/api/v1/budgets/import", str(file_path), import_file=True
+        )
     def get_budget_vs_actual(self, year, month=None):
         data = self._data(year, month)["comparison"]
         comparisons = tuple(BudgetComparison(x["entry_type"], x.get("description"), x["category"], _decimal(x["budgeted"]),
@@ -207,6 +215,12 @@ class RemoteTargetService:
         return _entry(self.api.post("/api/v1/targets", payload))
     def update_target(self, target_id, **values):
         return _entry(self.api.patch(f"/api/v1/targets/{target_id}", {"target_value": str(values["target_value"]), "notes": values.get("notes")}))
+    def validate_import(self, file_path):
+        return self.api.upload("/api/v1/targets/import/validate", str(file_path))
+    def import_file(self, file_path):
+        return self.api.upload(
+            "/api/v1/targets/import", str(file_path), import_file=True
+        )
     def get_target_vs_actual(self, year, month, indicator, entity_id=None):
         data = self._data(year, month, str(indicator), entity_id)["comparison"]
         rows = tuple(

@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -13,6 +15,25 @@ class TargetRepository(BaseRepository[TargetEntry]):
         self.session.add(target)
         self.session.flush()
         return target
+
+    def add_all(self, targets: Iterable[TargetEntry]) -> None:
+        self.session.add_all(list(targets))
+
+    def existing_keys(
+        self, years: Iterable[int]
+    ) -> set[tuple[int, int, int, str]]:
+        scoped_years = tuple(sorted(set(years)))
+        if not scoped_years:
+            return set()
+        rows = self.session.execute(
+            select(
+                TargetEntry.entity_id,
+                TargetEntry.periodo_ano,
+                TargetEntry.periodo_mes,
+                TargetEntry.indicador,
+            ).where(TargetEntry.periodo_ano.in_(scoped_years))
+        )
+        return {tuple(row) for row in rows}
 
     def get_by_id(self, target_id: int) -> TargetEntry | None:
         return self.session.scalar(

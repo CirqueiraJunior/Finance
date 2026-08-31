@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 from pathlib import Path
+from shutil import copyfileobj
 from tempfile import TemporaryDirectory
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -38,6 +39,9 @@ from app.repositories.target_repository import TargetRepository
 from app.importers.boe_importer import BOEImporter
 from app.services.boe_service import BOEService
 from app.services.budget_service import BudgetService
+from app.services.budget_import_service import (
+    BudgetImportService, BudgetImportValidationError,
+)
 from app.services.cashflow_service import CashflowService
 from app.services.dashboard_service import DashboardService
 from app.services.financial_flow_service import FinancialFlowService
@@ -46,6 +50,9 @@ from app.services.ranking_service import RankingService
 from app.services.report_service import ReportService
 from app.services.site_csv_service import SiteCSVService
 from app.services.target_service import TargetService
+from app.services.target_import_service import (
+    TargetImportService, TargetImportValidationError,
+)
 from app.core.exceptions import BOEValidationError, CSVExportValidationError
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.cashflow_catalog_repository import CashflowCatalogRepository
@@ -582,12 +589,214 @@ def create_app(
         db.commit()
         return jsonable_encoder(item)
 
+    @app.delete("/api/v1/budgets/{budget_id}", status_code=204)
+    def delete_budget(
+        budget_id: int,
+        user: User = Depends(require("budget:write")),
+        db: Session = Depends(get_db),
+    ) -> Response:
+        item = BudgetRepository(db).get_by_id(budget_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Orçamento não encontrado.")
+        details = jsonable_encoder({
+            "year": item.periodo_ano,
+            "month": item.periodo_mes,
+            "type": item.tipo,
+            "category": item.categoria,
+            "description": item.descricao,
+            "budgeted_value": str(item.valor_orcado),
+            "notes": item.observacao,
+        })
+        try:
+            audit(
+                db,
+                "BUDGET_DELETED",
+                user,
+                entity_type="BudgetEntry",
+                entity_id=item.id,
+                details=details,
+            )
+            db.delete(item)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        return Response(status_code=204)
+
+    def budget_import_response(validation):
+        return jsonable_encoder({
+            "metadata": {
+                "file_name": validation.file_name,
+                "detected_type": validation.detected_type,
+                "year": validation.year,
+                "sheets": validation.sheets,
+            },
+            "preview": validation.preview,
+            "warnings": validation.warnings,
+            "errors": validation.errors,
+            "can_import": validation.can_import,
+            "totals": {
+                "rows": len(validation.preview),
+                "value": validation.total,
+            },
+        })
+
+    @app.post("/api/v1/budgets/import/validate")
+    def validate_budget_import(
+        file: UploadFile = File(...),
+        user: User = Depends(require("budget:write")),
+        db: Session = Depends(get_db),
+    ):
+        with TemporaryDirectory(prefix="finance_budgets_") as directory:
+            file_name = Path(file.filename or "orcamento.xlsx").name
+            path = Path(directory) / file_name
+            with path.open("wb") as destination:
+                copyfileobj(file.file, destination)
+
+            service = BudgetImportService(BudgetRepository(db))
+            return budget_import_response(
+                service.validate(path, file_name=file_name)
+            )
+
+    @app.post("/api/v1/budgets/import", status_code=201)
+    def import_budgets(
+        file: UploadFile = File(...),
+        user: User = Depends(require("budget:write")),
+        db: Session = Depends(get_db),
+    ):
+        with TemporaryDirectory(prefix="finance_budgets_") as directory:
+            file_name = Path(file.filename or "orcamento.xlsx").name
+            path = Path(directory) / file_name
+            with path.open("wb") as destination:
+                copyfileobj(file.file, destination)
+
+            service = BudgetImportService(BudgetRepository(db))
+
+            try:
+                validation, entries = service.stage_import(
+                    path, file_name=file_name
+                )
+                audit(
+                    db,
+                    "BUDGETS_IMPORTED",
+                    user,
+                    entity_type="BudgetEntry",
+                    details={
+                        "file_name": validation.file_name,
+                        "year": validation.year,
+                        "imported": len(entries),
+                        "inconsistencies": len(validation.warnings),
+                    },
+                )
+                db.commit()
+            except BudgetImportValidationError as error:
+                db.rollback()
+                raise HTTPException(
+                    status_code=422,
+                    detail=budget_import_response(error.validation),
+                ) from None
+            except Exception:
+                db.rollback()
+                raise
+
+            return jsonable_encoder({
+                "file_name": validation.file_name,
+                "year": validation.year,
+                "imported": len(entries),
+                "warnings": validation.warnings,
+                "total": validation.total,
+            })
+
     @app.get("/api/v1/targets")
     def targets(year: int, month: int, indicator: str, entity_id: int | None = None,
                 user: User = Depends(require("targets:read")), db: Session = Depends(get_db)):
         service = domain_services(db)[4]
         return jsonable_encoder({"entities": service.list_entities(),
                                  "comparison": service.get_target_vs_actual(year, month, indicator, entity_id)})
+
+    def target_import_response(validation):
+        return jsonable_encoder({
+            "metadata": {
+                "file_name": validation.file_name,
+                "detected_type": validation.detected_type,
+                "year": validation.year,
+                "sheets": validation.sheets,
+            },
+            "preview": validation.preview,
+            "warnings": validation.warnings,
+            "errors": validation.errors,
+            "can_import": validation.can_import,
+            "totals": {
+                "rows": len(validation.preview),
+                "target": validation.target_total,
+                "actual": validation.actual_total,
+            },
+        })
+
+    @app.post("/api/v1/targets/import/validate")
+    def validate_target_import(
+        file: UploadFile = File(...),
+        user: User = Depends(require("targets:write")),
+        db: Session = Depends(get_db),
+    ):
+        with TemporaryDirectory(prefix="finance_targets_") as directory:
+            file_name = Path(file.filename or "metas.xlsx").name
+            path = Path(directory) / file_name
+            with path.open("wb") as destination:
+                copyfileobj(file.file, destination)
+            service = TargetImportService(
+                TargetRepository(db), EntityRepository(db)
+            )
+            return target_import_response(
+                service.validate(path, file_name=file_name)
+            )
+
+    @app.post("/api/v1/targets/import", status_code=201)
+    def import_targets(
+        file: UploadFile = File(...),
+        user: User = Depends(require("targets:write")),
+        db: Session = Depends(get_db),
+    ):
+        with TemporaryDirectory(prefix="finance_targets_") as directory:
+            file_name = Path(file.filename or "metas.xlsx").name
+            path = Path(directory) / file_name
+            with path.open("wb") as destination:
+                copyfileobj(file.file, destination)
+            service = TargetImportService(
+                TargetRepository(db), EntityRepository(db)
+            )
+            try:
+                validation, entries = service.stage_import(
+                    path, file_name=file_name
+                )
+                audit(
+                    db, "TARGETS_IMPORTED", user,
+                    entity_type="TargetEntry",
+                    details={
+                        "file_name": validation.file_name,
+                        "year": validation.year,
+                        "imported": len(entries),
+                        "inconsistencies": len(validation.warnings),
+                    },
+                )
+                db.commit()
+            except TargetImportValidationError as error:
+                db.rollback()
+                raise HTTPException(
+                    status_code=422,
+                    detail=target_import_response(error.validation),
+                ) from None
+            except Exception:
+                db.rollback()
+                raise
+            return jsonable_encoder({
+                "file_name": validation.file_name,
+                "year": validation.year,
+                "imported": len(entries),
+                "warnings": validation.warnings,
+                "target_total": validation.target_total,
+                "actual_total": validation.actual_total,
+            })
 
     @app.get("/api/v1/targets/{target_id}")
     def target(target_id: int, user: User = Depends(require("targets:read")), db: Session = Depends(get_db)):
@@ -611,6 +820,41 @@ def create_app(
         audit(db, "TARGET_UPDATED", user, entity_type="TargetEntry", entity_id=item.id)
         db.commit()
         return jsonable_encoder(item)
+
+    @app.delete("/api/v1/targets/{target_id}", status_code=204)
+    def delete_target(
+        target_id: int,
+        user: User = Depends(require("targets:write")),
+        db: Session = Depends(get_db),
+    ) -> Response:
+        item = TargetRepository(db).get_by_id(target_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Meta não encontrada.")
+        details = {
+            "entity_id": item.entity_id,
+            "entity_code": item.entity.codigo_entidade,
+            "year": item.periodo_ano,
+            "month": item.periodo_mes,
+            "indicator": item.indicador,
+            "target": str(item.valor_meta),
+            "actual": str(item.valor_realizado),
+            "notes": item.observacao,
+        }
+        try:
+            audit(
+                db,
+                "TARGET_DELETED",
+                user,
+                entity_type="TargetEntry",
+                entity_id=item.id,
+                details=details,
+            )
+            db.delete(item)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        return Response(status_code=204)
 
     @app.get("/api/v1/ranking")
     def ranking(year: int, quarter: int, user: User = Depends(require("ranking:read")),

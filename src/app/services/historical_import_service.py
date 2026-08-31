@@ -104,9 +104,9 @@ class HistoricalImportService:
     def _validate_entities(self, preview: HistoricalPreview) -> None:
         for row in preview.rows:
             entity = self.entities.get_entity_by_code(row["code"])
-            if entity is None or not entity.ativa or entity.codigo_entidade == 7500:
+            if entity is None or entity.codigo_entidade == 7500:
                 preview.errors.append(
-                    f"Linha {row['line']}: Entidade {row['code']} inválida ou inativa."
+                    f"Linha {row['line']}: Entidade {row['code']} não cadastrada ou consolidada."
                 )
             else:
                 row["entity_id"] = entity.id
