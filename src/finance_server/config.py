@@ -20,8 +20,14 @@ def get_server_settings() -> ServerSettings:
     secret = os.getenv("SECRET_KEY", "")
     if len(secret) < 32:
         raise RuntimeError("SECRET_KEY do servidor deve possuir ao menos 32 caracteres.")
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
+        raise RuntimeError(
+            "DATABASE_URL do servidor não configurada. "
+            "Use finance-dev ou finance-server."
+        )
     return ServerSettings(
-        database_url=os.getenv("DATABASE_URL", "postgresql+psycopg://finance@localhost/finance"),
+        database_url=database_url,
         secret_key=secret,
         access_token_minutes=int(os.getenv("ACCESS_TOKEN_MINUTES", "15")),
         refresh_token_days=int(os.getenv("REFRESH_TOKEN_DAYS", "7")),

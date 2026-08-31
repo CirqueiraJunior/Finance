@@ -33,6 +33,10 @@ dev = [
 [project.scripts]
 finance = "app.main:main"
 finance-bootstrap-admin = "finance_server.bootstrap:main"
+finance-dev = "finance_server.environment_cli:dev_main"
+finance-server-config = "finance_server.environment_cli:config_main"
+finance-server = "finance_server.environment_cli:server_main"
+finance-stop = "finance_server.environment_cli:stop_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

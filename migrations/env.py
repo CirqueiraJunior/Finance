@@ -4,13 +4,14 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.core.config import get_settings
+from app.database.alembic_config import set_alembic_database_url
 from app.database.base import Base
 from app import models  # noqa: F401
 from finance_server import models as server_models  # noqa: F401
 
 config = context.config
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+set_alembic_database_url(config, settings.database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
