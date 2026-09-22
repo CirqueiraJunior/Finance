@@ -158,8 +158,25 @@ class BudgetService:
             if budget.descricao:
                 budget_descriptions.setdefault(key, set()).add(budget.descricao)
         for entry in actual_entries:
+            if entry.categoria == CashflowCategory.DIRECT_REVENUE.value:
+                continue
             key = (entry.tipo, entry.categoria)
             actual_values[key] = actual_values.get(key, zero) + entry.valor
+        selected_months = range(1, 13) if month is None else (normalized_month,)
+        for selected_month in selected_months:
+            source_year, source_month = (
+                (normalized_year - 1, 12)
+                if selected_month == 1 else (normalized_year, selected_month - 1)
+            )
+            source_boe = self.cashflow_repository.get_imported_boe_by_period(
+                source_year, source_month
+            )
+            if source_boe is not None:
+                key = (
+                    CashflowType.REVENUE.value,
+                    CashflowCategory.DIRECT_REVENUE.value,
+                )
+                actual_values[key] = actual_values.get(key, zero) + source_boe.valor_total
 
         comparisons = []
         for entry_type, category in sorted(set(budget_values) | set(actual_values)):

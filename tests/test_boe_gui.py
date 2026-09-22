@@ -1,12 +1,19 @@
 from decimal import Decimal
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
+
+from PySide6.QtCore import QDate, QPoint, QPointF, Qt
+from PySide6.QtGui import QWheelEvent
+from PySide6.QtWidgets import QApplication
 
 from app.gui.controllers.boe_controller import BOEController
 from app.gui.pages.boe import BoePage
 from app.importers.boe_types import BOEParsedRow, BOEValidationResult
 from app.models.boe_import import BOEImport
-from app.services.boe_service import BOEEntityDetail, BOEImportDetails
+from app.services.boe_service import (
+    BOEEntityDetail, BOEImportDetails, BOEOperationalRow, BOEOperationalSummary,
+)
 
 
 def test_boe_page_starts_with_safe_actions_disabled(qtbot):
@@ -17,8 +24,30 @@ def test_boe_page_starts_with_safe_actions_disabled(qtbot):
     assert not page.import_button.isEnabled()
     assert page.history_table.columnCount() == 6
     assert page.details_table.columnCount() == 4
+    assert page.operations_table.columnCount() == 5
+    assert page.operations_table.horizontalHeaderItem(4).text() == "Valor Total"
+    assert all(
+        page.operations_table.horizontalHeaderItem(index).text() != "Produto"
+        for index in range(page.operations_table.columnCount())
+    )
     assert page.details_state.text() == (
         "Selecione uma importação para visualizar o detalhamento por Entidade."
+    )
+
+
+def test_boe_page_places_details_between_history_and_operational_query(qtbot):
+    page = BoePage()
+    qtbot.addWidget(page)
+    content_layout = page.scroll_area.widget().layout()
+
+    assert content_layout.indexOf(page.history_table) < content_layout.indexOf(
+        page.details_state
+    )
+    assert content_layout.indexOf(page.details_state) < content_layout.indexOf(
+        page.details_table
+    )
+    assert content_layout.indexOf(page.details_table) < content_layout.indexOf(
+        page.operations_table
     )
 
 
@@ -176,3 +205,128 @@ def test_boe_controller_loads_detail_when_history_row_is_selected(qtbot):
 
     assert page.details_table.rowCount() == 1
     assert page.details_table.item(0, 0).text() == "7501"
+
+
+def test_boe_page_shows_operational_kpis_and_rows(qtbot):
+    page = BoePage()
+    qtbot.addWidget(page)
+    summary = BOEOperationalSummary(
+        (BOEOperationalRow(2026, 7, 1, "Entidade", 100, Decimal("0.0693"), Decimal("6.9300")),),
+        100, Decimal("0.0693"), Decimal("6.9300"),
+    )
+
+    page.show_operations(summary)
+
+    assert page.operations_table.item(0, 0).text() == "07/2026"
+    assert page.operations_table.item(0, 1).text() == "Entidade"
+    assert page.operational_queries.text() == "100"
+    assert page.operational_unit_value.text() == "R$ 0,0693"
+    assert page.operational_total_value.text() == "R$ 6,93"
+
+
+def _send_wheel_event(widget, delta: int = 120) -> None:
+    center = widget.rect().center()
+    event = QWheelEvent(
+        QPointF(center),
+        QPointF(widget.mapToGlobal(center)),
+        QPoint(),
+        QPoint(0, delta),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.ScrollUpdate,
+        False,
+    )
+    QApplication.sendEvent(widget, event)
+
+
+def test_boe_period_filters_ignore_mouse_wheel(qtbot):
+    page = BoePage()
+    qtbot.addWidget(page)
+    page.start_period.setDate(QDate(2026, 3, 1))
+    page.end_period.setDate(QDate(2026, 8, 1))
+
+    _send_wheel_event(page.start_period)
+    _send_wheel_event(page.end_period, -120)
+
+    assert page.start_period.date() == QDate(2026, 3, 1)
+    assert page.end_period.date() == QDate(2026, 8, 1)
+
+
+def test_boe_period_explicit_selection_is_used_by_query(qtbot):
+    page = BoePage()
+    qtbot.addWidget(page)
+    calls = []
+
+    class ServiceStub:
+        repository = SimpleNamespace(session=SimpleNamespace(rollback=lambda: None))
+        list_imports = staticmethod(lambda: [])
+        list_operational_entities = staticmethod(lambda: ())
+
+        @staticmethod
+        def query_operations(*filters):
+            calls.append(filters)
+            return BOEOperationalSummary((), 0, Decimal("0"), Decimal("0"))
+
+    BOEController(page, ServiceStub())
+    page.start_period.setDate(QDate(2025, 11, 1))
+    page.end_period.setDate(QDate(2026, 2, 1))
+
+    page.query_button.click()
+
+    assert page.start_period.calendarPopup()
+    assert page.end_period.calendarPopup()
+    assert calls == [(2025, 11, 2026, 2, None)]
+
+
+def test_boe_import_modal_blocks_duplicate_and_closes_on_success(qtbot):
+    page = BoePage()
+    qtbot.addWidget(page)
+    release = Event()
+    calls = []
+    imported = BOEImport(id=1, periodo_ano=2026, periodo_mes=7, nome_arquivo="boe.xlsx",
+        caminho_origem="boe.xlsx", hash_arquivo="e" * 64, quantidade_entidades=0,
+        quantidade_inconsistencias=0, valor_total=Decimal("0"), status="imported")
+
+    class ServiceStub:
+        repository = SimpleNamespace(session=SimpleNamespace(rollback=lambda: None))
+        list_imports = staticmethod(lambda: [])
+        list_operational_entities = staticmethod(lambda: ())
+        def import_file(self, _path):
+            calls.append(1)
+            release.wait(2)
+            return imported
+
+    controller = BOEController(page, ServiceStub())
+    controller._selected_file = Path("boe.xlsx")
+    page.import_button.setEnabled(True)
+    page.import_button.click()
+    qtbot.waitUntil(lambda: controller._import_dialog is not None and controller._import_dialog.isVisible())
+    qtbot.waitUntil(lambda: len(calls) == 1)
+    controller.import_file()
+    assert len(calls) == 1
+    assert not page.import_button.isEnabled()
+    assert controller._import_dialog.title.text() == "Processando importação..."
+    assert controller._import_dialog.description.text() == "Aguarde enquanto os dados são validados e gravados."
+    release.set()
+    qtbot.waitUntil(lambda: controller._import_dialog is None)
+    assert "IMPORTADO COM SUCESSO" in page.import_result.toPlainText()
+
+
+def test_boe_import_modal_closes_on_error(qtbot):
+    page = BoePage()
+    qtbot.addWidget(page)
+
+    class ServiceStub:
+        repository = SimpleNamespace(session=SimpleNamespace(rollback=lambda: None))
+        list_imports = staticmethod(lambda: [])
+        list_operational_entities = staticmethod(lambda: ())
+        import_file = staticmethod(lambda _path: (_ for _ in ()).throw(RuntimeError("falha controlada")))
+
+    controller = BOEController(page, ServiceStub())
+    controller._selected_file = Path("boe.xlsx")
+    page.import_button.setEnabled(True)
+    page.import_button.click()
+    qtbot.waitUntil(lambda: controller._import_thread is None)
+    assert controller._import_dialog is None
+    assert "falha controlada" in page.import_result.toPlainText()
+    assert page.select_button.isEnabled()

@@ -35,19 +35,17 @@ def test_reusable_button_roles(qtbot):
         assert button.minimumHeight() == 36
 
 
-def test_main_window_dashboard_refresh_real_integration(qtbot, monkeypatch):
+def test_main_window_dashboard_refresh_real_integration(qtbot, monkeypatch, isolated_app_database):
     window = MainWindow(get_settings())
     qtbot.addWidget(window)
     page = window.pages["dashboard"]
     controller = window._dashboard_controller
     calls = []
-    original = controller.service.get_dashboard_summary
-
-    def tracked(year, month):
+    def tracked(year, month, **filters):
         calls.append((year, month))
-        return original(year, month)
+        return {}
 
-    monkeypatch.setattr(controller.service, "get_dashboard_summary", tracked)
+    monkeypatch.setattr(controller.service, "get_dashboard_data", tracked)
     window.show()
     qtbot.waitExposed(window)
     assert page.refresh_button.isEnabled()
@@ -73,6 +71,7 @@ def test_official_branding_assets_load():
 def test_header_contains_logo_tagline_and_version(qtbot):
     header = AppHeader()
     qtbot.addWidget(header)
+    assert not hasattr(header, "change_password_button")
     margins = header.layout().contentsMargins()
     assert header.height() == 64
     assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (
@@ -101,33 +100,35 @@ def test_tagline_is_top_only_and_sidebar_selection_is_visible(qtbot):
     assert navigated == ["metas"]
 
 
-def test_splash_and_main_window_use_official_icon(qtbot, qapp):
+def test_splash_and_main_window_use_official_icon(qtbot, qapp, isolated_app_database):
     splash = show_splash(qapp)
     assert splash is not None
     assert isinstance(splash, FinanceSplash)
-    assert splash.size().width() == 600
-    assert splash.size().height() == 420
+    assert splash.size().width() == 520
+    assert splash.size().height() == 360
     assert splash.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-    assert splash.layout().contentsMargins().left() == 42
-    assert splash.layout().contentsMargins().top() == 34
-    assert splash.layout().contentsMargins().right() == 42
-    assert splash.layout().contentsMargins().bottom() == 34
-    assert splash.layout().spacing() == 12
-    assert splash.icon_label.size().width() == 104
-    assert splash.icon_label.size().height() == 104
+    assert splash.testAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+    assert not splash.autoFillBackground()
+    assert splash.layout().contentsMargins().left() == 36
+    assert splash.layout().contentsMargins().top() == 30
+    assert splash.layout().contentsMargins().right() == 36
+    assert splash.layout().contentsMargins().bottom() == 30
+    assert splash.layout().spacing() == 10
+    assert splash.icon_label.size().width() == 92
+    assert splash.icon_label.size().height() == 92
     assert not splash.icon_label.pixmap().isNull()
     assert splash.title_label.text() == "Finance"
-    assert "font-size: 34px" in splash.title_label.styleSheet()
+    assert "font-size: 30px" in splash.title_label.styleSheet()
     assert "font-weight: 700" in splash.title_label.styleSheet()
     assert "color: #003B71" in splash.title_label.styleSheet()
     assert splash.slogan_label.text() == "Decisões inteligentes para grandes resultados."
-    assert "font-size: 18px" in splash.slogan_label.styleSheet()
+    assert "font-size: 16px" in splash.slogan_label.styleSheet()
     assert "color: #4A5568" in splash.slogan_label.styleSheet()
     assert splash.version_label.text() == "Versão 1.0.0"
-    assert "font-size: 14px" in splash.version_label.styleSheet()
+    assert "font-size: 13px" in splash.version_label.styleSheet()
     assert "color: #6B7280" in splash.version_label.styleSheet()
     assert splash.signature_label.text() == "J.A. Technology"
-    assert "font-size: 14px" in splash.signature_label.styleSheet()
+    assert "font-size: 13px" in splash.signature_label.styleSheet()
     assert "font-weight: 600" in splash.signature_label.styleSheet()
     assert "color: #003B71" in splash.signature_label.styleSheet()
     assert SPLASH_DURATION_MS == 2000

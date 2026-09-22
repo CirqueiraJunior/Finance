@@ -68,3 +68,33 @@ class BOERepository(BaseRepository[BOEImport]):
         )
         return list(self.session.scalars(statement))
 
+    def list_operational_totals(
+        self,
+        start_year: int,
+        start_month: int,
+        end_year: int,
+        end_month: int,
+        entity_id: int | None = None,
+    ) -> list[tuple[BOEEntityTotal, BOEImport]]:
+        start_period = start_year * 100 + start_month
+        end_period = end_year * 100 + end_month
+        period = BOEImport.periodo_ano * 100 + BOEImport.periodo_mes
+        statement = (
+            select(BOEEntityTotal, BOEImport)
+            .join(BOEImport, BOEImport.id == BOEEntityTotal.boe_import_id)
+            .options(selectinload(BOEEntityTotal.entity))
+            .where(
+                BOEImport.status == "imported",
+                period >= start_period,
+                period <= end_period,
+                BOEEntityTotal.codigo_entidade_origem != 7500,
+            )
+            .order_by(
+                BOEImport.periodo_ano,
+                BOEImport.periodo_mes,
+                BOEEntityTotal.codigo_entidade_origem,
+            )
+        )
+        if entity_id is not None:
+            statement = statement.where(BOEEntityTotal.entity_id == entity_id)
+        return list(self.session.execute(statement).tuples())

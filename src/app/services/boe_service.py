@@ -55,6 +55,25 @@ class BOEImportDetails:
         return self.inconsistencies
 
 
+@dataclass(frozen=True, slots=True)
+class BOEOperationalRow:
+    year: int
+    month: int
+    entity_id: int
+    entity_name: str
+    queries: int
+    unit_value: Decimal
+    total_value: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class BOEOperationalSummary:
+    rows: tuple[BOEOperationalRow, ...]
+    total_queries: int
+    unit_value: Decimal
+    total_value: Decimal
+
+
 class BOEService:
     def __init__(
         self,
@@ -234,6 +253,59 @@ class BOEService:
         if boe_import is None:
             return None
         return self.get_import_details(boe_import.id)
+
+    def list_operational_entities(self) -> tuple[tuple[int, str], ...]:
+        entities: dict[int, str] = {}
+        for total, _imported in self.repository.list_operational_totals(
+            1, 1, 9999, 12
+        ):
+            entities[total.entity_id] = (
+                (total.entity.nome_oficial or total.entity.nome)
+                if total.entity is not None
+                else total.nome_entidade_origem
+            )
+        return tuple(sorted(entities.items(), key=lambda value: value[1].casefold()))
+
+    def query_operations(
+        self,
+        start_year: int,
+        start_month: int,
+        end_year: int,
+        end_month: int,
+        entity_id: int | None = None,
+    ) -> BOEOperationalSummary:
+        if not 1 <= start_month <= 12 or not 1 <= end_month <= 12:
+            raise ValueError("Mês do período BOE inválido.")
+        if start_year * 100 + start_month > end_year * 100 + end_month:
+            raise ValueError("O período inicial não pode ser posterior ao período final.")
+        rows = []
+        for total, imported in self.repository.list_operational_totals(
+            start_year, start_month, end_year, end_month, entity_id
+        ):
+            official_name = (
+                (total.entity.nome_oficial or total.entity.nome)
+                if total.entity is not None
+                else total.nome_entidade_origem
+            )
+            unit_value = (
+                total.valor_total / total.quantidade_consultas
+                if total.quantidade_consultas
+                else Decimal("0.0000")
+            )
+            rows.append(BOEOperationalRow(
+                imported.periodo_ano, imported.periodo_mes, total.entity_id,
+                official_name, total.quantidade_consultas, unit_value,
+                total.valor_total,
+            ))
+        result = tuple(rows)
+        total_queries = sum(row.queries for row in result)
+        total_value = sum((row.total_value for row in result), Decimal("0.0000"))
+        return BOEOperationalSummary(
+            result,
+            total_queries,
+            total_value / total_queries if total_queries else Decimal("0.0000"),
+            total_value,
+        )
 
     @classmethod
     def _name_matches(cls, entity: Entity, source_name: str) -> bool:

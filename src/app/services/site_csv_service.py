@@ -24,6 +24,8 @@ ASSOCIATION_HEADER = (
     "COD", "ANO",
     *tuple(part for month in MONTHS for part in (f"{month} CAP", f"{month} EXEC")),
 )
+CSV_EXCLUDED_ENTITY_CODES = frozenset({7600})
+
 CSV_FILENAMES = (
     "wp25_membros_associacao.csv",
     "wp25_membros_consultas_metas.csv",
@@ -35,6 +37,7 @@ CSV_FILENAMES = (
 
 @dataclass(frozen=True, slots=True)
 class CSVValidationResult:
+    year: int
     valid: bool
     errors: tuple[str, ...]
     entity_count: int
@@ -74,12 +77,12 @@ class SiteCSVService:
         self.association_repository = association_repository
         self.export_repository = export_repository
 
-    def validate_year(self, year: int) -> CSVValidationResult:
+    def validate_period(self, year: int) -> CSVValidationResult:
         year = self._year(year)
         entities = [
             entity
             for entity in self.entity_repository.list_all()
-            if entity.ativa and entity.codigo_entidade != 7500
+            if entity.ativa and entity.codigo_entidade not in {7500, *CSV_EXCLUDED_ENTITY_CODES}
         ]
         errors: list[str] = []
         codes = [entity.codigo_entidade for entity in entities]
@@ -92,13 +95,13 @@ class SiteCSVService:
         target_map = {
             (item.entity_id, item.periodo_mes, item.indicador): item
             for item in targets
-            if item.entity.codigo_entidade != 7500 and item.entity.ativa
+            if item.entity.codigo_entidade not in CSV_EXCLUDED_ENTITY_CODES and item.entity.ativa
         }
         associations = self.association_repository.list_by_year(year)
         association_map = {
             (item.entity_id, item.periodo_mes): item
             for item in associations
-            if item.entity.codigo_entidade != 7500 and item.entity.ativa
+            if item.entity.codigo_entidade not in CSV_EXCLUDED_ENTITY_CODES and item.entity.ativa
         }
 
         for entity in entities:
@@ -112,23 +115,30 @@ class SiteCSVService:
                             f"Meta/Realizado ausente: {entity.codigo_entidade} "
                             f"{year}-{month:02d} {indicator}."
                         )
-                if (entity.id, month) not in association_map:
-                    errors.append(
-                        f"Associação ausente: {entity.codigo_entidade} {year}-{month:02d}."
-                    )
 
         return CSVValidationResult(
+            year=year,
             valid=not errors,
             errors=tuple(errors),
-            entity_count=len(entities),
-            target_rows=len(targets),
-            association_rows=len(associations),
+            entity_count=len(entities) + 1,
+            target_rows=sum(
+                1
+                for item in targets
+                if item.entity.ativa
+                and item.entity.codigo_entidade not in {7500, *CSV_EXCLUDED_ENTITY_CODES}
+            ),
+            association_rows=sum(
+                1
+                for item in associations
+                if item.entity.ativa
+                and item.entity.codigo_entidade not in {7500, *CSV_EXCLUDED_ENTITY_CODES}
+            ),
         )
 
     def export_all(self, year: int, destination: str | Path) -> CSVExportResult:
         year = self._year(year)
         destination = Path(destination).expanduser().resolve()
-        validation = self.validate_year(year)
+        validation = self.validate_period(year)
         if not validation.valid:
             self._record(
                 year,
@@ -140,22 +150,23 @@ class SiteCSVService:
             raise CSVExportValidationError(validation.errors)
 
         destination.mkdir(parents=True, exist_ok=True)
+        all_entities = self.entity_repository.list_all()
         entities = [
             entity
-            for entity in self.entity_repository.list_all()
-            if entity.ativa and entity.codigo_entidade != 7500
+            for entity in all_entities
+            if entity.ativa and entity.codigo_entidade not in {7500, *CSV_EXCLUDED_ENTITY_CODES}
         ]
         targets = self.target_repository.list_by_year(year)
         target_map = {
             (item.entity_id, item.periodo_mes, item.indicador): item
             for item in targets
-            if item.entity.codigo_entidade != 7500 and item.entity.ativa
+            if item.entity.codigo_entidade not in CSV_EXCLUDED_ENTITY_CODES and item.entity.ativa
         }
         associations = self.association_repository.list_by_year(year)
         association_map = {
             (item.entity_id, item.periodo_mes): item
             for item in associations
-            if item.entity.codigo_entidade != 7500 and item.entity.ativa
+            if item.entity.codigo_entidade not in CSV_EXCLUDED_ENTITY_CODES and item.entity.ativa
         }
 
         created: list[Path] = []
@@ -173,7 +184,9 @@ class SiteCSVService:
         )
         for filename, indicator, attribute in definitions:
             path = destination / filename
-            self._write_target(path, year, entities, target_map, indicator, attribute)
+            self._write_target(
+                path, year, entities, target_map, indicator, attribute
+            )
             created.append(path)
 
         report_file = destination / f"relatorio_exportacao_{year}.txt"
@@ -215,11 +228,19 @@ class SiteCSVService:
         with path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle, delimiter=";", lineterminator="\n")
             writer.writerow(TARGET_HEADER)
-            for entity in entities:
-                row = [entity.codigo_entidade, year]
+            for entity in (None, *entities):
+                entity_code = 7500 if entity is None else entity.codigo_entidade
+                row = [entity_code, year]
                 for month in range(1, 13):
-                    item = data[(entity.id, month, indicator)]
-                    row.append(SiteCSVService._decimal(getattr(item, attribute)))
+                    if entity is None:
+                        value = sum(
+                            (getattr(data[(detail.id, month, indicator)], attribute)
+                             for detail in entities),
+                            Decimal("0"),
+                        )
+                    else:
+                        value = getattr(data[(entity.id, month, indicator)], attribute)
+                    row.append(SiteCSVService._decimal(value))
                 writer.writerow(row)
 
     @staticmethod
@@ -227,14 +248,28 @@ class SiteCSVService:
         with path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle, delimiter=";", lineterminator="\n")
             writer.writerow(ASSOCIATION_HEADER)
-            for entity in entities:
-                row = [entity.codigo_entidade, year]
+            for entity in (None, *entities):
+                row = [7500 if entity is None else entity.codigo_entidade, year]
                 for month in range(1, 13):
-                    item = data[(entity.id, month)]
+                    if entity is None:
+                        capture = sum(
+                            (getattr(data.get((detail.id, month)), "valor_captacao", Decimal("0"))
+                             for detail in entities),
+                            Decimal("0"),
+                        )
+                        execution = sum(
+                            (getattr(data.get((detail.id, month)), "valor_execucao", Decimal("0"))
+                             for detail in entities),
+                            Decimal("0"),
+                        )
+                    else:
+                        item = data.get((entity.id, month))
+                        capture = getattr(item, "valor_captacao", Decimal("0"))
+                        execution = getattr(item, "valor_execucao", Decimal("0"))
                     row.extend(
                         (
-                            SiteCSVService._decimal(item.valor_captacao),
-                            SiteCSVService._decimal(item.valor_execucao),
+                            SiteCSVService._decimal(capture),
+                            SiteCSVService._decimal(execution),
                         )
                     )
                 writer.writerow(row)
@@ -247,6 +282,7 @@ class SiteCSVService:
     def _validation_report(result: CSVValidationResult) -> str:
         lines = [
             "Finance - Validação de Exportação CSV",
+            f"Ano: {result.year}",
             f"Status: {'APROVADO' if result.valid else 'BLOQUEADO'}",
             f"Entidades: {result.entity_count}",
             f"Registros Meta/Realizado: {result.target_rows}",

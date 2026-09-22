@@ -9,6 +9,7 @@ class ServerSettings:
     access_token_minutes: int = 15
     refresh_token_days: int = 7
     reset_token_minutes: int = 30
+    assisted_recovery_request_minutes: int = 1440
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""
@@ -32,6 +33,9 @@ def get_server_settings() -> ServerSettings:
         access_token_minutes=int(os.getenv("ACCESS_TOKEN_MINUTES", "15")),
         refresh_token_days=int(os.getenv("REFRESH_TOKEN_DAYS", "7")),
         reset_token_minutes=int(os.getenv("RESET_TOKEN_MINUTES", "30")),
+        assisted_recovery_request_minutes=int(
+            os.getenv("ASSISTED_RECOVERY_REQUEST_MINUTES", "1440")
+        ),
         smtp_host=os.getenv("SMTP_HOST", ""),
         smtp_port=int(os.getenv("SMTP_PORT", "587")),
         smtp_user=os.getenv("SMTP_USER", ""),

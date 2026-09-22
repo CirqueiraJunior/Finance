@@ -10,13 +10,15 @@ ROLE_PERMISSIONS = {
     UserRole.MANAGER: {"dashboard:read", "cashflow:read", "cashflow:write", "budget:read",
                        "budget:write", "boe:read", "boe:write", "targets:read", "targets:write",
                        "ranking:read", "reports:read", "reports:export", "admin:read",
-                       "entities:manage", "catalog:manage"},
-    UserRole.FINANCE_OPERATOR: {"dashboard:read", "cashflow:read", "cashflow:write",
-                                "budget:read", "budget:write", "reports:read", "reports:export"},
-    UserRole.BOE_OPERATOR: {"dashboard:read", "boe:read", "boe:write", "targets:read",
-                            "ranking:read"},
+                       "users:manage", "entities:read", "entities:manage",
+                       "catalog:read", "catalog:manage"},
+    UserRole.FINANCE_OPERATOR: {
+        "dashboard:read", "cashflow:read", "cashflow:write", "budget:read",
+        "catalog:read", "catalog:manage",
+    },
+    UserRole.BOE_OPERATOR: {"dashboard:read", "boe:read", "entities:read"},
     UserRole.READ_ONLY: {"dashboard:read", "cashflow:read", "budget:read", "boe:read",
-                         "targets:read", "ranking:read", "reports:read"},
+                         "targets:read", "ranking:read", "reports:read", "entities:read"},
 }
 
 

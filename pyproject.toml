@@ -18,10 +18,12 @@ dependencies = [
     "fastapi>=0.116,<1",
     "uvicorn>=0.35,<1",
     "httpx>=0.28,<1",
+    "packaging>=24,<26",
     "argon2-cffi>=25,<26",
     "PyJWT>=2.10,<3",
     "email-validator>=2.2,<3",
     "python-multipart>=0.0.20,<1",
+    "cryptography>=45,<51",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +45,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 app = ["resources/styles/*.qss", "assets/*.png", "assets/*.ico", "assets/*.md"]
+finance_server = ["resources/*.pem"]
 
 [tool.setuptools.dynamic]
 version = {attr = "app.core.version.__version__"}

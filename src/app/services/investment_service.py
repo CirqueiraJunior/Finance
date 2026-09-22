@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import InvestmentBalanceError, InvestmentValidationError
 from app.models.investment_movement import InvestmentMovement, InvestmentMovementType
+from app.repositories.financial_balance_repository import FinancialBalanceRepository
 from app.repositories.investment_repository import InvestmentRepository
 
 
@@ -19,8 +20,15 @@ class InvestmentMonthlySummary:
 
 
 class InvestmentService:
-    def __init__(self, repository: InvestmentRepository) -> None:
+    def __init__(
+        self,
+        repository: InvestmentRepository,
+        balance_repository: FinancialBalanceRepository | None = None,
+    ) -> None:
         self.repository = repository
+        self.balance_repository = balance_repository or FinancialBalanceRepository(
+            repository.session
+        )
 
     def create_application(
         self, *, movement_date: date, description: str,
@@ -49,16 +57,17 @@ class InvestmentService:
         )
 
     def _minimum_balance_from(self, movement_date: date) -> Decimal:
-        balance = Decimal("0.0000")
-        balances = []
+        balance = self.get_applied_balance(movement_date)
+        balances = [balance]
         for movement in self.repository.list_all():
+            if movement.data_movimento <= movement_date:
+                continue
             if movement.tipo == InvestmentMovementType.APPLICATION.value:
                 balance += movement.valor
             else:
                 balance -= movement.valor
-            if movement.data_movimento >= movement_date:
-                balances.append(balance)
-        return min(balances, default=self.get_applied_balance(movement_date))
+            balances.append(balance)
+        return min(balances)
 
     def get_movement(self, movement_id: int) -> InvestmentMovement | None:
         return self.repository.get_by_id(movement_id)
@@ -72,11 +81,20 @@ class InvestmentService:
         )
 
     def get_applied_balance(self, end_date: date | None = None) -> Decimal:
-        movements = (
-            self.repository.list_all()
-            if end_date is None
-            else self.repository.list_until_date(self._valid_date(end_date))
-        )
+        normalized_end = self._valid_date(end_date) if end_date is not None else None
+        if normalized_end is None:
+            movements = self.repository.list_all()
+            latest = None
+        else:
+            movements = self.repository.list_until_date(normalized_end)
+            latest = self.balance_repository.latest_applied_at_or_before(
+                normalized_end.year, normalized_end.month
+            )
+        if latest is not None:
+            movements = [
+                item for item in movements
+                if (item.periodo_ano, item.periodo_mes) > (latest.year, latest.month)
+            ]
         zero = Decimal("0.0000")
         applications = sum(
             (item.valor for item in movements
@@ -86,7 +104,7 @@ class InvestmentService:
             (item.valor for item in movements
              if item.tipo == InvestmentMovementType.REDEMPTION.value), zero
         )
-        return applications - redemptions
+        return (latest.value if latest is not None else zero) + applications - redemptions
 
     def get_monthly_summary(self, year: int, month: int) -> InvestmentMonthlySummary:
         normalized_year = self._valid_year(year)

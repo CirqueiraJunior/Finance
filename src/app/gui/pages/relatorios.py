@@ -22,8 +22,8 @@ class RelatoriosPage(QWidget):
         super().__init__()
         self.setObjectName("contentPage")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(12)
+        layout.setContentsMargins(32, 2, 32, 12)
+        layout.setSpacing(6)
 
         title = QLabel("Relatórios e Exportações")
         title.setObjectName("pageTitle")
@@ -70,8 +70,7 @@ class RelatoriosPage(QWidget):
         self.export_output.setReadOnly(True)
         self.export_output.setMaximumHeight(150)
         self.export_output.setPlaceholderText(
-            "A validação verifica os 12 meses de Meta/Realizado e Associação "
-            "para todas as Entidades ativas."
+            "A validação verifica os dados anuais para todas as Entidades ativas."
         )
         self.status = QLabel("Relatórios prontos.")
         self.status.setObjectName("operationStatus")

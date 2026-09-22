@@ -91,7 +91,10 @@ class RegistrationController(QObject):
 class RemoteRegistrationController(QObject):
     """Cadastros em modo servidor: Desktop -> API -> PostgreSQL."""
 
-    def __init__(self, view: CadastrosPage, api_client) -> None:
+    def __init__(
+        self, view: CadastrosPage, api_client,
+        *, allowed_areas: set[str] | None = None,
+    ) -> None:
         super().__init__(view)
         from types import SimpleNamespace
 
@@ -100,6 +103,9 @@ class RemoteRegistrationController(QObject):
         self.api = api_client
         self._entities: dict[int, object] = {}
         self._catalog: dict[int, object] = {}
+        self._allowed_areas = set(
+            {"entities", "catalog"} if allowed_areas is None else allowed_areas
+        )
 
         view.new_entity_button.clicked.connect(self.new_entity)
         view.edit_entity_button.clicked.connect(self.edit_entity)
@@ -108,6 +114,10 @@ class RemoteRegistrationController(QObject):
         view.new_catalog_button.clicked.connect(self.new_catalog)
         view.edit_catalog_button.clicked.connect(self.edit_catalog)
 
+        self.refresh()
+
+    def set_allowed_areas(self, allowed_areas: set[str]) -> None:
+        self._allowed_areas = set(allowed_areas)
         self.refresh()
 
     def _entity_object(self, item: dict):
@@ -126,6 +136,7 @@ class RemoteRegistrationController(QObject):
             nome_oficial=item.get("nome_oficial"),
             municipio=item.get("municipio"),
             uf=item.get("uf"),
+            regiao=item.get("regiao"),
             sigla=item.get("sigla"),
             ativa=item["ativa"],
             aliases=aliases,
@@ -141,15 +152,19 @@ class RemoteRegistrationController(QObject):
         )
 
     def refresh(self) -> None:
+        entities = []
+        catalog = []
         try:
-            entities = [
-                self._entity_object(item)
-                for item in self.api.get("/api/v1/entities")
-            ]
-            catalog = [
-                self._catalog_object(item)
-                for item in self.api.get("/api/v1/catalog")
-            ]
+            if "entities" in self._allowed_areas:
+                entities = [
+                    self._entity_object(item)
+                    for item in self.api.get("/api/v1/entities")
+                ]
+            if "catalog" in self._allowed_areas:
+                catalog = [
+                    self._catalog_object(item)
+                    for item in self.api.get("/api/v1/catalog")
+                ]
         except RuntimeError as error:
             self.view.set_status(str(error), error=True)
             return
@@ -201,8 +216,7 @@ class RemoteRegistrationController(QObject):
         payload = {
             "nome": entity.nome,
             "nome_oficial": entity.nome_oficial,
-            "municipio": entity.municipio,
-            "uf": entity.uf,
+            "regiao": entity.regiao,
             "sigla": entity.sigla,
             "ativa": not entity.ativa,
         }

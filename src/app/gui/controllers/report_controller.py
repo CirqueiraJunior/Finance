@@ -36,12 +36,13 @@ class ReportController(QObject):
 
     def validate_csv(self) -> None:
         try:
-            result = self.csv_service.validate_year(self.view.selected_year())
+            result = self.csv_service.validate_period(self.view.selected_year())
         except (CSVExportValidationError, SQLAlchemyError, RuntimeError) as error:
             self._rollback()
             self.view.set_status(f"Falha na validação: {error}", error=True)
             return
         lines = [
+            f"Ano: {result.year}",
             f"Status: {'APROVADO' if result.valid else 'BLOQUEADO'}",
             f"Entidades: {result.entity_count}",
             f"Meta/Realizado: {result.target_rows} registros",

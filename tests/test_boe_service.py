@@ -201,3 +201,51 @@ def test_import_rolls_back_transaction_on_failure(boe_service, tmp_path, monkeyp
         boe_service.import_file(path)
 
     assert boe_service.repository.session.scalars(select(BOEImport)).all() == []
+
+
+def test_operational_query_combines_period_and_entity_filters(boe_service):
+    session = boe_service.repository.session
+    first, second = session.scalars(select(Entity).order_by(Entity.codigo_entidade)).all()
+    june = add_boe_import(session, year=2026, month=6, file_hash="3" * 64)
+    july = add_boe_import(session, year=2026, month=7, file_hash="4" * 64)
+    august = add_boe_import(session, year=2026, month=8, file_hash="5" * 64)
+    session.add_all([
+        BOEEntityTotal(boe_import_id=june.id, entity_id=first.id, codigo_entidade_origem=7501,
+            nome_entidade_origem=first.nome, quantidade_consultas=10, valor_total=Decimal("1.0000")),
+        BOEEntityTotal(boe_import_id=july.id, entity_id=first.id, codigo_entidade_origem=7501,
+            nome_entidade_origem=first.nome, quantidade_consultas=20, valor_total=Decimal("4.0000")),
+        BOEEntityTotal(boe_import_id=july.id, entity_id=second.id, codigo_entidade_origem=7544,
+            nome_entidade_origem=second.nome, quantidade_consultas=40, valor_total=Decimal("8.0000")),
+        BOEEntityTotal(boe_import_id=august.id, entity_id=first.id, codigo_entidade_origem=7501,
+            nome_entidade_origem=first.nome, quantidade_consultas=80, valor_total=Decimal("16.0000")),
+    ])
+    session.commit()
+
+    result = boe_service.query_operations(2026, 6, 2026, 7, first.id)
+
+    assert [(row.month, row.entity_id) for row in result.rows] == [(6, first.id), (7, first.id)]
+    assert result.total_queries == 30
+    assert result.total_value == Decimal("5.0000")
+    assert result.unit_value == Decimal("5.0000") / 30
+
+
+def test_operational_query_filters_entity_and_calculates_all_kpis(boe_service):
+    session = boe_service.repository.session
+    first, second = session.scalars(select(Entity).order_by(Entity.codigo_entidade)).all()
+    imported = add_boe_import(session, year=2025, month=12, file_hash="6" * 64)
+    session.add_all([
+        BOEEntityTotal(boe_import_id=imported.id, entity_id=first.id, codigo_entidade_origem=7501,
+            nome_entidade_origem=first.nome, quantidade_consultas=25, valor_total=Decimal("5.0000")),
+        BOEEntityTotal(boe_import_id=imported.id, entity_id=second.id, codigo_entidade_origem=7544,
+            nome_entidade_origem=second.nome, quantidade_consultas=75, valor_total=Decimal("15.0000")),
+    ])
+    session.commit()
+
+    all_entities = boe_service.query_operations(2025, 12, 2025, 12)
+    only_second = boe_service.query_operations(2025, 12, 2025, 12, second.id)
+
+    assert all_entities.total_queries == 100
+    assert all_entities.total_value == Decimal("20.0000")
+    assert all_entities.unit_value == Decimal("0.2000")
+    assert [row.entity_id for row in only_second.rows] == [second.id]
+    assert only_second.total_queries == 75

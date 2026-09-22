@@ -8,15 +8,21 @@ import jwt
 
 
 PASSWORD_HASHER = PasswordHasher()
+PASSWORD_POLICY_MESSAGE = (
+    "A senha deve possuir no mínimo 6 caracteres, incluindo uma letra maiúscula, "
+    "uma letra minúscula e um número."
+)
 
 
 def validate_password(password: str) -> None:
-    if len(password) < 12:
-        raise ValueError("A senha deve possuir pelo menos 12 caracteres.")
-    checks = (any(c.isupper() for c in password), any(c.islower() for c in password),
-              any(c.isdigit() for c in password), any(not c.isalnum() for c in password))
+    checks = (
+        len(password) >= 6,
+        any(character.isupper() for character in password),
+        any(character.islower() for character in password),
+        any(character.isdigit() for character in password),
+    )
     if not all(checks):
-        raise ValueError("A senha deve conter maiúscula, minúscula, número e símbolo.")
+        raise ValueError(PASSWORD_POLICY_MESSAGE)
 
 
 def hash_password(password: str) -> str:

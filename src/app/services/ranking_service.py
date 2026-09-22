@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.models.target_entry import TargetIndicator
+from app.models.ranking_parameter import RankingParameter
 from app.repositories.association_repository import AssociationRepository
+from app.repositories.ranking_parameter_repository import RankingParameterRepository
 from app.repositories.target_repository import TargetRepository
 from app.services.award_service import AwardService
 
@@ -53,38 +55,70 @@ class AnnualRankingEntry:
     award_total: Decimal
 
 
+class RankingParametersNotConfiguredError(ValueError):
+    pass
+
+
 class RankingService:
-    def __init__(self, targets: TargetRepository, associations: AssociationRepository):
+    def __init__(
+        self, targets: TargetRepository, associations: AssociationRepository,
+        parameters: RankingParameterRepository | None = None,
+    ):
         self.targets = targets
         self.associations = associations
+        self.parameters = parameters
+
+    def parameters_for_year(self, year: int) -> RankingParameter:
+        if self.parameters is not None:
+            value = self.parameters.get_by_year(year)
+        else:
+            value = RankingParameter.defaults_2026() if year == 2026 else None
+        if value is None:
+            raise RankingParametersNotConfiguredError(
+                f"Os parâmetros do Ranking para {year} não foram configurados."
+            )
+        return value
 
     @staticmethod
-    def billing_points(achievement: Decimal | None) -> int:
-        if achievement is None or achievement < Decimal("100"):
+    def billing_points(
+        achievement: Decimal | None, parameters: RankingParameter | None = None,
+    ) -> int:
+        parameters = parameters or RankingParameter.defaults_2026()
+        if achievement is None or achievement < parameters.billing_level_1_min:
             return 0
-        if achievement < Decimal("110"):
-            return 5
-        if achievement < Decimal("150"):
-            return 6
-        return 7
+        if achievement < parameters.billing_level_2_min:
+            return parameters.billing_level_1_points
+        if achievement < parameters.billing_level_3_min:
+            return parameters.billing_level_2_points
+        return parameters.billing_level_3_points
 
     @staticmethod
-    def capture_points(captures: Decimal) -> int:
-        if captures < 1:
+    def capture_points(
+        captures: Decimal, parameters: RankingParameter | None = None,
+    ) -> int:
+        parameters = parameters or RankingParameter.defaults_2026()
+        if captures < parameters.acquisition_level_1_min:
             return 0
-        if captures < 8:
-            return 2
-        if captures < 16:
-            return 3
-        return 4
+        if captures < parameters.acquisition_level_2_min:
+            return parameters.acquisition_level_1_points
+        if captures < parameters.acquisition_level_3_min:
+            return parameters.acquisition_level_2_points
+        return parameters.acquisition_level_3_points
 
     @staticmethod
-    def cancellation_points(cancellations: Decimal) -> int:
-        return 1 if cancellations == 0 else 0
+    def cancellation_points(
+        cancellations: Decimal, parameters: RankingParameter | None = None,
+    ) -> int:
+        parameters = parameters or RankingParameter.defaults_2026()
+        return (
+            parameters.zero_cancellation_points
+            if cancellations == 0 else parameters.positive_cancellation_points
+        )
 
     def quarterly(self, year: int, quarter: int) -> list[RankingEntry]:
         if quarter not in QUARTER_MONTHS:
             raise ValueError("Trimestre deve estar entre 1 e 4.")
+        parameters = self.parameters_for_year(year)
         months = QUARTER_MONTHS[quarter]
         target_rows = [row for row in self.targets.list_by_year(year)
                        if row.periodo_mes in months and row.entity.codigo_entidade != 7500]
@@ -112,10 +146,13 @@ class RankingService:
             target = item["mq"] + item["mr"]
             actual = item["aq"] + item["ar"]
             achievement = None if target == 0 else actual / target * Decimal("100")
-            classified = achievement is not None and achievement >= Decimal("100")
-            billing = self.billing_points(achievement) if classified else 0
-            capture = self.capture_points(item["cap"]) if classified else 0
-            cancellation = self.cancellation_points(item["can"]) if classified else 0
+            classified = (
+                achievement is not None
+                and achievement >= parameters.minimum_achievement_percent
+            )
+            billing = self.billing_points(achievement, parameters) if classified else 0
+            capture = self.capture_points(item["cap"], parameters) if classified else 0
+            cancellation = self.cancellation_points(item["can"], parameters) if classified else 0
             entity = item["entity"]
             entries.append(RankingEntry(
                 entity_id, entity.codigo_entidade, entity.nome_oficial or entity.nome,
@@ -157,7 +194,7 @@ class RankingService:
                 ) == key
                 for candidate in classified
             ) > 1
-            award = None if tied else AwardService.value_for_position(position)
+            award = None if tied else AwardService.value_for_position(position, parameters)
             ranked.append(self._replace(row, position=position, technical_tie=tied, award=award))
         return ranked + sorted((row for row in entries if not row.classified),
                                key=lambda row: row.entity_code)

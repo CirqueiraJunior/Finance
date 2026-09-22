@@ -42,6 +42,10 @@ class CashflowDuplicateBOEError(CashflowDomainError):
     """Raised when a BOE already has a direct revenue entry."""
 
 
+class CashflowIntegrityError(CashflowDomainError):
+    """Unexpected persistence failure, not a duplicate BOE business rule."""
+
+
 class BudgetDomainError(Exception):
     """Base exception for budget validation errors."""
 

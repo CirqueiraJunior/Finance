@@ -11,6 +11,7 @@ from app.core.logging import configure_logging
 from app.database.session import get_engine
 from app.database.startup import DatabaseStartupError, validate_database_startup
 from app.gui.login_dialog import LoginDialog
+from app.gui.initial_setup_dialog import InitialSetupDialog
 from app.gui.main_window import MainWindow
 from app.gui.splash import hold_splash, show_splash
 from app.resources import load_stylesheet
@@ -66,6 +67,23 @@ def main() -> int:
             QMessageBox.critical(None, "Finance indisponível", str(error))
             api_client.close()
             return 1
+
+        try:
+            requires_initial_setup = api_client.initial_setup_required()
+        except APIConnectionError as error:
+            QMessageBox.critical(None, "Finance indisponível", str(error))
+            api_client.close()
+            return 1
+        except RuntimeError as error:
+            QMessageBox.critical(None, "Configuração inicial", str(error))
+            api_client.close()
+            return 1
+
+        if requires_initial_setup:
+            setup = InitialSetupDialog(api_client)
+            if setup.exec() != QDialog.DialogCode.Accepted:
+                api_client.close()
+                return 0
 
         login = LoginDialog(api_client)
         if login.exec() != QDialog.DialogCode.Accepted:

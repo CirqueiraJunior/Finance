@@ -58,13 +58,16 @@ class HistoricalWorkbookImporter:
         if operational.metadata.detected_type != "DESCONHECIDO":
             return self._operational_preview(operational)
         workbook = load_workbook(path, read_only=True, data_only=True)
-        names = {normalized(name): name for name in workbook.sheetnames}
-        if "LANCAMENTOS" in names:
-            return self._cashflow(path, workbook[names["LANCAMENTOS"]])
-        if "TAXA BOE" in names:
-            return HistoricalPreview(path, "BOE", None)
-        return HistoricalPreview(path, "DESCONHECIDO", None,
-                                 errors=["Estrutura oficial não reconhecida."])
+        try:
+            names = {normalized(name): name for name in workbook.sheetnames}
+            if "LANCAMENTOS" in names:
+                return self._cashflow(path, workbook[names["LANCAMENTOS"]])
+            if "TAXA BOE" in names:
+                return HistoricalPreview(path, "BOE", None)
+            return HistoricalPreview(path, "DESCONHECIDO", None,
+                                     errors=["Estrutura oficial não reconhecida."])
+        finally:
+            workbook.close()
 
     def parse_association(self, file_path: str | Path) -> HistoricalPreview:
         path = Path(file_path)
@@ -110,8 +113,27 @@ class HistoricalWorkbookImporter:
             if not any(value is not None for value in values[:8]):
                 continue
             year, month_name, description, notes, category, kind, value, boe = values[:8]
-            if description is None and "SALDO" in normalized(notes):
-                preview.warnings.append(f"Linha {line}: saldo técnico não importado como lançamento.")
+            technical_label = normalized(description or notes)
+            balance_type = None
+            if "SALDO INICIAL" in technical_label:
+                balance_type = "SALDO_INICIAL"
+            elif "SALDO APLICADO" in technical_label:
+                balance_type = "SALDO_APLICADO"
+            if balance_type is not None:
+                try:
+                    year = int(year)
+                    month = MONTHS[normalized(month_name)]
+                    amount = decimal_value(value)
+                    preview.rows.append({
+                        "line": line, "year": year, "month": month,
+                        "description": str(description or "Saldo Inicial").strip(),
+                        "notes": str(notes).strip() if notes is not None else None,
+                        "value": amount, "balance_type": balance_type,
+                    })
+                    preview.total += amount
+                    preview.year = year if preview.year is None else preview.year
+                except (KeyError, TypeError, ValueError) as error:
+                    preview.errors.append(f"Linha {line}: {error}")
                 continue
             try:
                 year = int(year)

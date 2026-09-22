@@ -13,14 +13,21 @@ class DashboardController(QObject):
         self.view.refresh_button.clicked.connect(self.refresh)
         self.view.year_filter.valueChanged.connect(self.refresh)
         self.view.month_filter.currentIndexChanged.connect(self.refresh)
+        for widget in self.view.dashboard_filters():
+            widget.currentIndexChanged.connect(self.refresh)
         self.refresh()
 
     def refresh(self) -> None:
         year, month = self.view.selected_period()
         try:
-            self.view.show_summary(
-                self.service.get_dashboard_summary(year, month)
-            )
+            if hasattr(self.service, "get_dashboard_data"):
+                self.view.show_dashboard_data(
+                    self.service.get_dashboard_data(
+                        year, month, **self.view.selected_dashboard_filters()
+                    )
+                )
+            else:
+                self.view.show_summary(self.service.get_dashboard_summary(year, month))
             self.view.set_status(f"Dashboard atualizado para {month:02d}/{year}.")
         except (SQLAlchemyError, RuntimeError) as error:
             if hasattr(self.service, "boe"):

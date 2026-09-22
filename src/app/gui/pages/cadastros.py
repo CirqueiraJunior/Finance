@@ -11,6 +11,14 @@ from app.models.cashflow_catalog_entry import CashflowCatalogEntry
 
 
 class EntityDialog(QDialog):
+    REGIONS = (
+        ("Norte", "NORTE"),
+        ("Noroeste", "NOROESTE"),
+        ("Centro", "CENTRO"),
+        ("Leste", "LESTE"),
+        ("Sul", "SUL"),
+    )
+
     def __init__(self, parent=None, entity: Entity | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Editar Entidade" if entity else "Nova Entidade")
@@ -19,16 +27,16 @@ class EntityDialog(QDialog):
         self.code.setRange(1, 999999)
         self.name = QLineEdit()
         self.official_name = QLineEdit()
-        self.city = QLineEdit()
-        self.state = QLineEdit()
-        self.state.setMaxLength(2)
+        self.region = QComboBox()
+        for label, value in self.REGIONS:
+            self.region.addItem(label, value)
         self.acronym = QLineEdit()
         self.active = QCheckBox("Ativa")
         self.active.setChecked(True)
         for label, field in (
             ("Código", self.code), ("Nome", self.name),
-            ("Nome Oficial", self.official_name), ("Município", self.city),
-            ("UF", self.state), ("Sigla", self.acronym), ("Situação", self.active),
+            ("Nome Oficial", self.official_name), ("Região", self.region),
+            ("Sigla", self.acronym), ("Situação", self.active),
         ):
             form.addRow(label, field)
         if entity:
@@ -36,8 +44,8 @@ class EntityDialog(QDialog):
             self.code.setEnabled(False)
             self.name.setText(entity.nome)
             self.official_name.setText(entity.nome_oficial or "")
-            self.city.setText(entity.municipio or "")
-            self.state.setText(entity.uf or "")
+            region_index = self.region.findData(entity.regiao)
+            self.region.setCurrentIndex(region_index)
             self.acronym.setText(entity.sigla or "")
             self.active.setChecked(entity.ativa)
         buttons = QDialogButtonBox(
@@ -52,8 +60,8 @@ class EntityDialog(QDialog):
     def values(self) -> dict:
         return {
             "codigo_entidade": self.code.value(), "nome": self.name.text(),
-            "nome_oficial": self.official_name.text(), "municipio": self.city.text(),
-            "uf": self.state.text(), "sigla": self.acronym.text(),
+            "nome_oficial": self.official_name.text(),
+            "regiao": self.region.currentData(), "sigla": self.acronym.text(),
             "ativa": self.active.isChecked(),
         }
 
@@ -208,14 +216,16 @@ class CadastrosPage(QWidget):
     def __init__(self) -> None:
         super().__init__()
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 2, 20, 12)
+        layout.setSpacing(6)
         title = QLabel("Cadastros")
         title.setObjectName("pageTitle")
         layout.addWidget(title)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
-        self.entity_table = QTableWidget(0, 7)
+        self.entity_table = QTableWidget(0, 6)
         self.entity_table.setHorizontalHeaderLabels(
-            ["Código", "Nome", "Nome Oficial", "Município", "UF", "Sigla", "Ativa"]
+            ["Código", "Nome", "Nome Oficial", "Região", "Sigla", "Ativa"]
         )
         self.entity_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.entity_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -250,14 +260,26 @@ class CadastrosPage(QWidget):
         catalog_layout.addWidget(self.catalog_table)
         self.tabs.addTab(entity_tab, "Base Mestre de Entidades")
         self.tabs.addTab(catalog_tab, "Catálogo do Fluxo de Caixa")
-        self.status = QLabel()
+        self.entity_guidance = QLabel(
+            "Selecione uma Entidade para consultar ou realizar as a\u00e7\u00f5es dispon\u00edveis."
+        )
+        self.entity_guidance.setWordWrap(True)
+        entity_layout.addWidget(self.entity_guidance)
+
+        self.catalog_guidance = QLabel(
+            "Selecione um item para consultar ou realizar as a\u00e7\u00f5es dispon\u00edveis."
+        )
+        self.catalog_guidance.setWordWrap(True)
+        catalog_layout.addWidget(self.catalog_guidance)
+
+        self.status = QLabel("Cadastros prontos.")
         layout.addWidget(self.status)
 
     def show_entities(self, entities: list[Entity]) -> None:
         self.entity_table.setRowCount(len(entities))
         for row, entity in enumerate(entities):
             values = (entity.codigo_entidade, entity.nome, entity.nome_oficial or "—",
-                      entity.municipio or "—", entity.uf or "—", entity.sigla or "—",
+                      (entity.regiao or "—").title(), entity.sigla or "—",
                       "Sim" if entity.ativa else "Não")
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))

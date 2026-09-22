@@ -1,10 +1,12 @@
 from datetime import date
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+import logging
+import sqlite3
 
 from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import CashflowDuplicateBOEError, CashflowValidationError
+from app.core.exceptions import CashflowDuplicateBOEError, CashflowIntegrityError, CashflowValidationError
 from app.models.boe_import import BOEImport
 from app.models.cashflow_entry import (
     EXPENSE_CATEGORIES,
@@ -14,6 +16,24 @@ from app.models.cashflow_entry import (
     CashflowType,
 )
 from app.repositories.cashflow_repository import CashflowRepository
+
+
+logger = logging.getLogger(__name__)
+
+
+def _is_boe_unique_violation(error: IntegrityError) -> bool:
+    original = error.orig
+    state = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
+    if state is not None:
+        return state == "23505" and getattr(
+            getattr(original, "diag", None), "constraint_name", None
+        ) == "ix_cashflow_entries_boe_import_id"
+    # SQLite exposes the error code and columns, but no constraint-name field.
+    return (
+        isinstance(original, sqlite3.IntegrityError)
+        and getattr(original, "sqlite_errorcode", None) == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+        and str(original) == "UNIQUE constraint failed: cashflow_entries.boe_import_id"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +46,7 @@ class CashflowSummary:
     boe_expense: Decimal = Decimal("0.0000")
     non_boe_expense: Decimal = Decimal("0.0000")
     net_direct_revenue: Decimal = Decimal("0.0000")
+    direct_revenue_available: bool = True
 
 
 class CashflowService:
@@ -45,10 +66,13 @@ class CashflowService:
             raise CashflowDuplicateBOEError(
                 "Esta importação BOE já possui uma Receita Direta."
             )
+        competence_year, competence_month = self._next_period(
+            boe_import.periodo_ano, boe_import.periodo_mes
+        )
         entry = CashflowEntry(
-            periodo_ano=boe_import.periodo_ano,
-            periodo_mes=boe_import.periodo_mes,
-            data_lancamento=date(boe_import.periodo_ano, boe_import.periodo_mes, 1),
+            periodo_ano=competence_year,
+            periodo_mes=competence_month,
+            data_lancamento=date(competence_year, competence_month, 1),
             descricao=(
                 f"Receita Direta BOE {boe_import.periodo_mes:02d}/"
                 f"{boe_import.periodo_ano}"
@@ -135,11 +159,24 @@ class CashflowService:
         )
 
     def get_monthly_summary(self, year: int, month: int) -> CashflowSummary:
+        year, month = self._valid_year(year), self._valid_month(month)
         entries = self.list_entries_by_period(year, month)
         zero = Decimal("0.0000")
-        direct = sum(
-            (entry.valor for entry in entries if entry.categoria == CashflowCategory.DIRECT_REVENUE.value),
+        source_year, source_month = self._previous_period(year, month)
+        source_boe = self.repository.get_imported_boe_by_period(source_year, source_month)
+        historical_direct = sum(
+            (entry.valor for entry in entries
+             if entry.categoria == CashflowCategory.DIRECT_REVENUE.value
+             and entry.origem == CashflowOrigin.MANUAL.value),
             zero,
+        )
+        use_historical_direct = (
+            (year, month) == (2026, 1) and source_boe is None
+        )
+        direct = (
+            source_boe.valor_total if source_boe is not None
+            else historical_direct if use_historical_direct
+            else zero
         )
         indirect = sum(
             (entry.valor for entry in entries if entry.categoria == CashflowCategory.INDIRECT_REVENUE.value),
@@ -165,7 +202,19 @@ class CashflowService:
             boe_expense=boe_expense,
             non_boe_expense=non_boe_expense,
             net_direct_revenue=direct - boe_expense,
+            direct_revenue_available=(
+                source_boe is not None
+                or (use_historical_direct and historical_direct > zero)
+            ),
         )
+
+    @staticmethod
+    def _previous_period(year: int, month: int) -> tuple[int, int]:
+        return (year - 1, 12) if month == 1 else (year, month - 1)
+
+    @staticmethod
+    def _next_period(year: int, month: int) -> tuple[int, int]:
+        return (year + 1, 1) if month == 12 else (year, month + 1)
 
     def _persist(self, entry: CashflowEntry, *, commit: bool) -> CashflowEntry:
         try:
@@ -176,12 +225,22 @@ class CashflowService:
             return entry
         except IntegrityError as error:
             self.repository.session.rollback()
-            if entry.boe_import_id is not None:
+            if _is_boe_unique_violation(error):
                 raise CashflowDuplicateBOEError(
                     "Esta importação BOE já possui uma Receita Direta."
                 ) from error
-            raise CashflowValidationError(
-                "O lançamento financeiro não atende às regras de consistência."
+            # Do not log SQL parameters, notes or the raw driver message.
+            original = error.orig
+            logger.error(
+                "Cashflow persistence integrity failure: driver=%s sqlstate=%s constraint=%s sqlite_code=%s",
+                type(original).__name__,
+                getattr(original, "sqlstate", None) or getattr(original, "pgcode", None),
+                getattr(getattr(original, "diag", None), "constraint_name", None),
+                getattr(original, "sqlite_errorcode", None),
+            )
+            raise CashflowIntegrityError(
+                "Não foi possível concluir a gravação financeira. A operação foi cancelada. "
+                "Solicite ao administrador a verificação da integridade do banco."
             ) from error
 
     @staticmethod

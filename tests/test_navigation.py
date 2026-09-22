@@ -24,3 +24,12 @@ def test_navigation_rejects_unknown_page(qtbot) -> None:
     with pytest.raises(ValueError, match="Página desconhecida"):
         controller.navigate_to("missing")
 
+
+def test_navigation_rejects_known_but_forbidden_page(qtbot) -> None:
+    stack = QStackedWidget()
+    qtbot.addWidget(stack)
+    index = stack.addWidget(QLabel("Administração"))
+    controller = NavigationController(stack, {"administracao": index}, {"dashboard"})
+
+    with pytest.raises(PermissionError, match="Acesso não autorizado"):
+        controller.navigate_to("administracao")

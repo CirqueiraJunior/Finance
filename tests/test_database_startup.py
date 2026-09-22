@@ -1,6 +1,7 @@
-from pathlib import Path
 import sqlite3
 
+from alembic import command
+from alembic.config import Config
 import pytest
 from sqlalchemy import create_engine
 
@@ -71,8 +72,18 @@ def test_startup_empty_database_reports_missing_migrations(tmp_path):
     engine.dispose()
 
 
-def test_official_database_schema_is_ready_without_mutation():
-    state = validate_database_startup(get_settings(), get_engine())
-    assert state.engine_name == "SQLite"
-    assert state.database_path == (PROJECT_ROOT / "ja_finance.db").resolve()
-    assert state.migration_revision == EXPECTED_SCHEMA_REVISION
+def test_current_schema_is_ready_after_migration_in_isolated_sqlite(tmp_path, monkeypatch):
+    database = tmp_path / "startup-current.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database.as_posix()}")
+    get_settings.cache_clear()
+    try:
+        command.upgrade(Config("alembic.ini"), "head")
+        settings = get_settings()
+        engine = create_engine(settings.database_url)
+        state = validate_database_startup(settings, engine)
+        assert state.engine_name == "SQLite"
+        assert state.database_path == database.resolve()
+        assert state.migration_revision == EXPECTED_SCHEMA_REVISION
+        engine.dispose()
+    finally:
+        get_settings.cache_clear()

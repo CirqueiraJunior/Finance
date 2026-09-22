@@ -133,18 +133,20 @@ class TargetService:
         year: int,
         month: int,
         indicator: TargetIndicator | str,
-        entity_id: int | None = None,
+        entity_id: int | tuple[int, ...] | list[int] | None = None,
     ) -> TargetVsActual:
         normalized_indicator = self._valid_indicator(indicator)
         entries = self.list_by_period(year, month)
-        if entity_id is not None:
-            self._valid_entity(entity_id)
+        entity_ids = set(entity_id if isinstance(entity_id, (tuple, list, set)) else
+                         (() if entity_id is None else (entity_id,)))
+        for selected_id in entity_ids:
+            self._valid_entity(selected_id)
         entries = [
             entry
             for entry in entries
             if entry.indicador == normalized_indicator.value
             and entry.entity.codigo_entidade != 7500
-            and (entity_id is None or entry.entity_id == entity_id)
+            and (not entity_ids or entry.entity_id in entity_ids)
         ]
         comparisons = tuple(self._comparison(entry) for entry in entries)
         zero = Decimal("0.0000")

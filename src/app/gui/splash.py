@@ -14,21 +14,30 @@ class FinanceSplash(QWidget):
     """Apresentação leve da marca, sem texto rasterizado."""
 
     def __init__(self) -> None:
-        super().__init__(None, Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint)
+        super().__init__(
+            None,
+            Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint,
+        )
         self.setObjectName("financeSplash")
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedSize(600, 420)
-        self.setStyleSheet("QWidget#financeSplash { background: #ffffff; }")
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setAutoFillBackground(False)
+        self.setFixedSize(520, 360)
+        self.setStyleSheet(
+            "QWidget#financeSplash, QWidget#financeSplash QLabel { "
+            "background-color: transparent; border: none; }"
+        )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(42, 34, 42, 34)
-        layout.setSpacing(12)
+        layout.setContentsMargins(36, 30, 36, 30)
+        layout.setSpacing(10)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.icon_label = QLabel()
         self.icon_label.setObjectName("splashIcon")
-        self.icon_label.setFixedSize(104, 104)
+        self.icon_label.setFixedSize(92, 92)
         self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         pixmap = QPixmap(str(OFFICIAL_LOGO))
         if not pixmap.isNull():
             self.icon_label.setPixmap(
@@ -40,17 +49,17 @@ class FinanceSplash(QWidget):
             )
 
         self.title_label = self._label(
-            "Finance", "splashTitle", "34px", "#003B71", 700
+            "Finance", "splashTitle", "30px", "#003B71", 700
         )
         self.slogan_label = self._label(
             "Decisões inteligentes para grandes resultados.",
-            "splashSlogan", "18px", "#4A5568"
+            "splashSlogan", "16px", "#4A5568"
         )
         self.version_label = self._label(
-            "Versão 1.0.0", "splashVersion", "14px", "#6B7280"
+            "Versão 1.0.0", "splashVersion", "13px", "#6B7280"
         )
         self.signature_label = self._label(
-            "J.A. Technology", "splashSignature", "14px", "#003B71", 600
+            "J.A. Technology", "splashSignature", "13px", "#003B71", 600
         )
 
         layout.addWidget(self.icon_label, 0, Qt.AlignmentFlag.AlignHCenter)

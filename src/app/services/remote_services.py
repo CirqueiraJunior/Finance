@@ -75,6 +75,16 @@ class RemoteCashflowService:
             "observacao": values.get("notes"), "boe": values.get("boe", False),
         }))
 
+    def validate_import(self, file_path):
+        return self.api.upload(
+            "/api/v1/financial-import/validate", str(file_path)
+        )
+
+    def import_file(self, file_path):
+        return self.api.upload(
+            "/api/v1/financial-import", str(file_path), import_file=True
+        )
+
 
 class RemoteInvestmentService:
     repository = _Repository()
@@ -110,9 +120,27 @@ class RemoteFinancialFlowService:
 
     def get_summary(self, year, month):
         value = self._data(year, month)["summary"]
-        return FinancialFlowSummary(*(_decimal(value[key]) for key in (
-            "direct_revenue", "indirect_revenue", "total_revenue", "total_expense",
-            "applications", "redemptions", "operational_result", "cash_movement", "applied_balance")))
+        return FinancialFlowSummary(
+            *(_decimal(value[key]) for key in (
+                "direct_revenue", "indirect_revenue", "total_revenue", "total_expense",
+                "applications", "redemptions", "operational_result", "cash_movement",
+                "applied_balance",
+            )),
+            _decimal(value.get("boe_expense", 0)),
+        )
+
+    def get_position(self, year, month):
+        value = self._data(year, month).get("position")
+        if not value:
+            return None
+        return SimpleNamespace(
+            year=value["year"], month=value["month"],
+            opening_balance=_decimal(value["opening_balance"]),
+            bank_balance=_decimal(value["bank_balance"]),
+            net_revenue=_decimal(value["net_revenue"]),
+            monthly_movement=_decimal(value["monthly_movement"]),
+            applied_balance=_decimal(value["applied_balance"]) if value.get("applied_balance") is not None else None,
+        )
 
     def create_application(self, **values): return RemoteInvestmentService(self.api).create_application(**values)
     def create_redemption(self, **values): return RemoteInvestmentService(self.api).create_redemption(**values)
@@ -152,6 +180,32 @@ class RemoteBOEService:
             total_entities=data["total_entities"], total_queries=data["total_queries"],
             total_value=_decimal(data["total_value"]),
             inconsistencies=tuple(SimpleNamespace(**row) for row in data["inconsistencies"]))
+
+    def list_operational_entities(self):
+        return tuple(
+            (row["id"], row["name"])
+            for row in self.api.get("/api/v1/boe/operations/entities")
+        )
+
+    def query_operations(self, start_year, start_month, end_year, end_month,
+                         entity_id=None):
+        path = (
+            "/api/v1/boe/operations"
+            f"?start_year={start_year}&start_month={start_month}"
+            f"&end_year={end_year}&end_month={end_month}"
+        )
+        if entity_id is not None:
+            path += f"&entity_id={entity_id}"
+        data = self.api.get(path)
+        return SimpleNamespace(
+            rows=tuple(SimpleNamespace(
+                **{**row, "unit_value": _decimal(row["unit_value"]),
+                   "total_value": _decimal(row["total_value"])}
+            ) for row in data["rows"]),
+            total_queries=data["total_queries"],
+            unit_value=_decimal(data["unit_value"]),
+            total_value=_decimal(data["total_value"]),
+        )
 
 
 class RemoteBudgetService:
@@ -197,7 +251,9 @@ class RemoteTargetService:
     def __init__(self, api): self.api = api; self._entities = []
     def _data(self, year, month, indicator, entity_id=None):
         path = f"/api/v1/targets?year={year}&month={month}&indicator={indicator}"
-        if entity_id is not None: path += f"&entity_id={entity_id}"
+        if entity_id is not None:
+            ids = entity_id if isinstance(entity_id, (tuple, list, set)) else (entity_id,)
+            path += "".join(f"&entity_id={int(value)}" for value in ids)
         data = self.api.get(path); self._entities = [_entity(x) for x in data["entities"]]; return data
     def list_entities(self):
         if not self._entities:
@@ -266,16 +322,79 @@ class RemoteRankingService:
 
 
 class RemoteDashboardService:
-    def __init__(self, api): self.api = api
+    def __init__(self, api, areas=None):
+        self.api = api
+        self.areas = set(areas or {"financial", "boe", "targets"})
+    def get_dashboard_data(self, year, month, **filters):
+        result = {}
+        if "financial" in self.areas:
+            path = f"/api/v1/dashboard/financial?year={year}&month={month}"
+            if filters.get("category"):
+                path += f"&category={filters['category']}"
+            if filters.get("entry_type"):
+                path += f"&entry_type={filters['entry_type']}"
+            result["financial"] = self.api.get(path)
+        if "boe" in self.areas:
+            path = f"/api/v1/dashboard/boe?year={year}&month={month}"
+            if filters.get("boe_start_month"):
+                path += f"&start_month={filters['boe_start_month']}"
+            if filters.get("boe_end_month"):
+                path += f"&end_month={filters['boe_end_month']}"
+            if filters.get("boe_entity_id"):
+                path += f"&entity_id={filters['boe_entity_id']}"
+            result["boe"] = self.api.get(path)
+        if "targets" in self.areas:
+            indicator = filters.get("indicator", "TODAS")
+            path = (f"/api/v1/dashboard/targets?year={year}&month={month}"
+                    f"&indicator={indicator}")
+            if filters.get("target_start_month"):
+                path += f"&start_month={filters['target_start_month']}"
+            if filters.get("target_end_month"):
+                path += f"&end_month={filters['target_end_month']}"
+            if filters.get("target_entity_id"):
+                path += f"&entity_id={filters['target_entity_id']}"
+            result["targets"] = self.api.get(path)
+        return result
     def get_dashboard_summary(self, year, month):
-        d = self.api.get(f"/api/v1/dashboard?year={year}&month={month}")
-        f, b, o, t = d["financial"], d["boe"], d["budget"], d["targets"]
-        indicator = lambda x: IndicatorDashboardSummary(x["has_data"], _decimal(x["target"]), _decimal(x["actual"]), _decimal(x["achievement_percentage"]) if x["achievement_percentage"] is not None else None)
-        return DashboardSummary(d["year"], d["month"], FinancialDashboardSummary(*(_decimal(f[k]) for k in (
-            "total_revenue", "total_expense", "operational_result", "applications", "redemptions", "cash_movement", "applied_balance"))),
-            BOEDashboardSummary(b["has_data"], b["entities"], b["queries"], _decimal(b["total_value"])),
-            BudgetDashboardSummary(*(_decimal(o[k]) for k in ("budgeted_revenue", "actual_revenue", "budgeted_expense", "actual_expense", "budgeted_result", "actual_result"))),
-            TargetDashboardSummary(indicator(t["queries"]), indicator(t["registrations"])))
+        zero = Decimal("0")
+        financial = FinancialDashboardSummary(zero, zero, zero, zero, zero, zero, zero)
+        budget = BudgetDashboardSummary(zero, zero, zero, zero, zero, zero)
+        boe = BOEDashboardSummary(False, 0, 0, zero)
+        empty_indicator = IndicatorDashboardSummary(False, zero, zero, None)
+        targets = TargetDashboardSummary(empty_indicator, empty_indicator)
+        if "financial" in self.areas:
+            data = self.api.get(f"/api/v1/dashboard/financial?year={year}&month={month}")
+            if not data.get("balance_available", True):
+                raise RuntimeError("Saldo Inicial Base não cadastrado para o período.")
+            k, b = data["kpis"], data["budget"]
+            financial = FinancialDashboardSummary(
+                _decimal(k["total_revenue"]), _decimal(k["total_expense"]),
+                _decimal(k["total_revenue"]) - _decimal(k["total_expense"]),
+                _decimal(k["applications"]), _decimal(k["redemptions"]),
+                _decimal(k["bank_balance"]) - _decimal(k["opening_balance"]),
+                _decimal(k["applied_balance"]),
+            )
+            budget = BudgetDashboardSummary(
+                _decimal(b["budgeted_revenue"]), _decimal(b["actual_revenue"]),
+                _decimal(b["budgeted_expense"]), _decimal(b["actual_expense"]),
+                _decimal(b["result"]) - _decimal(b["variance"]),
+                _decimal(b["result"]),
+            )
+        if "boe" in self.areas:
+            data = self.api.get(f"/api/v1/dashboard/boe?year={year}&month={month}")
+            boe = BOEDashboardSummary(bool(data["entities"]), data["entity_count"],
+                                      data["queries"], _decimal(data["total_value"]))
+        if "targets" in self.areas:
+            data = self.api.get(f"/api/v1/dashboard/targets?year={year}&month={month}&indicator=TODAS")
+            def indicator(value):
+                return IndicatorDashboardSummary(
+                    bool(value["target"] or value["actual"]), _decimal(value["target"]),
+                    _decimal(value["actual"]),
+                    _decimal(value["achievement_percentage"])
+                    if value["achievement_percentage"] is not None else None,
+                )
+            targets = TargetDashboardSummary(indicator(data["queries"]), indicator(data["registrations"]))
+        return DashboardSummary(year, month, financial, boe, budget, targets)
 
 
 class RemoteReportService:
@@ -289,9 +408,9 @@ class RemoteReportService:
 class RemoteCSVService:
     export_repository = _Repository()
     def __init__(self, api): self.api = api
-    def validate_year(self, year):
+    def validate_period(self, year):
         d = self.api.get(f"/api/v1/reports/csv-validation?year={year}")
-        return CSVValidationResult(d["valid"], tuple(d["errors"]), d["entity_count"], d["target_rows"], d["association_rows"])
+        return CSVValidationResult(d["year"], d["valid"], tuple(d["errors"]), d["entity_count"], d["target_rows"], d["association_rows"])
     def export_all(self, year, destination):
         destination = Path(destination); archive_bytes = self.api.download("/api/v1/reports/csv-export", {"year": year})
         with ZipFile(BytesIO(archive_bytes)) as archive:
@@ -299,4 +418,4 @@ class RemoteCSVService:
             names = archive.namelist()
         files = tuple(destination / name for name in names if name.endswith(".csv"))
         report = next(destination / name for name in names if not name.endswith(".csv"))
-        return CSVExportResult(year, destination, files, report, self.validate_year(year))
+        return CSVExportResult(year, destination, files, report, self.validate_period(year))

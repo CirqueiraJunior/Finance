@@ -22,4 +22,5 @@ exports/
 *.tmp
 *.bak
 *.pem
+!src/finance_server/resources/recovery_public_key.pem
 *.key

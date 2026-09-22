@@ -1,11 +1,11 @@
 from datetime import date
 from decimal import Decimal
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QEvent
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel,
     QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget, QTabWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget, QTabWidget, QListView,
 )
 
 from app.models.entity import Entity
@@ -13,6 +13,63 @@ from app.models.target_entry import TargetEntry, TargetIndicator
 from app.services.target_service import TargetVsActual
 from app.services.ranking_service import AnnualRankingEntry, RankingEntry
 from app.widgets import BrazilianDecimalEdit, MonthComboBox
+
+
+class EntityMultiSelectCombo(QComboBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setView(QListView())
+        self.view().viewport().installEventFilter(self)
+        self.addItem("Todas as Entidades", None)
+        self._check(0, True)
+
+    def _check(self, row, checked):
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        self.setItemData(row, state, Qt.ItemDataRole.CheckStateRole)
+
+    def eventFilter(self, watched, event):
+        if watched is self.view().viewport() and event.type() == QEvent.Type.MouseButtonRelease:
+            index = self.view().indexAt(event.position().toPoint())
+            if index.isValid():
+                self.toggle_index(index.row())
+                return True
+        return super().eventFilter(watched, event)
+
+    def toggle_index(self, row):
+        if row == 0:
+            checked = self.itemData(0, Qt.ItemDataRole.CheckStateRole) != Qt.CheckState.Checked
+            for i in range(self.count()): self._check(i, checked)
+        else:
+            checked = self.itemData(row, Qt.ItemDataRole.CheckStateRole) != Qt.CheckState.Checked
+            self._check(row, checked)
+            self._check(0, all(self.itemData(i, Qt.ItemDataRole.CheckStateRole) == Qt.CheckState.Checked for i in range(1, self.count())))
+        self.setToolTip(self.selection_text())
+
+    def set_entities(self, entities, selected_ids=None):
+        selected = set(selected_ids or ())
+        all_selected = not selected
+        self.clear()
+        self.addItem("Todas as Entidades", None)
+        for entity in entities:
+            name = entity.nome_oficial or entity.nome
+            self.addItem(f"{entity.codigo_entidade} — {name}", entity.id)
+        for i in range(self.count()):
+            self._check(i, all_selected or (i > 0 and self.itemData(i) in selected))
+        self.setToolTip(self.selection_text())
+
+    def selected_ids(self):
+        if self.count() <= 1: return None
+        ids = tuple(int(self.itemData(i)) for i in range(1, self.count()) if self.itemData(i, Qt.ItemDataRole.CheckStateRole) == Qt.CheckState.Checked)
+        return None if len(ids) == self.count() - 1 else ids
+
+    def selection_text(self):
+        ids = self.selected_ids()
+        if ids is None: return "Todas as Entidades"
+        if not ids: return "Nenhuma Entidade"
+        if len(ids) == 1:
+            row = next((i for i in range(1, self.count()) if self.itemData(i) == ids[0]), 0)
+            return self.itemText(row)
+        return f"{len(ids)} Entidades selecionadas"
 
 
 class TargetImportProgressDialog(QDialog):
@@ -116,8 +173,8 @@ class MetasPage(QWidget):
         self.tabs = QTabWidget()
         operational = QWidget()
         layout = QVBoxLayout(operational)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(12)
+        layout.setContentsMargins(32, 2, 32, 12)
+        layout.setSpacing(6)
         title = QLabel("Meta x Realizado")
         title.setObjectName("pageTitle")
         description = QLabel(
@@ -134,8 +191,7 @@ class MetasPage(QWidget):
         self.indicator_filter = QComboBox()
         self.indicator_filter.addItem("Consultas", TargetIndicator.QUERIES.value)
         self.indicator_filter.addItem("Registros", TargetIndicator.REGISTRATIONS.value)
-        self.entity_filter = QComboBox()
-        self.entity_filter.addItem("Todas as Entidades", None)
+        self.entity_filter = EntityMultiSelectCombo()
         self.filter_button = QPushButton("Aplicar filtro")
         self.new_button = QPushButton("Nova Meta")
         self.new_button.setObjectName("primaryButton")
@@ -157,6 +213,8 @@ class MetasPage(QWidget):
         import_area = QWidget()
         import_area.setObjectName("sectionCard")
         import_layout = QVBoxLayout(import_area)
+        import_layout.setContentsMargins(10, 6, 10, 6)
+        import_layout.setSpacing(4)
         self.import_summary = QLabel("Selecione um arquivo para validar a importação de Metas.")
         self.import_summary.setWordWrap(True)
         self.import_preview = QTableWidget(0, 6)
@@ -164,6 +222,8 @@ class MetasPage(QWidget):
             ["Linha", "Entidade", "Período", "Indicador", "Meta", "Realizado"]
         )
         self.import_preview.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.import_preview.setMinimumHeight(88)
+        self.import_preview.setMaximumHeight(112)
         self.import_issues = QLabel()
         self.import_issues.setWordWrap(True)
         self.confirm_import_button = QPushButton("Confirmar importação")
@@ -190,6 +250,7 @@ class MetasPage(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setMinimumHeight(210)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.empty_state = QLabel("Nenhuma Meta cadastrada para os filtros selecionados.")
         self.empty_state.setObjectName("pageDescription")
@@ -321,19 +382,13 @@ class MetasPage(QWidget):
         return value
 
     def set_entities(self, entities: list[Entity]) -> None:
-        selected = self.entity_filter.currentData()
-        self.entity_filter.clear()
-        self.entity_filter.addItem("Todas as Entidades", None)
-        for entity in entities:
-            name = entity.nome_oficial or entity.nome
-            self.entity_filter.addItem(f"{entity.codigo_entidade} — {name}", entity.id)
-        index = self.entity_filter.findData(selected)
-        self.entity_filter.setCurrentIndex(max(index, 0))
+        selected = self.entity_filter.selected_ids()
+        self.entity_filter.set_entities(entities, selected)
 
-    def selected_filters(self) -> tuple[int, int, str, int | None]:
+    def selected_filters(self) -> tuple[int, int, str, tuple[int, ...] | None]:
         return (
             self.year_filter.value(), self.month_filter.currentData(),
-            self.indicator_filter.currentData(), self.entity_filter.currentData(),
+            self.indicator_filter.currentData(), self.entity_filter.selected_ids(),
         )
 
     def show_result(self, result: TargetVsActual) -> None:

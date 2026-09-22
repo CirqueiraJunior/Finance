@@ -17,7 +17,9 @@ from app.models.cashflow_entry import (
 from app.models.entity import Entity
 from app.models.entity_alias import EntityAlias
 from app.models.investment_movement import InvestmentMovement, InvestmentMovementType
+from app.models.financial_balance_entry import FinancialBalanceEntry, FinancialBalanceType
 from app.models.target_entry import TargetEntry, TargetIndicator
+from app.models.ranking_parameter import RankingParameter
 
 __all__ = [
     "AssociationEntry",
@@ -36,6 +38,9 @@ __all__ = [
     "EntityAlias",
     "InvestmentMovement",
     "InvestmentMovementType",
+    "FinancialBalanceEntry",
+    "FinancialBalanceType",
     "TargetEntry",
     "TargetIndicator",
+    "RankingParameter",
 ]

@@ -22,6 +22,7 @@ class Entity(Base):
     nome_oficial: Mapped[str | None] = mapped_column(String(255))
     municipio: Mapped[str | None] = mapped_column(String(150))
     uf: Mapped[str | None] = mapped_column(String(2))
+    regiao: Mapped[str | None] = mapped_column(String(20))
     sigla: Mapped[str | None] = mapped_column(String(50))
     ativa: Mapped[bool] = mapped_column(
         Boolean,

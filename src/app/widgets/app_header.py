@@ -43,7 +43,7 @@ class AppHeader(QFrame):
 
         self.logout_button = QPushButton("Sair")
         self.logout_button.setObjectName("headerLogout")
-        self.logout_button.setVisible(bool(user_name))
+        self.logout_button.setVisible(False)
 
         self.version = QLabel(f"Versão {__version__}")
         self.version.setObjectName("headerVersion")
@@ -52,5 +52,4 @@ class AppHeader(QFrame):
         layout.addWidget(self.tagline, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addStretch()
         layout.addWidget(self.user, 0, Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(self.logout_button, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.version, 0, Qt.AlignmentFlag.AlignVCenter)

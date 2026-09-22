@@ -1,11 +1,14 @@
 import os
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from finance_server.config import get_server_settings
-from finance_server.models import User, UserRole
-from finance_server.security import hash_password
+from finance_server.initial_setup import (
+    InitialAdministratorData,
+    InitialSetupUnavailableError,
+    create_initial_administrator,
+)
 
 
 def main() -> int:
@@ -18,16 +21,21 @@ def main() -> int:
         raise SystemExit("Variáveis BOOTSTRAP_ADMIN_* obrigatórias não configuradas.")
     engine = create_engine(settings.database_url)
     with Session(engine) as session:
-        if session.scalar(select(User.id).where(User.perfil == UserRole.ADMINISTRATOR.value)):
-            raise SystemExit("Bootstrap recusado: já existe Administrador.")
-        session.add(User(
-            nome=values["BOOTSTRAP_ADMIN_NAME"],
-            email=values["BOOTSTRAP_ADMIN_EMAIL"].casefold(),
-            username=values["BOOTSTRAP_ADMIN_USERNAME"].casefold(),
-            password_hash=hash_password(values["BOOTSTRAP_ADMIN_PASSWORD"]),
-            perfil=UserRole.ADMINISTRATOR.value, ativo=True,
-        ))
-        session.commit()
+        try:
+            create_initial_administrator(
+                session,
+                InitialAdministratorData(
+                    nome=values["BOOTSTRAP_ADMIN_NAME"],
+                    email=values["BOOTSTRAP_ADMIN_EMAIL"],
+                    username=values["BOOTSTRAP_ADMIN_USERNAME"],
+                    password=values["BOOTSTRAP_ADMIN_PASSWORD"],
+                ),
+                origin="CLI_BOOTSTRAP",
+            )
+            session.commit()
+        except InitialSetupUnavailableError as error:
+            session.rollback()
+            raise SystemExit(f"Bootstrap recusado: {error}") from None
     return 0
 
 

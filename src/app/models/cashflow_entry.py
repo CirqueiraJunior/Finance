@@ -69,6 +69,8 @@ class CashflowEntry(Base):
             "AND boe_import_id IS NOT NULL) OR "
             "(tipo = 'RECEITA' AND origem = 'MANUAL' AND categoria = 'RECEITA_INDIRETA' "
             "AND boe_import_id IS NULL) OR "
+            "(tipo = 'RECEITA' AND origem = 'MANUAL' AND categoria = 'RECEITA_DIRETA' "
+            "AND periodo_ano = 2026 AND periodo_mes = 1 AND boe_import_id IS NULL) OR "
             "(tipo = 'DESPESA' AND origem = 'MANUAL' AND categoria IN "
             "('ADMINISTRATIVO', 'DIRETORIA', 'EVENTOS', 'OPERACIONAL', 'PESSOAL', "
             "'INVESTIMENTO', 'OUTROS') "

@@ -13,6 +13,7 @@ from app.models.association_entry import AssociationEntry
 from app.models.budget_entry import BudgetEntry
 from app.models.cashflow_entry import CashflowEntry
 from app.models.investment_movement import InvestmentMovement
+from app.models.financial_balance_entry import FinancialBalanceEntry
 from app.models.target_entry import TargetEntry
 from app.services.backup_service import BackupService
 from app.services.boe_service import BOEService
@@ -103,6 +104,8 @@ class HistoricalImportService:
 
     def _validate_entities(self, preview: HistoricalPreview) -> None:
         for row in preview.rows:
+            if row.get("balance_type"):
+                continue
             entity = self.entities.get_entity_by_code(row["code"])
             if entity is None or entity.codigo_entidade == 7500:
                 preview.errors.append(
@@ -112,11 +115,14 @@ class HistoricalImportService:
                 row["entity_id"] = entity.id
 
     def _validate_cashflow(self, preview: HistoricalPreview) -> None:
+        operational_rows = [row for row in preview.rows if not row.get("balance_type")]
+        if not operational_rows:
+            return
         official = {
             (normalized(item.descricao), item.categoria, item.tipo)
             for item in self.catalog.list_entries() if item.ativa
         }
-        for row in preview.rows:
+        for row in operational_rows:
             category = CATEGORY_MAP.get(normalized(row["category_label"]))
             kind = TYPE_MAP.get(normalized(row["type_label"]))
             row["category"], row["type"] = category, kind
@@ -127,10 +133,7 @@ class HistoricalImportService:
                     f"Linha {row['line']}: combinação não encontrada no catálogo oficial."
                 )
             elif kind == "SALDO" or category == "SALDO_APLICADO":
-                row["skip"] = True
-                preview.warnings.append(
-                    f"Linha {row['line']}: saldo aplicado excluído por ser registro técnico."
-                )
+                row["balance_type"] = "SALDO_APLICADO"
             elif category == "RECEITA_DIRETA":
                 row["skip"] = True
                 preview.warnings.append(
@@ -141,6 +144,15 @@ class HistoricalImportService:
         for row in preview.rows:
             duplicate = False
             if row.get("skip"):
+                continue
+            if row.get("balance_type"):
+                duplicate = self.session.scalar(select(FinancialBalanceEntry.id).where(
+                    FinancialBalanceEntry.year == row["year"],
+                    FinancialBalanceEntry.month == row["month"],
+                    FinancialBalanceEntry.balance_type == row["balance_type"],
+                )) is not None
+                row["duplicate"] = duplicate
+                preview.duplicates += int(duplicate)
                 continue
             kind = preview.detected_type
             if kind == "FLUXO_CAIXA" and row.get("category"):
@@ -197,7 +209,13 @@ class HistoricalImportService:
 
     def _persist(self, kind: str, row: dict) -> None:
         if kind == "FLUXO_CAIXA":
-            if row["type"] in {"APLICACAO", "RESGATE"}:
+            if row.get("balance_type"):
+                self.session.add(FinancialBalanceEntry(
+                    year=row["year"], month=row["month"],
+                    balance_type=row["balance_type"], value=row["value"],
+                    description=row["description"], notes=row.get("notes"),
+                ))
+            elif row["type"] in {"APLICACAO", "RESGATE"}:
                 self.session.add(InvestmentMovement(
                     data_movimento=date(row["year"], row["month"], 1),
                     periodo_ano=row["year"], periodo_mes=row["month"], tipo=row["type"],

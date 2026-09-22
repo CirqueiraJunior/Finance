@@ -1,11 +1,12 @@
 from pathlib import Path
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, QThread, Slot
 from PySide6.QtWidgets import QFileDialog
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.exceptions import BOEDomainError, BOEValidationError
 from app.gui.pages.boe import BoePage
+from app.gui.processing import OperationWorker, ProcessingDialog
 from app.services.boe_service import BOEService
 
 
@@ -15,13 +16,18 @@ class BOEController(QObject):
         self.view = view
         self.service = service
         self._selected_file: Path | None = None
+        self._import_thread: QThread | None = None
+        self._import_worker: OperationWorker | None = None
+        self._import_dialog: ProcessingDialog | None = None
         self.view.select_button.clicked.connect(self.select_file)
         self.view.validate_button.clicked.connect(self.validate_file)
         self.view.import_button.clicked.connect(self.import_file)
         self.view.history_table.itemSelectionChanged.connect(
             self.load_selected_details
         )
+        self.view.query_button.clicked.connect(self.query_operations)
         self.refresh_history()
+        self.refresh_operational_entities()
 
     def select_file(self) -> None:
         selected, _ = QFileDialog.getOpenFileName(
@@ -59,32 +65,68 @@ class BOEController(QObject):
         )
 
     def import_file(self) -> None:
-        if self._selected_file is None:
-            return
-        try:
-            imported = self.service.import_file(self._selected_file)
-        except BOEValidationError as error:
-            self.view.show_validation(error.result)
-            self.view.show_import_error(str(error))
-            self.view.import_button.setEnabled(False)
-            self.view.set_status(str(error), error=True)
-            return
-        except BOEDomainError as error:
-            self.view.show_import_error(str(error))
-            self.view.import_button.setEnabled(False)
-            self.view.set_status(str(error), error=True)
-            return
-        except Exception as error:  # defensive GUI boundary
-            self.view.show_import_error(str(error))
-            self.view.import_button.setEnabled(False)
-            self.view.set_status(f"Falha ao importar: {error}", error=True)
+        if self._selected_file is None or (
+            self._import_thread is not None and self._import_thread.isRunning()
+        ):
             return
         self.view.import_button.setEnabled(False)
+        self.view.select_button.setEnabled(False)
+        self.view.validate_button.setEnabled(False)
+        self._import_dialog = ProcessingDialog(
+            self.view, window_title="Importação BOE"
+        )
+        self._import_dialog.show()
+        selected_file = self._selected_file
+        self._import_thread = QThread(self)
+        self._import_worker = OperationWorker(
+            lambda: self.service.import_file(selected_file)
+        )
+        self._import_worker.moveToThread(self._import_thread)
+        self._import_thread.started.connect(self._import_worker.run)
+        self._import_worker.succeeded.connect(self._import_succeeded)
+        self._import_worker.failed.connect(self._import_failed)
+        self._import_worker.finished.connect(self._import_thread.quit)
+        self._import_worker.finished.connect(self._import_worker.deleteLater)
+        self._import_thread.finished.connect(self._import_finished)
+        self._import_thread.start()
+
+    @Slot(object)
+    def _import_succeeded(self, imported: object) -> None:
         self.view.show_import_success(imported)
         self.view.set_status(
             f"BOE {imported.periodo_mes:02d}/{imported.periodo_ano} importado com sucesso."
         )
         self.refresh_history()
+        self.refresh_operational_entities()
+
+    @Slot(object)
+    def _import_failed(self, error: Exception) -> None:
+        if isinstance(error, BOEValidationError):
+            self.view.show_validation(error.result)
+            self.view.show_import_error(str(error))
+            self.view.set_status(str(error), error=True)
+            return
+        if isinstance(error, BOEDomainError):
+            self.view.show_import_error(str(error))
+            self.view.set_status(str(error), error=True)
+            return
+        self.view.show_import_error(str(error))
+        self.view.set_status(f"Falha ao importar: {error}", error=True)
+
+    @Slot()
+    def _import_finished(self) -> None:
+        if self._import_dialog is not None:
+            self._import_dialog.accept()
+            self._import_dialog.deleteLater()
+        if self._import_thread is not None:
+            self._import_thread.deleteLater()
+        self._import_dialog = None
+        self._import_thread = None
+        self._import_worker = None
+        self.view.select_button.setEnabled(True)
+        self.view.validate_button.setEnabled(self._selected_file is not None)
+        # A completed attempt must be validated again before another import.
+        self.view.import_button.setEnabled(False)
 
     def refresh_history(self) -> None:
         try:
@@ -113,3 +155,21 @@ class BOEController(QObject):
             self.view.clear_details("A importação selecionada não foi encontrada.")
             return
         self.view.show_details(details)
+
+    def refresh_operational_entities(self) -> None:
+        if not hasattr(self.service, "list_operational_entities"):
+            self.view.set_operational_entities(())
+            return
+        try:
+            self.view.set_operational_entities(self.service.list_operational_entities())
+        except (SQLAlchemyError, RuntimeError):
+            self.view.set_operational_entities(())
+
+    def query_operations(self) -> None:
+        try:
+            self.view.show_operations(
+                self.service.query_operations(*self.view.operational_filters())
+            )
+            self.view.set_status("Consulta operacional BOE atualizada.")
+        except (ValueError, SQLAlchemyError, RuntimeError) as error:
+            self.view.set_status(f"Falha ao consultar BOE: {error}", error=True)

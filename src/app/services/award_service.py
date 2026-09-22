@@ -2,6 +2,8 @@
 
 from decimal import Decimal
 
+from app.models.ranking_parameter import RankingParameter
+
 
 class AwardService:
     AWARDS = {
@@ -11,5 +13,13 @@ class AwardService:
     }
 
     @classmethod
-    def value_for_position(cls, position: int | None) -> Decimal | None:
-        return cls.AWARDS.get(position)
+    def value_for_position(
+        cls, position: int | None, parameters: RankingParameter | None = None,
+    ) -> Decimal | None:
+        if parameters is None:
+            return cls.AWARDS.get(position)
+        return {
+            1: parameters.first_place_award,
+            2: parameters.second_place_award,
+            3: parameters.third_place_award,
+        }.get(position)

@@ -1,7 +1,8 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class LoginRequest(BaseModel):
@@ -14,6 +15,8 @@ class TokenPair(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int
+    must_change_password: bool = False
+    personal_recovery_key: str | None = None
 
 
 class RefreshRequest(BaseModel):
@@ -34,6 +37,54 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
+class AssistedRecoveryRequestCreate(BaseModel):
+    identifier: str = Field(min_length=1, max_length=320)
+
+
+class AssistedRecoveryRequestResponse(BaseModel):
+    message: str
+    request_code: str | None = None
+
+
+class AssistedRecoveryAuthorizationRequest(BaseModel):
+    authorization: str = Field(min_length=1)
+
+
+class AssistedRecoveryAuthorizationResponse(BaseModel):
+    valid: bool
+
+
+class AssistedRecoveryCompleteRequest(AssistedRecoveryAuthorizationRequest):
+    new_password: str
+
+
+class CompletePasswordChangeRequest(BaseModel):
+    new_password: str
+
+
+class CompletePasswordChangeResponse(TokenPair):
+    personal_recovery_key: str
+
+
+class PersonalRecoveryRequest(BaseModel):
+    identifier: str = Field(min_length=1, max_length=320)
+    recovery_key: str = Field(min_length=1)
+    new_password: str
+
+
+class InitialSetupStatus(BaseModel):
+    requires_initial_setup: bool
+
+
+class InitialAdministratorCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nome: str = Field(min_length=2, max_length=255)
+    email: EmailStr
+    username: str = Field(min_length=3, max_length=100)
+    password: str
+
+
 class UserCreate(BaseModel):
     nome: str = Field(min_length=2, max_length=255)
     email: EmailStr
@@ -48,6 +99,10 @@ class UserUpdate(BaseModel):
     ativo: bool | None = None
 
 
+class AdminPasswordResetRequest(BaseModel):
+    temporary_password: str
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -56,6 +111,7 @@ class UserResponse(BaseModel):
     username: str
     perfil: str
     ativo: bool
+    must_change_password: bool
     ultimo_login: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -71,6 +127,52 @@ class AuditResponse(BaseModel):
     entity_id: str | None
     details: dict | None
     origin: str | None
+
+
+class RankingParameterValues(BaseModel):
+    minimum_achievement_percent: Decimal = Field(ge=0)
+    billing_level_1_min: Decimal = Field(ge=0)
+    billing_level_1_points: int = Field(ge=0)
+    billing_level_2_min: Decimal = Field(ge=0)
+    billing_level_2_points: int = Field(ge=0)
+    billing_level_3_min: Decimal = Field(ge=0)
+    billing_level_3_points: int = Field(ge=0)
+    acquisition_level_1_min: Decimal = Field(ge=0)
+    acquisition_level_1_points: int = Field(ge=0)
+    acquisition_level_2_min: Decimal = Field(ge=0)
+    acquisition_level_2_points: int = Field(ge=0)
+    acquisition_level_3_min: Decimal = Field(ge=0)
+    acquisition_level_3_points: int = Field(ge=0)
+    zero_cancellation_points: int = Field(ge=0)
+    positive_cancellation_points: int = Field(ge=0)
+    first_place_award: Decimal = Field(ge=0)
+    second_place_award: Decimal = Field(ge=0)
+    third_place_award: Decimal = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_ranges(self):
+        if not (
+            self.billing_level_1_min
+            < self.billing_level_2_min
+            < self.billing_level_3_min
+        ):
+            raise ValueError("As faixas de faturamento devem estar em ordem crescente.")
+        if not (
+            self.acquisition_level_1_min
+            < self.acquisition_level_2_min
+            < self.acquisition_level_3_min
+        ):
+            raise ValueError("As faixas de captação devem estar em ordem crescente.")
+        return self
+
+
+class RankingParameterResponse(RankingParameterValues):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    year: int
+    created_at: datetime
+    updated_at: datetime
 
 
 class CashflowCreate(BaseModel):
@@ -147,12 +249,16 @@ class EntityAliasResponse(BaseModel):
     origem: str | None = None
 
 
+EntityRegion = Literal["NORTE", "NOROESTE", "CENTRO", "LESTE", "SUL"]
+
+
 class EntityCreate(BaseModel):
     codigo_entidade: int = Field(gt=0)
     nome: str = Field(min_length=1, max_length=255)
     nome_oficial: str | None = Field(None, max_length=255)
     municipio: str | None = Field(None, max_length=150)
     uf: str | None = Field(None, max_length=2)
+    regiao: EntityRegion | None = None
     sigla: str | None = Field(None, max_length=50)
     ativa: bool = True
 
@@ -162,6 +268,7 @@ class EntityUpdate(BaseModel):
     nome_oficial: str | None = Field(None, max_length=255)
     municipio: str | None = Field(None, max_length=150)
     uf: str | None = Field(None, max_length=2)
+    regiao: EntityRegion | None = None
     sigla: str | None = Field(None, max_length=50)
     ativa: bool | None = None
 
@@ -175,6 +282,7 @@ class EntityResponse(BaseModel):
     nome_oficial: str | None
     municipio: str | None
     uf: str | None
+    regiao: EntityRegion | None
     sigla: str | None
     ativa: bool
     aliases: list[EntityAliasResponse] = []

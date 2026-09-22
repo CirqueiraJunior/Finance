@@ -70,7 +70,8 @@ def test_registration_page_exposes_entities_and_catalog_actions(qtbot):
     assert page.tabs.count() == 2
     assert page.new_entity_button.text() == "Nova Entidade"
     assert page.new_catalog_button.text() == "Novo Item"
-    assert page.entity_table.columnCount() == 7
+    assert page.entity_table.columnCount() == 6
+    assert page.entity_table.horizontalHeaderItem(3).text() == "Região"
 
 
 def test_administration_page_buttons_respond_to_mouse(qtbot):
@@ -101,7 +102,7 @@ def test_sqlite_manual_backup_is_valid_and_never_overwrites(tmp_path):
         assert connection.execute("SELECT value FROM evidence").fetchone()[0] == "ok"
 
 
-def test_cashflow_preview_skips_empty_rows_and_technical_balance(tmp_path):
+def test_cashflow_preview_preserves_technical_balance_and_skips_empty_rows(tmp_path):
     path = tmp_path / "fluxo.xlsm"
     workbook = Workbook()
     sheet = workbook.active
@@ -114,9 +115,11 @@ def test_cashflow_preview_skips_empty_rows_and_technical_balance(tmp_path):
     workbook.save(path)
     preview = HistoricalWorkbookImporter().parse(path)
     assert preview.detected_type == "FLUXO_CAIXA"
-    assert len(preview.rows) == 1
-    assert preview.rows[0]["value"] == Decimal("10.5000")
-    assert preview.warnings
+    assert len(preview.rows) == 2
+    assert preview.rows[0]["balance_type"] == "SALDO_INICIAL"
+    assert preview.rows[0]["value"] == Decimal("100.0000")
+    assert preview.rows[1]["value"] == Decimal("10.5000")
+    assert not preview.warnings
 
 
 def test_budget_preview_only_maps_unambiguous_aggregate_rows(tmp_path):
@@ -225,7 +228,7 @@ def test_import_rolls_back_everything_when_one_row_fails(db_session, tmp_path, m
     assert db_session.scalar(select(func.count()).select_from(BudgetEntry)) == 0
 
 
-def test_qfont_initialization_emits_no_invalid_point_size(qtbot, qapp):
+def test_qfont_initialization_emits_no_invalid_point_size(qtbot, qapp, isolated_app_database):
     messages = []
 
     def handler(_type, _context, message):
@@ -248,12 +251,15 @@ def test_qfont_initialization_emits_no_invalid_point_size(qtbot, qapp):
 def test_all_sidebar_buttons_navigate_with_real_mouse_click(qtbot):
     stack = QStackedWidget()
     qtbot.addWidget(stack)
-    indexes = {key: stack.addWidget(QLabel(label)) for label, key in Sidebar.ITEMS}
+    indexes = {
+        key: stack.addWidget(QLabel(label))
+        for _icon_name, label, key in Sidebar.ITEMS
+    }
     controller = NavigationController(stack, indexes)
     sidebar = Sidebar(controller.navigate_to)
     qtbot.addWidget(sidebar)
     sidebar.show()
-    for label, key in Sidebar.ITEMS:
+    for _icon_name, label, key in Sidebar.ITEMS:
         button = next(
             item for item in sidebar.findChildren(QPushButton)
             if item.property("pageKey") == key

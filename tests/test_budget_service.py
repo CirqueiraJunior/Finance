@@ -66,7 +66,7 @@ def test_service_rejects_negative_and_float(service):
 
 def test_budget_vs_actual_and_favorable_variances(service, db_session):
     cashflow = CashflowService(CashflowRepository(db_session))
-    boe = add_boe_import(db_session)
+    boe = add_boe_import(db_session, month=6)
     boe.valor_total = Decimal("21967.2684")
     db_session.commit()
     cashflow.create_direct_revenue_from_boe(boe)

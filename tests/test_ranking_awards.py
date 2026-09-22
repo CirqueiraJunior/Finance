@@ -9,10 +9,14 @@ from app.models.association_entry import AssociationEntry
 from app.models.cashflow_entry import CashflowEntry
 from app.models.entity import Entity
 from app.models.target_entry import TargetEntry, TargetIndicator
+from app.models.ranking_parameter import RankingParameter
 from app.repositories.association_repository import AssociationRepository
+from app.repositories.ranking_parameter_repository import RankingParameterRepository
 from app.repositories.target_repository import TargetRepository
 from app.services.award_service import AwardService
-from app.services.ranking_service import QUARTER_MONTHS, RankingService
+from app.services.ranking_service import (
+    QUARTER_MONTHS, RankingParametersNotConfiguredError, RankingService,
+)
 from app.importers.historical_importer import HistoricalPreview
 from app.services.historical_import_service import HistoricalImportService
 
@@ -65,7 +69,39 @@ def add_entity_result(session, code, target, actual, captures=0, cancellations=0
 
 
 def ranking_service(session):
-    return RankingService(TargetRepository(session), AssociationRepository(session))
+    parameters = RankingParameterRepository(session)
+    if parameters.get_by_year(2026) is None:
+        session.add(RankingParameter.defaults_2026())
+        session.flush()
+    return RankingService(
+        TargetRepository(session), AssociationRepository(session), parameters
+    )
+
+
+def test_year_without_parameters_returns_controlled_error(db_session):
+    service = RankingService(
+        TargetRepository(db_session), AssociationRepository(db_session),
+        RankingParameterRepository(db_session),
+    )
+    with pytest.raises(
+        RankingParametersNotConfiguredError,
+        match="parâmetros do Ranking para 2027 não foram configurados",
+    ):
+        service.quarterly(2027, 1)
+
+
+def test_ranking_and_award_use_persisted_annual_parameters(db_session):
+    parameters = RankingParameter.defaults_2026()
+    parameters.billing_level_1_points = 9
+    parameters.first_place_award = Decimal("1234.00")
+    db_session.add(parameters)
+    add_entity_result(db_session, 7501, "100", "100", 1, 0)
+
+    row = ranking_service(db_session).quarterly(2026, 1)[0]
+
+    assert row.billing_points == 9
+    assert row.score == 12
+    assert row.award == Decimal("1234.00")
 
 
 def test_exactly_100_is_classified_99_99_is_disqualified_and_no_expense(db_session):

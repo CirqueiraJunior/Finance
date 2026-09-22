@@ -4,8 +4,9 @@ from decimal import Decimal, InvalidOperation
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QDateEdit, QDialog, QDialogButtonBox, QFormLayout,
-    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
-    QMessageBox, QRadioButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
+    QMessageBox, QRadioButton, QScrollArea, QSizePolicy, QSpinBox, QTableWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from app.models.cashflow_entry import EXPENSE_CATEGORIES, CashflowCategory, CashflowType
@@ -373,8 +374,8 @@ class FinanceiroPage(QWidget):
         super().__init__()
         self.setObjectName("contentPage")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 2, 20, 0)
+        layout.setSpacing(2)
         title = QLabel("Fluxo de Caixa")
         title.setObjectName("pageTitle")
         description = QLabel("Receitas, despesas, aplicações e resgates no mesmo fluxo financeiro.")
@@ -396,14 +397,69 @@ class FinanceiroPage(QWidget):
         filters.addStretch()
         filters.addWidget(self.new_entry_button)
 
+        self.import_box = QGroupBox("Importação Financeiro")
+        self.import_box.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        import_layout = QVBoxLayout(self.import_box)
+        import_actions = QHBoxLayout()
+        self.select_import_button = QPushButton("Selecionar arquivo")
+        self.validate_import_button = QPushButton("Validar")
+        self.confirm_import_button = QPushButton("Importar")
+        self.confirm_import_button.setObjectName("primaryButton")
+        self.selected_import_file = QLabel("Nenhum arquivo selecionado.")
+        self.validate_import_button.setEnabled(False)
+        self.confirm_import_button.setEnabled(False)
+        import_actions.addWidget(self.select_import_button)
+        import_actions.addWidget(self.validate_import_button)
+        import_actions.addWidget(self.confirm_import_button)
+        import_actions.addWidget(self.selected_import_file, 1)
+        self.import_issues = QPlainTextEdit()
+        self.import_issues.setReadOnly(True)
+        self.import_issues.setPlainText("Selecione uma planilha para iniciar.")
+        self.import_issues.setFixedHeight(72)
+        self.import_issues.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.import_issues.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
+        self.import_issues_scroll = QScrollArea()
+        self.import_issues_scroll.setWidgetResizable(True)
+        self.import_issues_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.import_issues_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.import_issues_scroll.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.import_issues_scroll.setWidget(self.import_issues)
+        self.import_preview = QTableWidget(0, 8)
+        self.import_preview.setHorizontalHeaderLabels(
+            ["Linha", "Período", "Tipo", "Descrição", "Categoria", "BOE", "Valor", "Situação"]
+        )
+        self.import_preview.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.import_preview.setMinimumHeight(210)
+        self.import_preview.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        import_layout.addLayout(import_actions)
+        import_layout.addWidget(self.import_issues_scroll)
+        import_layout.addWidget(self.import_preview, 1)
+
         cards = QGridLayout()
-        self.revenue_total = self._card("Receita Total", cards, 0, 0)
-        self.expense_total = self._card("Despesa Total", cards, 0, 1)
-        self.applications_total = self._card("Aplicações", cards, 0, 2)
-        self.redemptions_total = self._card("Resgates", cards, 0, 3)
-        self.operational_result = self._card("Resultado Operacional", cards, 1, 0)
-        self.cash_movement = self._card("Movimentação de Caixa", cards, 1, 1)
-        self.applied_balance = self._card("Saldo Aplicado", cards, 1, 2)
+        self.opening_balance = self._card("Saldo Inicial", cards, 0, 0)
+        self.revenue_total = self._card("Receita Total", cards, 0, 1)
+        self.expense_total = self._card("Despesa Total", cards, 0, 2)
+        self.operational_result = self._card("Resultado Operacional", cards, 0, 3)
+
+        self.applications_total = self._card("Aplicações", cards, 1, 0)
+        self.redemptions_total = self._card("Resgates", cards, 1, 1)
+        self.bank_balance = self._card("Saldo Bancário", cards, 1, 2)
+        self.applied_balance = self._card("Saldo Aplicado", cards, 1, 3)
+
+        self.boe_total = self._card("Valor BOE", cards, 2, 0)
+        self.net_revenue = self._card("Receita Líquida", cards, 2, 1)
         self.direct_total = QLabel()
         self.indirect_total = QLabel()
         self.monthly_balance = self.operational_result
@@ -415,20 +471,29 @@ class FinanceiroPage(QWidget):
         self.entries_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.entries_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.entries_table.horizontalHeader().setStretchLastSection(True)
+        self.entries_table.setMinimumHeight(92)
+        self.entries_table.setMaximumHeight(112)
+        self.entries_table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self.operation_status = QLabel("Fluxo de Caixa pronto.")
         self.operation_status.setObjectName("operationStatus")
         layout.addWidget(title)
         layout.addWidget(description)
         layout.addLayout(filters)
         layout.addLayout(cards)
-        layout.addWidget(self.entries_table, 1)
-        layout.addWidget(self.operation_status)
+        layout.addWidget(self.entries_table, 0)
+        layout.addWidget(self.import_box, 1)
+        layout.addWidget(self.operation_status, 0)
 
     @staticmethod
     def _card(title: str, layout: QGridLayout, row: int, column: int) -> QLabel:
         card = QWidget()
         card.setObjectName("summaryCard")
+        card.setMaximumHeight(54)
         card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(10, 3, 10, 3)
+        card_layout.setSpacing(1)
         label = QLabel(title)
         label.setObjectName("summaryLabel")
         value = QLabel("R$ 0,00")
@@ -439,7 +504,8 @@ class FinanceiroPage(QWidget):
         return value
 
     def show_financial_flow(
-        self, movements: list[FinancialMovement], summary: FinancialFlowSummary
+        self, movements: list[FinancialMovement], summary: FinancialFlowSummary,
+        position=None,
     ) -> None:
         self.entries_table.setRowCount(len(movements))
         for row, movement in enumerate(movements):
@@ -461,8 +527,17 @@ class FinanceiroPage(QWidget):
         self.applications_total.setText(self.format_currency(summary.applications))
         self.redemptions_total.setText(self.format_currency(summary.redemptions))
         self.operational_result.setText(self.format_currency(summary.operational_result))
-        self.cash_movement.setText(self.format_currency(summary.cash_movement))
+        self.boe_total.setText(self.format_currency(summary.boe_expense))
         self.applied_balance.setText(self.format_currency(summary.applied_balance))
+
+        if position is None:
+            self.opening_balance.setText("—")
+            self.bank_balance.setText("—")
+            self.net_revenue.setText("—")
+        else:
+            self.opening_balance.setText(self.format_currency(position.opening_balance))
+            self.bank_balance.setText(self.format_currency(position.bank_balance))
+            self.net_revenue.setText(self.format_currency(position.net_revenue))
         self.entries_table.resizeColumnsToContents()
 
     def selected_period(self) -> tuple[int, int]:
@@ -477,6 +552,62 @@ class FinanceiroPage(QWidget):
         self.operation_status.setProperty("error", error)
         self.operation_status.style().unpolish(self.operation_status)
         self.operation_status.style().polish(self.operation_status)
+
+    def show_import_validation(self, result: dict) -> None:
+        rows = result.get("preview", [])
+        self.import_preview.setRowCount(len(rows))
+        for index, row in enumerate(rows):
+            situation = (
+                "Receita Direta/BOE (ignorada)" if row.get("skip")
+                else "Duplicado (ignorado)" if row.get("duplicate")
+                else "Pronto para importar"
+            )
+            values = (
+                row.get("line", ""),
+                f"{int(row.get('month', 0)):02d}/{row.get('year', '')}",
+                row.get("type") or row.get("type_label", ""),
+                row.get("description", ""),
+                row.get("category") or row.get("category_label", ""),
+                "Sim" if row.get("boe") else "Não",
+                self.format_currency(Decimal(str(row.get("value", 0)))),
+                situation,
+            )
+            for column, value in enumerate(values):
+                self.import_preview.setItem(index, column, QTableWidgetItem(str(value)))
+        messages = []
+        if result.get("errors"):
+            messages.append("Erros bloqueantes:\n• " + "\n• ".join(result["errors"]))
+        if result.get("warnings"):
+            messages.append("Avisos:\n• " + "\n• ".join(result["warnings"]))
+        if not messages:
+            messages.append("Arquivo validado sem inconsistências.")
+        self.import_issues.setPlainText("\n\n".join(messages))
+        self._fit_import_issues()
+        self.confirm_import_button.setEnabled(bool(result.get("can_import")))
+        self.import_preview.resizeColumnsToContents()
+
+    def show_import_result(self, result: dict) -> None:
+        self.set_status(
+            "Importação Financeiro concluída: "
+            f"{result.get('imported', 0)} lançamento(s) importado(s), "
+            f"{result.get('ignored', 0)} ignorado(s)."
+        )
+        self.import_issues.setPlainText(
+            "Importação concluída com sucesso. "
+            f"Avisos: {len(result.get('warnings', []))}."
+        )
+        self._fit_import_issues()
+
+    def _fit_import_issues(self) -> None:
+        """Mantém mensagens completas sem comprimir a tabela de prévia."""
+        width = max(self.import_issues_scroll.viewport().width(), 320)
+        content_height = max(
+            self.import_issues.heightForWidth(width),
+            self.import_issues.sizeHint().height(),
+        )
+        self.import_issues.setMinimumHeight(content_height)
+        self.import_issues_scroll.setFixedHeight(min(content_height + 2, 96))
+        self.import_issues_scroll.verticalScrollBar().setValue(0)
 
     @staticmethod
     def format_currency(value: Decimal) -> str:

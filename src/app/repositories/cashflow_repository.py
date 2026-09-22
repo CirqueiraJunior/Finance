@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.models.boe_import import BOEImport
 from app.models.cashflow_entry import CashflowEntry
 from app.repositories.base import BaseRepository
 
@@ -44,3 +45,10 @@ class CashflowRepository(BaseRepository[CashflowEntry]):
             .order_by(CashflowEntry.data_lancamento, CashflowEntry.id)
         )
         return list(self.session.scalars(statement))
+
+    def get_imported_boe_by_period(self, year: int, month: int) -> BOEImport | None:
+        return self.session.scalar(select(BOEImport).where(
+            BOEImport.periodo_ano == year,
+            BOEImport.periodo_mes == month,
+            BOEImport.status == "imported",
+        ))

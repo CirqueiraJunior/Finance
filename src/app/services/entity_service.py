@@ -11,6 +11,8 @@ from app.repositories.entity_repository import EntityRepository
 
 
 CONSOLIDATED_ENTITY_CODE = 7500
+ENTITY_REGIONS = frozenset({"NORTE", "NOROESTE", "CENTRO", "LESTE", "SUL"})
+_UNSET = object()
 
 
 class EntityService:
@@ -25,6 +27,7 @@ class EntityService:
         nome_oficial: str | None = None,
         municipio: str | None = None,
         uf: str | None = None,
+        regiao: str | None = None,
         sigla: str | None = None,
         ativa: bool = True,
         observacao: str | None = None,
@@ -42,6 +45,7 @@ class EntityService:
             nome_oficial=self._optional_text(nome_oficial),
             municipio=self._optional_text(municipio),
             uf=self._normalize_uf(uf),
+            regiao=self._normalize_region(regiao),
             sigla=self._optional_text(sigla),
             ativa=ativa,
             observacao=self._optional_text(observacao),
@@ -69,8 +73,9 @@ class EntityService:
         *,
         nome: str,
         nome_oficial: str | None = None,
-        municipio: str | None = None,
-        uf: str | None = None,
+        municipio: str | None | object = _UNSET,
+        uf: str | None | object = _UNSET,
+        regiao: str | None | object = _UNSET,
         sigla: str | None = None,
         ativa: bool | None = None,
     ) -> Entity:
@@ -79,8 +84,12 @@ class EntityService:
             raise ValueError("Entidade não encontrada.")
         entity.nome = self._required_text(nome, "nome")
         entity.nome_oficial = self._optional_text(nome_oficial)
-        entity.municipio = self._optional_text(municipio)
-        entity.uf = self._normalize_uf(uf)
+        if municipio is not _UNSET:
+            entity.municipio = self._optional_text(municipio)  # type: ignore[arg-type]
+        if uf is not _UNSET:
+            entity.uf = self._normalize_uf(uf)  # type: ignore[arg-type]
+        if regiao is not _UNSET:
+            entity.regiao = self._normalize_region(regiao)  # type: ignore[arg-type]
         entity.sigla = self._optional_text(sigla)
         if ativa is not None:
             entity.ativa = bool(ativa)
@@ -153,3 +162,15 @@ class EntityService:
         if len(normalized) != 2:
             raise ValueError("A UF deve possuir exatamente 2 caracteres.")
         return normalized.upper()
+
+    @classmethod
+    def _normalize_region(cls, value: str | None) -> str | None:
+        normalized = cls._optional_text(value)
+        if normalized is None:
+            return None
+        region = normalized.upper()
+        if region not in ENTITY_REGIONS:
+            raise ValueError(
+                "A Região deve ser Norte, Noroeste, Centro, Leste ou Sul."
+            )
+        return region

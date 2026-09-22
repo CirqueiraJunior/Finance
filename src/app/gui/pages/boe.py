@@ -1,7 +1,9 @@
 from decimal import Decimal
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (
+    QComboBox,
+    QDateEdit,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -15,7 +17,14 @@ from PySide6.QtWidgets import (
 
 from app.importers.boe_types import BOEValidationResult
 from app.models.boe_import import BOEImport
-from app.services.boe_service import BOEImportDetails
+from app.services.boe_service import BOEImportDetails, BOEOperationalSummary
+
+
+class BOEPeriodEdit(QDateEdit):
+    """Seletor de período que não altera o valor por rolagem acidental."""
+
+    def wheelEvent(self, event) -> None:  # noqa: N802 - Qt API
+        event.ignore()
 
 
 class BoePage(QWidget):
@@ -36,8 +45,8 @@ class BoePage(QWidget):
         content.setObjectName("boeScrollContent")
 
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(14)
+        layout.setContentsMargins(32, 2, 32, 12)
+        layout.setSpacing(6)
 
         self.scroll_area.setWidget(content)
         outer_layout.addWidget(self.scroll_area)
@@ -115,6 +124,46 @@ class BoePage(QWidget):
         self.history_table.setMinimumHeight(220)
         self.history_table.setMaximumHeight(320)
 
+        operations_label = QLabel("Consulta operacional BOE")
+        operations_label.setObjectName("sectionTitle")
+        filters_layout = QHBoxLayout()
+        self.start_period = self._create_period_edit(QDate.currentDate().addMonths(-11))
+        self.start_period.setObjectName("boeStartPeriod")
+        self.end_period = self._create_period_edit(QDate.currentDate())
+        self.end_period.setObjectName("boeEndPeriod")
+        self.entity_filter = QComboBox()
+        self.entity_filter.setObjectName("boeEntityFilter")
+        self.entity_filter.addItem("Todas", None)
+        self.query_button = QPushButton("Consultar")
+        self.query_button.setObjectName("primaryButton")
+        for label_text, widget in (
+            ("Período inicial", self.start_period),
+            ("Período final", self.end_period),
+            ("Entidade", self.entity_filter),
+        ):
+            field = QVBoxLayout()
+            field.addWidget(QLabel(label_text))
+            field.addWidget(widget)
+            filters_layout.addLayout(field, 1)
+        filters_layout.addWidget(self.query_button, alignment=Qt.AlignmentFlag.AlignBottom)
+
+        operational_kpis = QHBoxLayout()
+        self.operational_queries = self._create_summary_card(operational_kpis, "Consultas", "0")
+        self.operational_unit_value = self._create_summary_card(
+            operational_kpis, "Valor Unitário", self._format_currency(Decimal("0.0000"), 4)
+        )
+        self.operational_total_value = self._create_summary_card(
+            operational_kpis, "Valor Total Pago", self._format_currency(Decimal("0.0000"))
+        )
+        self.operations_table = QTableWidget(0, 5)
+        self.operations_table.setObjectName("boeOperationsTable")
+        self.operations_table.setHorizontalHeaderLabels(
+            ["Período", "Entidade", "Consultas", "Valor Unitário", "Valor Total"]
+        )
+        self.operations_table.horizontalHeader().setStretchLastSection(True)
+        self.operations_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.operations_table.setMinimumHeight(240)
+
         details_label = QLabel("Detalhamento por Entidade")
         details_label.setObjectName("sectionTitle")
         self.details_state = QLabel(
@@ -159,6 +208,10 @@ class BoePage(QWidget):
         layout.addWidget(self.details_state)
         layout.addLayout(summary_layout)
         layout.addWidget(self.details_table)
+        layout.addWidget(operations_label)
+        layout.addLayout(filters_layout)
+        layout.addLayout(operational_kpis)
+        layout.addWidget(self.operations_table)
         layout.addWidget(self.operation_status)
 
     @staticmethod
@@ -175,6 +228,41 @@ class BoePage(QWidget):
         card_layout.addWidget(amount)
         layout.addWidget(card, 1)
         return amount
+
+    @staticmethod
+    def _create_period_edit(value: QDate) -> BOEPeriodEdit:
+        edit = BOEPeriodEdit(value)
+        edit.setDisplayFormat("MM/yyyy")
+        edit.setCalendarPopup(True)
+        return edit
+
+    def operational_filters(self) -> tuple[int, int, int, int, int | None]:
+        start, end = self.start_period.date(), self.end_period.date()
+        return start.year(), start.month(), end.year(), end.month(), self.entity_filter.currentData()
+
+    def set_operational_entities(self, entities: tuple[tuple[int, str], ...]) -> None:
+        selected = self.entity_filter.currentData()
+        self.entity_filter.clear()
+        self.entity_filter.addItem("Todas", None)
+        for identifier, name in entities:
+            self.entity_filter.addItem(name, identifier)
+        index = self.entity_filter.findData(selected)
+        self.entity_filter.setCurrentIndex(max(0, index))
+
+    def show_operations(self, summary: BOEOperationalSummary) -> None:
+        self.operations_table.setRowCount(len(summary.rows))
+        for row_index, row in enumerate(summary.rows):
+            values = (
+                f"{row.month:02d}/{row.year}", row.entity_name,
+                self._format_integer(row.queries), self._format_currency(row.unit_value, 4),
+                self._format_currency(row.total_value),
+            )
+            for column, value in enumerate(values):
+                self.operations_table.setItem(row_index, column, QTableWidgetItem(value))
+        self.operations_table.resizeColumnsToContents()
+        self.operational_queries.setText(self._format_integer(summary.total_queries))
+        self.operational_unit_value.setText(self._format_currency(summary.unit_value, 4))
+        self.operational_total_value.setText(self._format_currency(summary.total_value))
 
     def show_validation(self, result: BOEValidationResult) -> None:
         status = "APROVADO" if result.aprovado else "REPROVADO"

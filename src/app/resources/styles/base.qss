@@ -5,30 +5,49 @@ QMainWindow, QWidget {
     font-size: 10pt;
 }
 
-QFrame#sidebar { background: #1b2a63; }
+QFrame#sidebar {
+    background: #1b2a63;
+}
 
-QPushButton#navigationButton {
+QPushButton#navigationButton,
+QPushButton#sidebarActionButton {
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 10px;
+    border-radius: 8px;
     color: #eef3ff;
-    padding: 12px 16px;
+    padding: 8px 12px;
     text-align: left;
-    font-size: 12pt;
+    font-family: "Segoe UI";
+    font-size: 10pt;
     font-weight: 500;
+    min-height: 22px;
 }
-QPushButton#navigationButton:hover {
+
+QPushButton#navigationButton:hover,
+QPushButton#sidebarActionButton:hover {
     background: rgba(74, 119, 255, 0.18);
-    border: 1px solid rgba(122, 164, 255, 0.45);
+    border: 1px solid rgba(122, 164, 255, 0.35);
     color: #ffffff;
 }
+
 QPushButton#navigationButton:checked {
     background: #2d64f1;
     border: 1px solid #7aa4ff;
     color: #ffffff;
     font-weight: 600;
 }
-QPushButton#navigationButton:focus { border: 1px solid #93c5fd; }
+
+QPushButton#navigationButton:focus,
+QPushButton#sidebarActionButton:focus {
+    border: 1px solid #93c5fd;
+}
+
+QFrame#sidebarSeparator {
+    background: rgba(255, 255, 255, 0.35);
+    border: none;
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
 
 QFrame#appHeader {
     background: #0f4f86;
@@ -170,4 +189,165 @@ QStatusBar {
     background: #ffffff;
     border-top: 1px solid #e5e7eb;
     color: #4b5563;
+}
+
+
+/* ============================================================
+   DASHBOARD — PADRÃO VISUAL J.A. TECHNOLOGY
+   ============================================================ */
+
+QTabWidget#dashboardTabs {
+    background: transparent;
+    border: none;
+}
+QTabWidget#dashboardTabs::pane {
+    background: #ffffff;
+    border: 1px solid #d8e1ec;
+    border-radius: 10px;
+    top: -1px;
+}
+QTabWidget#dashboardTabs QTabBar::tab {
+    background: #eef3f8;
+    color: #33516f;
+    border: 1px solid #d8e1ec;
+    border-bottom: 2px solid #d8e1ec;
+    min-width: 128px;
+    min-height: 34px;
+    padding: 7px 18px;
+    margin-right: 4px;
+    font-size: 10pt;
+    font-weight: 600;
+}
+QTabWidget#dashboardTabs QTabBar::tab:first {
+    border-top-left-radius: 8px;
+}
+QTabWidget#dashboardTabs QTabBar::tab:last {
+    border-top-right-radius: 8px;
+}
+QTabWidget#dashboardTabs QTabBar::tab:hover:!selected {
+    background: #e2edf8;
+    color: #003B71;
+    border-color: #9db7d0;
+}
+QTabWidget#dashboardTabs QTabBar::tab:selected {
+    background: #0f4f86;
+    color: #ffffff;
+    border: 1px solid #0f4f86;
+    border-bottom: 3px solid #d2a52e;
+    font-weight: 700;
+}
+QTabWidget#dashboardTabs QTabBar::tab:focus {
+    border: 1px solid #60a5fa;
+}
+
+QWidget#dashboardFilterBar {
+    background: #edf3f8;
+    border: 1px solid #d7e1eb;
+    border-radius: 8px;
+    padding: 6px 8px;
+}
+QWidget#dashboardFilterBar QLabel {
+    background: transparent;
+    color: #29445f;
+    font-weight: 600;
+}
+QWidget#dashboardFilterBar QComboBox,
+QWidget#dashboardFilterBar QSpinBox {
+    background: #ffffff;
+    color: #1f2937;
+    border: 1px solid #b9c9d9;
+    border-radius: 6px;
+    padding: 6px 10px;
+    min-height: 20px;
+}
+QWidget#dashboardFilterBar QComboBox:hover,
+QWidget#dashboardFilterBar QSpinBox:hover {
+    border-color: #5f8fba;
+}
+QWidget#dashboardFilterBar QComboBox:focus,
+QWidget#dashboardFilterBar QSpinBox:focus {
+    border: 2px solid #2d64f1;
+}
+QWidget#dashboardFilterBar QComboBox::drop-down {
+    border: none;
+    width: 24px;
+}
+
+QWidget#summaryCard {
+    background: #ffffff;
+    border: 1px solid #d7e1eb;
+    border-radius: 10px;
+}
+QWidget#summaryCard:hover {
+    border-color: #9db7d0;
+    background: #fbfdff;
+}
+QWidget#summaryCard[cardRole="balance"] {
+    background: #eef6fb;
+    border: 1px solid #9fc0dc;
+}
+QWidget#summaryCard[cardRole="revenue"] {
+    background: #eef5ff;
+    border: 1px solid #a8c6f2;
+}
+QWidget#summaryCard[cardRole="expense"] {
+    background: #fff4f3;
+    border: 1px solid #f1b9b5;
+}
+QWidget#summaryCard[cardRole="movement"] {
+    background: #fff9e9;
+    border: 1px solid #e4cf8d;
+}
+QWidget#summaryCard[cardRole="boe"] {
+    background: #eef7f9;
+    border: 1px solid #a8ced4;
+}
+QWidget#summaryCard[cardRole="target"] {
+    background: #f4f2fb;
+    border: 1px solid #c8bceb;
+}
+QWidget#summaryCard[cardRole="performance"] {
+    background: #fff8e7;
+    border: 1px solid #dfc573;
+}
+QWidget#summaryCard QLabel {
+    background: transparent;
+}
+QLabel#summaryLabel {
+    color: #52677d;
+    font-size: 9.5pt;
+    font-weight: 600;
+}
+QLabel#summaryValue {
+    color: #0f2f55;
+    font-size: 16pt;
+    font-weight: 700;
+}
+
+QLabel#sectionTitle {
+    color: #0f3d68;
+    font-size: 12pt;
+    font-weight: 700;
+    margin-top: 10px;
+    margin-bottom: 3px;
+}
+
+QTableWidget#dashboardBudgetTable,
+QWidget#dashboardBoeTab QTableWidget {
+    background: #ffffff;
+    border: 1px solid #d7e1eb;
+    border-radius: 8px;
+    gridline-color: #e5ebf2;
+    alternate-background-color: #f8fafc;
+}
+QTableWidget#dashboardBudgetTable::item:selected,
+QWidget#dashboardBoeTab QTableWidget::item:selected {
+    background: #dcecff;
+    color: #0f3d68;
+}
+
+QChartView {
+    background: #ffffff;
+    border: 1px solid #d7e1eb;
+    border-radius: 10px;
 }

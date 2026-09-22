@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta, timezone
+from ipaddress import ip_address
 
 from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 from sqlalchemy import create_engine, func, or_, select
@@ -16,10 +17,37 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from app.database.base import Base
 from finance_server.config import ServerSettings, get_server_settings
 from finance_server.email_service import EmailService, FakeEmailService, SMTPEmailService
-from finance_server.models import AuditLog, PasswordResetToken, RefreshSession, User, UserRole
+from finance_server.models import (
+    AuditLog, PasswordResetToken, RefreshSession, User, UserRole,
+)
+from finance_server.initial_setup import (
+    InitialAdministratorData,
+    InitialSetupUnavailableError,
+    create_initial_administrator,
+    users_exist,
+)
+from finance_server.assisted_recovery import (
+    AssistedRecoveryError,
+    create_request as create_assisted_recovery_request,
+    validate_authorization as validate_assisted_recovery_authorization,
+)
+from finance_server.personal_recovery import (
+    PersonalRecoveryError,
+    generate_key as generate_personal_recovery_key,
+    revoke_active_keys as revoke_active_personal_recovery_keys,
+    validate_key as validate_personal_recovery_key,
+)
 from finance_server.rbac import has_permission
 from finance_server.schemas import (
-    AuditResponse, ChangePasswordRequest, ForgotPasswordRequest, LoginRequest,
+    AdminPasswordResetRequest,
+    AssistedRecoveryAuthorizationRequest, AssistedRecoveryAuthorizationResponse,
+    AssistedRecoveryCompleteRequest, AssistedRecoveryRequestCreate,
+    AssistedRecoveryRequestResponse, AuditResponse, ChangePasswordRequest,
+    CompletePasswordChangeRequest, CompletePasswordChangeResponse,
+    ForgotPasswordRequest, LoginRequest,
+    PersonalRecoveryRequest,
+    InitialAdministratorCreate, InitialSetupStatus,
+    RankingParameterResponse, RankingParameterValues,
     RefreshRequest, ResetPasswordRequest, TokenPair, UserCreate, UserResponse, UserUpdate,
     CashflowCreate, CashflowUpdate, CashflowResponse,
     BudgetCreate, BudgetUpdate, BudgetResponse,
@@ -28,6 +56,7 @@ from finance_server.schemas import (
 )
 from app.models.cashflow_entry import CashflowEntry, CashflowOrigin, CashflowType, CashflowCategory
 from app.models.entity import Entity
+from app.models.ranking_parameter import RankingParameter
 from app.repositories.association_repository import AssociationRepository
 from app.repositories.boe_repository import BOERepository
 from app.repositories.budget_repository import BudgetRepository
@@ -36,6 +65,7 @@ from app.repositories.csv_export_repository import CSVExportRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.investment_repository import InvestmentRepository
 from app.repositories.target_repository import TargetRepository
+from app.repositories.ranking_parameter_repository import RankingParameterRepository
 from app.importers.boe_importer import BOEImporter
 from app.services.boe_service import BOEService
 from app.services.budget_service import BudgetService
@@ -45,15 +75,18 @@ from app.services.budget_import_service import (
 from app.services.cashflow_service import CashflowService
 from app.services.dashboard_service import DashboardService
 from app.services.financial_flow_service import FinancialFlowService
+from app.services.financial_import_service import (
+    FinancialImportService, FinancialImportValidationError,
+)
 from app.services.investment_service import InvestmentService
-from app.services.ranking_service import RankingService
+from app.services.ranking_service import RankingParametersNotConfiguredError, RankingService
 from app.services.report_service import ReportService
 from app.services.site_csv_service import SiteCSVService
 from app.services.target_service import TargetService
 from app.services.target_import_service import (
     TargetImportService, TargetImportValidationError,
 )
-from app.core.exceptions import BOEValidationError, CSVExportValidationError
+from app.core.exceptions import BOEValidationError, CSVExportValidationError, CashflowDuplicateBOEError, CashflowIntegrityError
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.cashflow_catalog_repository import CashflowCatalogRepository
 from app.services.entity_service import EntityService
@@ -83,6 +116,15 @@ def database_engine_options(database_url: str) -> dict:
     return options
 
 
+def runtime_environment_metadata(dialect_name: str) -> dict:
+    is_dev_sqlite = dialect_name == "sqlite"
+    return {
+        "environment": "DEV" if is_dev_sqlite else "SERVER",
+        "database": "SQLite DEV" if is_dev_sqlite else "PostgreSQL central",
+        "historical_import_enabled": is_dev_sqlite,
+    }
+
+
 def create_app(
     settings: ServerSettings | None = None,
     *,
@@ -94,7 +136,22 @@ def create_app(
     factory = sessionmaker(engine, expire_on_commit=False)
     if create_schema:
         Base.metadata.create_all(engine)
+        with Session(engine) as seed_session:
+            if seed_session.scalar(
+                select(RankingParameter.id).where(RankingParameter.year == 2026)
+            ) is None:
+                seed_session.add(RankingParameter.defaults_2026())
+                seed_session.commit()
     app = FastAPI(title="Finance API", version=__version__)
+
+    @app.exception_handler(CashflowIntegrityError)
+    async def cashflow_integrity_error(request: Request, error: CashflowIntegrityError):
+        return JSONResponse(status_code=500, content={"detail": str(error)})
+
+    @app.exception_handler(CashflowDuplicateBOEError)
+    async def cashflow_duplicate_boe(request: Request, error: CashflowDuplicateBOEError):
+        return JSONResponse(status_code=409, content={"detail": str(error)})
+
     app.state.engine = engine
     app.state.session_factory = factory
     app.state.email_service = email_service or (
@@ -118,6 +175,22 @@ def create_app(
                         entity_type=entity_type, entity_id=str(entity_id) if entity_id else None,
                         details=safe or None, origin=origin))
 
+    def local_setup_origin(request: Request) -> str:
+        host = request.client.host if request.client else ""
+        forwarded = request.headers.get("forwarded") or request.headers.get(
+            "x-forwarded-for"
+        )
+        try:
+            local = ip_address(host).is_loopback
+        except ValueError:
+            local = host.casefold() == "localhost"
+        if not local or forwarded:
+            raise HTTPException(
+                status_code=403,
+                detail="A configuração inicial está disponível somente localmente.",
+            )
+        return host
+
     def current_user(
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
         db: Session = Depends(get_db),
@@ -136,12 +209,32 @@ def create_app(
 
     def require(permission: str):
         def dependency(user: User = Depends(current_user)) -> User:
+            if user.must_change_password:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Troca de senha obrigatória antes de acessar o Finance.",
+                )
             if not has_permission(user, permission):
                 raise HTTPException(status_code=403, detail="Permissão insuficiente.")
             return user
         return dependency
 
-    def issue_pair(db: Session, user: User) -> TokenPair:
+    def require_administrator(user: User = Depends(current_user)) -> User:
+        if user.must_change_password:
+            raise HTTPException(
+                status_code=403,
+                detail="Troca de senha obrigatória antes de acessar o Finance.",
+            )
+        if user.perfil != UserRole.ADMINISTRATOR.value:
+            raise HTTPException(status_code=403, detail="Permissão insuficiente.")
+        return user
+
+    def issue_pair(
+        db: Session,
+        user: User,
+        *,
+        personal_recovery_key: str | None = None,
+    ) -> TokenPair:
         access = create_access_token(user.id, user.perfil, settings.secret_key,
                                      settings.access_token_minutes)
         refresh = random_token()
@@ -150,7 +243,9 @@ def create_app(
             expires_at=utcnow() + timedelta(days=settings.refresh_token_days),
         ))
         return TokenPair(access_token=access, refresh_token=refresh,
-                         expires_in=settings.access_token_minutes * 60)
+                         expires_in=settings.access_token_minutes * 60,
+                         must_change_password=user.must_change_password,
+                         personal_recovery_key=personal_recovery_key)
 
     def domain_services(db: Session):
         cashflow = CashflowService(CashflowRepository(db))
@@ -158,15 +253,68 @@ def create_app(
         boe = BOEService(BOERepository(db), EntityRepository(db), BOEImporter(), cashflow)
         budget = BudgetService(BudgetRepository(db), CashflowRepository(db))
         targets = TargetService(TargetRepository(db), EntityRepository(db))
-        ranking = RankingService(TargetRepository(db), AssociationRepository(db))
+        ranking = RankingService(
+            TargetRepository(db), AssociationRepository(db),
+            RankingParameterRepository(db),
+        )
         flow = FinancialFlowService(cashflow, investments)
         return cashflow, investments, boe, budget, targets, ranking, flow
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "version": __version__}
+        return {
+            "status": "ok",
+            "version": __version__,
+            **runtime_environment_metadata(engine.dialect.name),
+        }
 
-    @app.post("/api/v1/auth/login", response_model=TokenPair)
+    @app.get("/api/v1/setup/status", response_model=InitialSetupStatus)
+    def initial_setup_status(
+        request: Request, db: Session = Depends(get_db)
+    ) -> InitialSetupStatus:
+        local_setup_origin(request)
+        return InitialSetupStatus(requires_initial_setup=not users_exist(db))
+
+    @app.post(
+        "/api/v1/setup/administrator",
+        response_model=UserResponse,
+        status_code=201,
+    )
+    def initial_setup_administrator(
+        payload: InitialAdministratorCreate,
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        origin = local_setup_origin(request)
+        try:
+            target = create_initial_administrator(
+                db,
+                InitialAdministratorData(
+                    nome=payload.nome,
+                    email=str(payload.email),
+                    username=payload.username,
+                    password=payload.password,
+                ),
+                origin=origin,
+            )
+            db.commit()
+            db.refresh(target)
+            return target
+        except InitialSetupUnavailableError as error:
+            db.rollback()
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        except ValueError as error:
+            db.rollback()
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        except Exception:
+            db.rollback()
+            raise
+
+    @app.post(
+        "/api/v1/auth/login",
+        response_model=TokenPair,
+        response_model_exclude_none=True,
+    )
     def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
         identifier = payload.identifier.strip().casefold()
         user = db.scalar(select(User).where(or_(func.lower(User.username) == identifier,
@@ -176,12 +324,27 @@ def create_app(
             db.commit()
             raise HTTPException(status_code=401, detail="Usuário ou senha inválidos.")
         user.ultimo_login = utcnow()
-        pair = issue_pair(db, user)
+        raw_key = None
+        if user.personal_recovery_key_pending and not user.must_change_password:
+            raw_key, key = generate_personal_recovery_key(db, user)
+            user.personal_recovery_key_pending = False
+            audit(
+                db,
+                "PERSONAL_RECOVERY_KEY_CREATED",
+                user,
+                entity_type="PersonalRecoveryKey",
+                entity_id=key.id,
+            )
+        pair = issue_pair(db, user, personal_recovery_key=raw_key)
         audit(db, "LOGIN", user, origin=request.client.host if request.client else None)
         db.commit()
         return pair
 
-    @app.post("/api/v1/auth/refresh", response_model=TokenPair)
+    @app.post(
+        "/api/v1/auth/refresh",
+        response_model=TokenPair,
+        response_model_exclude_none=True,
+    )
     def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
         session = db.scalar(select(RefreshSession).where(
             RefreshSession.token_hash == token_hash(payload.refresh_token)))
@@ -240,6 +403,11 @@ def create_app(
     @app.post("/api/v1/auth/change-password", status_code=204)
     def change_password(payload: ChangePasswordRequest, user: User = Depends(current_user),
                         db: Session = Depends(get_db)):
+        if user.must_change_password:
+            raise HTTPException(
+                status_code=409,
+                detail="Conclua a troca obrigatória da senha temporária.",
+            )
         if not verify_password(payload.current_password, user.password_hash):
             raise HTTPException(status_code=400, detail="Senha atual inválida.")
         try:
@@ -247,6 +415,189 @@ def create_app(
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
         audit(db, "PASSWORD_CHANGED", user)
+        db.commit()
+
+    def assisted_environment() -> str:
+        return runtime_environment_metadata(engine.dialect.name)["environment"]
+
+    @app.post(
+        "/api/v1/auth/assisted-recovery/request",
+        response_model=AssistedRecoveryRequestResponse,
+    )
+    def assisted_recovery_request(
+        payload: AssistedRecoveryRequestCreate,
+        db: Session = Depends(get_db),
+    ):
+        created = create_assisted_recovery_request(
+            db,
+            payload.identifier,
+            assisted_environment(),
+            settings.assisted_recovery_request_minutes,
+        )
+        message = "Solicitação processada."
+        if created is None:
+            return AssistedRecoveryRequestResponse(message=message)
+        item, code = created
+        user = db.get(User, item.user_id)
+        audit(
+            db,
+            "PASSWORD_ASSISTED_RECOVERY_REQUESTED",
+            user,
+            entity_type="AssistedRecoveryRequest",
+            entity_id=item.request_id,
+            details={"environment": item.environment},
+        )
+        db.commit()
+        return AssistedRecoveryRequestResponse(message=message, request_code=code)
+
+    @app.post(
+        "/api/v1/auth/assisted-recovery/validate",
+        response_model=AssistedRecoveryAuthorizationResponse,
+    )
+    def assisted_recovery_validate(
+        payload: AssistedRecoveryAuthorizationRequest,
+        db: Session = Depends(get_db),
+    ):
+        try:
+            validate_assisted_recovery_authorization(
+                db, payload.authorization, assisted_environment()
+            )
+        except AssistedRecoveryError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from None
+        except RuntimeError:
+            raise HTTPException(
+                status_code=503,
+                detail="Recuperação assistida temporariamente indisponível.",
+            ) from None
+        return AssistedRecoveryAuthorizationResponse(valid=True)
+
+    @app.post("/api/v1/auth/assisted-recovery/complete", status_code=204)
+    def assisted_recovery_complete(
+        payload: AssistedRecoveryCompleteRequest,
+        db: Session = Depends(get_db),
+    ):
+        try:
+            validated = validate_assisted_recovery_authorization(
+                db, payload.authorization, assisted_environment()
+            )
+            new_hash = hash_password(payload.new_password)
+        except AssistedRecoveryError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from None
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        except RuntimeError:
+            raise HTTPException(
+                status_code=503,
+                detail="Recuperação assistida temporariamente indisponível.",
+            ) from None
+        now = utcnow()
+        validated.user.password_hash = new_hash
+        validated.user.must_change_password = False
+        validated.user.personal_recovery_key_pending = True
+        validated.request.used_at = now
+        revoke_active_personal_recovery_keys(db, validated.user)
+        for item in db.scalars(
+            select(RefreshSession).where(
+                RefreshSession.user_id == validated.user.id,
+                RefreshSession.revoked_at.is_(None),
+            )
+        ):
+            item.revoked_at = now
+        audit(
+            db,
+            "PASSWORD_ASSISTED_RECOVERY_COMPLETED",
+            validated.user,
+            entity_type="AssistedRecoveryRequest",
+            entity_id=validated.request.request_id,
+            details={"environment": validated.request.environment},
+        )
+        db.commit()
+
+    @app.post(
+        "/api/v1/auth/complete-password-change",
+        response_model=CompletePasswordChangeResponse,
+    )
+    def complete_password_change(
+        payload: CompletePasswordChangeRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ):
+        if not user.must_change_password:
+            raise HTTPException(status_code=409, detail="A troca obrigatória já foi concluída.")
+        try:
+            user.password_hash = hash_password(payload.new_password)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        user.must_change_password = False
+        user.personal_recovery_key_pending = False
+        for item in db.scalars(select(RefreshSession).where(
+                RefreshSession.user_id == user.id, RefreshSession.revoked_at.is_(None))):
+            item.revoked_at = utcnow()
+        raw_key, key = generate_personal_recovery_key(db, user)
+        pair = issue_pair(db, user)
+        audit(db, "PASSWORD_INITIAL_CHANGED", user)
+        audit(
+            db,
+            "PERSONAL_RECOVERY_KEY_CREATED",
+            user,
+            entity_type="PersonalRecoveryKey",
+            entity_id=key.id,
+        )
+        db.commit()
+        return CompletePasswordChangeResponse(
+            **pair.model_dump(exclude={"personal_recovery_key"}),
+            personal_recovery_key=raw_key,
+        )
+
+    @app.post("/api/v1/auth/personal-recovery", status_code=204)
+    def personal_recovery(
+        payload: PersonalRecoveryRequest,
+        db: Session = Depends(get_db),
+    ):
+        identifier = payload.identifier.strip().casefold()
+        user = db.scalar(
+            select(User).where(
+                or_(
+                    func.lower(User.username) == identifier,
+                    func.lower(User.email) == identifier,
+                )
+            )
+        )
+        generic = HTTPException(
+            status_code=400,
+            detail="Identificação ou chave pessoal de recuperação inválida.",
+        )
+        if user is None or not user.ativo:
+            raise generic
+        try:
+            recovery_key = validate_personal_recovery_key(
+                db, user, payload.recovery_key
+            )
+            new_hash = hash_password(payload.new_password)
+        except PersonalRecoveryError:
+            raise generic from None
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        now = utcnow()
+        user.password_hash = new_hash
+        user.must_change_password = False
+        user.personal_recovery_key_pending = True
+        recovery_key.used_at = now
+        revoke_active_personal_recovery_keys(db, user)
+        for item in db.scalars(
+            select(RefreshSession).where(
+                RefreshSession.user_id == user.id,
+                RefreshSession.revoked_at.is_(None),
+            )
+        ):
+            item.revoked_at = now
+        audit(
+            db,
+            "PASSWORD_PERSONAL_RECOVERY_COMPLETED",
+            user,
+            entity_type="PersonalRecoveryKey",
+            entity_id=recovery_key.id,
+        )
         db.commit()
 
     @app.get("/api/v1/auth/me", response_model=UserResponse)
@@ -265,18 +616,69 @@ def create_app(
             password_hash = hash_password(payload.password)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
+        if (
+            administrator.perfil == UserRole.MANAGER.value
+            and role is UserRole.ADMINISTRATOR
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Gestores não podem criar usuários Administrador.",
+            )
         if db.scalar(select(User.id).where(or_(func.lower(User.email) == payload.email.casefold(),
                                               func.lower(User.username) == payload.username.casefold()))):
             raise HTTPException(status_code=409, detail="Email ou username já cadastrado.")
         target = User(nome=payload.nome.strip(), email=payload.email.casefold(),
                       username=payload.username.casefold(), password_hash=password_hash,
-                      perfil=role.value, ativo=True)
+                      perfil=role.value, ativo=True, must_change_password=True)
         db.add(target)
         db.flush()
         audit(db, "USER_CREATED", administrator, entity_type="User", entity_id=target.id,
               details={"perfil": target.perfil})
         db.commit()
         return target
+
+    @app.post("/api/v1/users/{user_id}/reset-password", status_code=204)
+    def admin_reset_user_password(
+        user_id: int,
+        payload: AdminPasswordResetRequest,
+        administrator: User = Depends(require("users:manage")),
+        db: Session = Depends(get_db),
+    ):
+        target = db.get(User, user_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+        if (
+            administrator.perfil == UserRole.MANAGER.value
+            and target.perfil == UserRole.ADMINISTRATOR.value
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Gestores não podem administrar usuários Administrador.",
+            )
+        try:
+            target.password_hash = hash_password(payload.temporary_password)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+
+        target.must_change_password = True
+        now = utcnow()
+        for item in db.scalars(
+            select(RefreshSession).where(
+                RefreshSession.user_id == target.id,
+                RefreshSession.revoked_at.is_(None),
+            )
+        ):
+            item.revoked_at = now
+
+        audit(
+            db,
+            "USER_PASSWORD_RESET_BY_ADMIN",
+            administrator,
+            entity_type="User",
+            entity_id=target.id,
+            details={"target_username": target.username},
+        )
+        db.commit()
 
     @app.patch("/api/v1/users/{user_id}", response_model=UserResponse)
     def update_user(user_id: int, payload: UserUpdate,
@@ -286,8 +688,22 @@ def create_app(
         if target is None:
             raise HTTPException(status_code=404, detail="Usuário não encontrado.")
         changes = payload.model_dump(exclude_unset=True)
+        if administrator.perfil == UserRole.MANAGER.value:
+            if target.perfil == UserRole.ADMINISTRATOR.value:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Gestores não podem administrar usuários Administrador.",
+                )
+            if changes.get("perfil") == UserRole.ADMINISTRATOR.value:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Gestores não podem promover usuários a Administrador.",
+                )
         if "perfil" in changes:
-            changes["perfil"] = UserRole(changes["perfil"]).value
+            try:
+                changes["perfil"] = UserRole(changes["perfil"]).value
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from None
         for key, value in changes.items():
             setattr(target, key, value)
         audit(db, "USER_UPDATED", administrator, entity_type="User", entity_id=target.id,
@@ -307,7 +723,7 @@ def create_app(
 
     @app.get("/api/v1/entities", response_model=list[EntityResponse])
     def entities(
-        user: User = Depends(require("dashboard:read")),
+        user: User = Depends(require("entities:read")),
         db: Session = Depends(get_db),
     ):
         return EntityRepository(db).list_all()
@@ -345,7 +761,9 @@ def create_app(
     ):
         service = EntityService(EntityRepository(db))
         try:
-            entity = service.update_entity(entity_id, **payload.model_dump())
+            entity = service.update_entity(
+                entity_id, **payload.model_dump(exclude_unset=True)
+            )
         except ValueError as error:
             db.rollback()
             message = str(error)
@@ -364,7 +782,7 @@ def create_app(
     @app.get("/api/v1/entities/{entity_id}/aliases")
     def entity_aliases(
         entity_id: int,
-        user: User = Depends(require("dashboard:read")),
+        user: User = Depends(require("entities:read")),
         db: Session = Depends(get_db),
     ):
         entity = EntityRepository(db).get_by_id(entity_id)
@@ -377,7 +795,7 @@ def create_app(
 
     @app.get("/api/v1/catalog", response_model=list[CatalogResponse])
     def catalog(
-        user: User = Depends(require("cashflow:read")),
+        user: User = Depends(require("catalog:read")),
         db: Session = Depends(get_db),
     ):
         return CashflowCatalogRepository(db).list_all()
@@ -475,9 +893,97 @@ def create_app(
     @app.get("/api/v1/financial-flow")
     def financial_flow(year: int, month: int, user: User = Depends(require("cashflow:read")),
                        db: Session = Depends(get_db)):
+        from app.repositories.financial_balance_repository import FinancialBalanceRepository
+        from app.services.financial_balance_service import FinancialBalanceService
         *_, flow = domain_services(db)
-        return jsonable_encoder({"items": flow.list_by_period(year, month),
-                                 "summary": flow.get_summary(year, month)})
+        position = FinancialBalanceService(
+            FinancialBalanceRepository(db), flow
+        ).position(year, month)
+        return jsonable_encoder({
+            "items": flow.list_by_period(year, month),
+            "summary": flow.get_summary(year, month),
+            "position": position,
+        })
+
+    def financial_import_response(validation):
+        return jsonable_encoder({
+            "file_name": validation.file_name,
+            "detected_type": validation.detected_type,
+            "preview": validation.preview,
+            "warnings": validation.warnings,
+            "errors": validation.errors,
+            "duplicates": validation.duplicates,
+            "total": validation.total,
+            "can_import": validation.can_import,
+        })
+
+    @app.post("/api/v1/financial-import/validate")
+    async def validate_financial_import(
+        file: UploadFile = File(...),
+        user: User = Depends(require("cashflow:write")),
+        db: Session = Depends(get_db),
+    ):
+        with TemporaryDirectory(prefix="finance_cashflow_") as directory:
+            file_name = Path(file.filename or "financeiro.xlsx").name
+            path = Path(directory) / file_name
+            path.write_bytes(await file.read())
+            service = FinancialImportService(
+                db, CashflowCatalogService(CashflowCatalogRepository(db))
+            )
+            return financial_import_response(
+                service.validate(path, file_name=file_name)
+            )
+
+    @app.post("/api/v1/financial-import", status_code=201)
+    async def import_financial(
+        file: UploadFile = File(...),
+        user: User = Depends(require("cashflow:write")),
+        db: Session = Depends(get_db),
+    ):
+        with TemporaryDirectory(prefix="finance_cashflow_") as directory:
+            file_name = Path(file.filename or "financeiro.xlsx").name
+            path = Path(directory) / file_name
+            path.write_bytes(await file.read())
+            service = FinancialImportService(
+                db, CashflowCatalogService(CashflowCatalogRepository(db))
+            )
+            try:
+                validation, entries = service.stage_import(
+                    path, file_name=file_name
+                )
+                for entry in entries:
+                    if isinstance(entry, CashflowEntry):
+                        entry.created_by_user_id = user.id
+                        entry.updated_by_user_id = user.id
+                audit(
+                    db, "FINANCIAL_IMPORTED", user,
+                    entity_type="FinancialImport",
+                    details={
+                        "file_name": validation.file_name,
+                        "imported": len(entries),
+                        "ignored": len(validation.preview) - len(entries),
+                        "duplicates": validation.duplicates,
+                        "warnings": len(validation.warnings),
+                    },
+                )
+                db.commit()
+            except FinancialImportValidationError as error:
+                db.rollback()
+                raise HTTPException(
+                    status_code=422,
+                    detail=financial_import_response(error.validation),
+                ) from None
+            except Exception:
+                db.rollback()
+                raise
+        return jsonable_encoder({
+            "file_name": validation.file_name,
+            "imported": len(entries),
+            "ignored": len(validation.preview) - len(entries),
+            "duplicates": validation.duplicates,
+            "warnings": validation.warnings,
+            "total": validation.total,
+        })
 
     @app.post("/api/v1/investments", status_code=201)
     def create_investment(payload: dict = Body(...),
@@ -516,6 +1022,29 @@ def create_app(
     @app.get("/api/v1/boe")
     def boe_history(user: User = Depends(require("boe:read")), db: Session = Depends(get_db)):
         return jsonable_encoder(domain_services(db)[2].list_imports())
+
+    @app.get("/api/v1/boe/operations/entities")
+    def boe_operational_entities(
+        user: User = Depends(require("boe:read")), db: Session = Depends(get_db)
+    ):
+        return [
+            {"id": identifier, "name": name}
+            for identifier, name in domain_services(db)[2].list_operational_entities()
+        ]
+
+    @app.get("/api/v1/boe/operations")
+    def boe_operations(
+        start_year: int, start_month: int, end_year: int, end_month: int,
+        entity_id: int | None = None,
+        user: User = Depends(require("boe:read")), db: Session = Depends(get_db),
+    ):
+        try:
+            result = domain_services(db)[2].query_operations(
+                start_year, start_month, end_year, end_month, entity_id
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        return jsonable_encoder(result)
 
     @app.get("/api/v1/boe/{import_id}")
     def boe_details(import_id: int, user: User = Depends(require("boe:read")),
@@ -708,8 +1237,11 @@ def create_app(
             })
 
     @app.get("/api/v1/targets")
-    def targets(year: int, month: int, indicator: str, entity_id: int | None = None,
-                user: User = Depends(require("targets:read")), db: Session = Depends(get_db)):
+    def targets(
+        year: int, month: int, indicator: str,
+        entity_id: list[int] | None = Query(None),
+        user: User = Depends(require("targets:read")), db: Session = Depends(get_db),
+    ):
         service = domain_services(db)[4]
         return jsonable_encoder({"entities": service.list_entities(),
                                  "comparison": service.get_target_vs_actual(year, month, indicator, entity_id)})
@@ -860,14 +1392,125 @@ def create_app(
     def ranking(year: int, quarter: int, user: User = Depends(require("ranking:read")),
                 db: Session = Depends(get_db)):
         service = domain_services(db)[5]
-        return jsonable_encoder({"quarterly": service.quarterly(year, quarter),
-                                 "annual": service.annual(year)})
+        try:
+            return jsonable_encoder({"quarterly": service.quarterly(year, quarter),
+                                     "annual": service.annual(year)})
+        except RankingParametersNotConfiguredError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+
+    @app.get(
+        "/api/v1/ranking/parameters/{year}",
+        response_model=RankingParameterResponse,
+    )
+    def ranking_parameters(
+        year: int,
+        user: User = Depends(require_administrator),
+        db: Session = Depends(get_db),
+    ):
+        if not 2000 <= year <= 9999:
+            raise HTTPException(status_code=422, detail="Ano inválido.")
+        item = RankingParameterRepository(db).get_by_year(year)
+        if item is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Os parâmetros do Ranking para {year} não foram configurados.",
+            )
+        return item
+
+    @app.put(
+        "/api/v1/ranking/parameters/{year}",
+        response_model=RankingParameterResponse,
+    )
+    def save_ranking_parameters(
+        year: int,
+        payload: RankingParameterValues,
+        user: User = Depends(require_administrator),
+        db: Session = Depends(get_db),
+    ):
+        if not 2000 <= year <= 9999:
+            raise HTTPException(status_code=422, detail="Ano inválido.")
+        repository = RankingParameterRepository(db)
+        item = repository.get_by_year(year)
+        created = item is None
+        if item is None:
+            item = RankingParameter(year=year, **payload.model_dump())
+            db.add(item)
+        else:
+            for field, value in payload.model_dump().items():
+                setattr(item, field, value)
+        try:
+            audit(
+                db,
+                "RANKING_PARAMETERS_CREATED" if created else "RANKING_PARAMETERS_UPDATED",
+                user,
+                entity_type="RankingParameter",
+                entity_id=year,
+                details={"year": year},
+            )
+            db.commit()
+            db.refresh(item)
+        except Exception:
+            db.rollback()
+            raise
+        return item
 
     @app.get("/api/v1/dashboard")
     def dashboard(year: int, month: int, user: User = Depends(require("dashboard:read")),
                   db: Session = Depends(get_db)):
         _, _, boe, budget, targets, _, flow = domain_services(db)
         return jsonable_encoder(DashboardService(flow, boe, budget, targets).get_dashboard_summary(year, month))
+
+    @app.get("/api/v1/dashboard/financial")
+    def dashboard_financial(
+        year: int, month: int, category: str | None = None,
+        entry_type: str | None = None,
+        user: User = Depends(require("cashflow:read")),
+        db: Session = Depends(get_db),
+    ):
+        if not has_permission(user, "budget:read"):
+            raise HTTPException(status_code=403, detail="Permissão insuficiente.")
+        _, _, boe, budget, targets, ranking_service, flow = domain_services(db)
+        return jsonable_encoder(
+            DashboardService(flow, boe, budget, targets, ranking_service)
+            .get_financial_dashboard(year, month, category, entry_type)
+        )
+
+    @app.get("/api/v1/dashboard/boe")
+    def dashboard_boe(
+        year: int, month: int, entity_id: int | None = None,
+        start_month: int | None = None, end_month: int | None = None,
+        user: User = Depends(require("boe:read")),
+        db: Session = Depends(get_db),
+    ):
+        _, _, boe, budget, targets, ranking_service, flow = domain_services(db)
+        try:
+            return jsonable_encoder(
+                DashboardService(flow, boe, budget, targets, ranking_service)
+                .get_boe_dashboard(year, month, entity_id, start_month, end_month)
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+
+    @app.get("/api/v1/dashboard/targets")
+    def dashboard_targets(
+        year: int, month: int, entity_id: int | None = None,
+        indicator: str = "TODAS", start_month: int | None = None,
+        end_month: int | None = None,
+        user: User = Depends(require("targets:read")),
+        db: Session = Depends(get_db),
+    ):
+        if not has_permission(user, "ranking:read"):
+            raise HTTPException(status_code=403, detail="Permissão insuficiente.")
+        _, _, boe, budget, targets, ranking_service, flow = domain_services(db)
+        try:
+            return jsonable_encoder(
+                DashboardService(flow, boe, budget, targets, ranking_service)
+                .get_targets_dashboard(
+                    year, month, entity_id, indicator, start_month, end_month
+                )
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
 
     @app.get("/api/v1/reports/annual")
     def annual_report(year: int, user: User = Depends(require("reports:read")),
@@ -880,7 +1523,7 @@ def create_app(
                        db: Session = Depends(get_db)):
         service = SiteCSVService(EntityRepository(db), TargetRepository(db),
                                  AssociationRepository(db), CSVExportRepository(db))
-        return jsonable_encoder(service.validate_year(year))
+        return jsonable_encoder(service.validate_period(year))
 
     @app.post("/api/v1/reports/csv-export")
     def csv_export(payload: dict = Body(...), user: User = Depends(require("reports:export")),
@@ -897,7 +1540,9 @@ def create_app(
             with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
                 for file_path in (*result.files, result.report_file):
                     archive.write(file_path, file_path.name)
-            audit(db, "CSV_EXPORTED", user, entity_type="CSVExport", details={"year": payload["year"]})
+            audit(db, "CSV_EXPORTED", user, entity_type="CSVExport", details={
+                "year": payload["year"]
+            })
             db.commit()
             return Response(buffer.getvalue(), media_type="application/zip",
                             headers={"Content-Disposition": "attachment; filename=finance_csv.zip"})

@@ -29,6 +29,7 @@ class FinancialFlowSummary:
     operational_result: Decimal
     cash_movement: Decimal
     applied_balance: Decimal
+    boe_expense: Decimal = Decimal("0.0000")
 
 
 class FinancialFlowService:
@@ -86,6 +87,7 @@ class FinancialFlowService:
             operational.monthly_balance,
             cash_movement,
             investments.applied_balance,
+            operational.boe_expense,
         )
 
     def create_application(self, **values):

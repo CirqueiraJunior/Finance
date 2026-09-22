@@ -55,7 +55,7 @@ def test_expense_rejects_invalid_or_revenue_category(service, category):
 
 
 def test_database_rejects_expense_with_boe(db_session):
-    boe = add_boe_import(db_session)
+    boe = add_boe_import(db_session, month=6)
     entry = CashflowEntry(
         periodo_ano=2026, periodo_mes=7, data_lancamento=date(2026, 7, 1),
         descricao="Inválida", tipo="DESPESA", origem="BOE", categoria="ADMINISTRATIVO",
@@ -88,7 +88,7 @@ def test_expense_rejects_invalid_month(service):
 
 
 def test_monthly_summary_uses_decimal(service, db_session):
-    boe = add_boe_import(db_session)
+    boe = add_boe_import(db_session, month=6)
     boe.valor_total = Decimal("21967.2684")
     db_session.commit()
     service.create_direct_revenue_from_boe(boe)
