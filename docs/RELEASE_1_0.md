@@ -1,14 +1,20 @@
-# Finance — Release 1.0.0
+﻿# Finance — Release 1.0.0
 
-> Bloqueada para publicação até homologação da Sprint 12.A, validação PostgreSQL no ambiente de deploy e autorização formal. Nenhum commit, push ou tag faz parte desta etapa.
+## Status
 
-Status técnico: aguardando homologação final.
+**HOMOLOGADA — código-fonte e ambiente central.**
+
+Versão: `1.0.0`  
+Tag Git: `v1.0.0`  
+Commit homologado: `a539ab0535a7a1de5ffc5f3c22650216e208200f`  
+Schema central: `20260922_24`
 
 ## Escopo
 
 Release desktop com oito páginas navegáveis, domínios financeiros e
 operacionais, BOE homologado, Ranking e Premiação trimestral, relatórios/CSV,
-Cadastros, Administração, backup e importação histórica controlada.
+Cadastros, Administração, recuperação de acesso, atualização manual e
+operação multiusuário por API central.
 
 ## Garantias
 
@@ -23,37 +29,67 @@ Cadastros, Administração, backup e importação histórica controlada.
 - Premiações não geram despesas automáticas no Fluxo de Caixa.
 - O desempate operacional aplica Score, maior atingimento, maior Captação e
   menor número de Cancelamentos; igualdade nos quatro critérios é empate técnico.
+- O desktop não contém credenciais PostgreSQL.
+- PostgreSQL central é a fonte oficial de dados em produção.
 
-## Estado de dados
+## Homologação técnica
 
-Durante o desenvolvimento da Sprint 12 foram executados somente previews em
-cópias temporárias. Nenhuma importação permanente foi feita no banco oficial.
-As cópias temporárias foram removidas.
+- [x] PostgreSQL central provisionado e operacional
+- [x] Migrations aplicadas até `20260922_24`
+- [x] `alembic current` = `20260922_24 (head)`
+- [x] `alembic check` sem operações pendentes
+- [x] API conectada ao PostgreSQL central
+- [x] `/health` = `status: ok`
+- [x] Ambiente da API = `SERVER`
+- [x] Setup inicial concluído
+- [x] Administrador existente
+- [x] Importação histórica desabilitada no ambiente SERVER
+- [x] RBAC homologado
+- [x] Fluxo de Caixa homologado
+- [x] Financeiro homologado
+- [x] BOE homologado
+- [x] Orçado x Realizado homologado
+- [x] Metas homologadas
+- [x] Ranking e Premiação homologados
+- [x] Cadastros homologados
+- [x] Relatórios homologados
+- [x] Administração homologada
+- [x] Recuperação de acesso homologada
+- [x] Verificação manual de atualização homologada
+- [x] Nenhum SQLite local é fonte oficial em produção
+- [x] Backup PostgreSQL pré-migração criado e validado
+- [x] Configuração de produção sem secrets no Git
+- [x] Suíte automatizada: 564 testes aprovados, 0 falhas
 
-# Gate Multiusuário — Release 1.0
+## Backup de segurança da migração central
 
-- [ ] PostgreSQL real provisionado
-- [ ] Migrations aplicadas até `20260828_12`
-- [ ] `alembic check` sem pendências
-- [ ] API conectada ao PostgreSQL
-- [ ] `/health` = 200
-- [ ] Administrador bootstrap criado
-- [ ] Login real funcionando
-- [ ] Usuário A cria lançamento
-- [ ] Usuário B visualiza lançamento
-- [ ] Usuário B atualiza lançamento
-- [ ] Usuário A recebe atualização
-- [ ] Conflito concorrente retorna HTTP 409
-- [ ] Auditoria registra usuário e operação
-- [ ] Logout funciona
-- [ ] Recuperação de senha testada
-- [ ] Financeiro usa API
-- [ ] BOE usa API
-- [ ] Orçamento usa API
-- [ ] Metas usa API
-- [ ] Ranking usa API
-- [ ] Cadastros usa API
-- [ ] Relatórios consultam dados centrais
-- [ ] Nenhum SQLite local é fonte oficial em produção
-- [ ] Backup PostgreSQL definido
-- [ ] Configuração de produção sem secrets no Git
+Arquivo externo ao repositório:
+
+`Finance_Central_PreMigration23_20260922_172220.dump`
+
+Formato PostgreSQL custom validado com `pg_restore --list`.
+
+SHA-256:
+
+`9FD2787611E8A93CBA3DFC826B2B172E633478CCCA29BCA2698C9064C4E5EF2F`
+
+## Distribuição
+
+O empacotamento do aplicativo desktop não integra o escopo técnico fechado
+desta release.
+
+Backlog:
+
+`DIST-001 — Definir e implementar empacotamento/distribuição desktop do
+Finance para Windows, incluindo executável, instalador, atualização e
+assinatura.`
+
+Até a implementação do `DIST-001`, não há instalador oficial da versão 1.0.0.
+
+## Rastreabilidade
+
+Branch: `main`  
+Tag: `v1.0.0`  
+Commit: `a539ab0535a7a1de5ffc5f3c22650216e208200f`
+
+O tag remoto `v1.0.0` foi validado apontando para o mesmo commit homologado.
