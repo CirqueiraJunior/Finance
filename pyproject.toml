@@ -24,6 +24,7 @@ dependencies = [
     "email-validator>=2.2,<3",
     "python-multipart>=0.0.20,<1",
     "cryptography>=45,<51",
+    "pywin32>=312; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

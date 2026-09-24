@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 import os
 from pathlib import Path
+import sys
 
 from dotenv import load_dotenv
 from sqlalchemy.engine import make_url
@@ -51,6 +52,12 @@ def get_settings() -> Settings:
         os.getenv("DATABASE_URL", "sqlite:///./ja_finance.db"),
         base_dir=ENV_FILE.parent,
     )
+    default_api_url = (
+        "http://127.0.0.1:8000"
+        if getattr(sys, "frozen", False)
+        else ""
+    )
+
     return Settings(
         app_name=os.getenv("APP_NAME", "Finance"),
         app_env=os.getenv("APP_ENV", "development"),
@@ -58,6 +65,9 @@ def get_settings() -> Settings:
         database_url=database_url,
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         log_dir=PROJECT_ROOT / os.getenv("LOG_DIR", "logs"),
-        api_url=os.getenv("FINANCE_API_URL", "").strip().rstrip("/"),
+        api_url=os.getenv(
+            "FINANCE_API_URL",
+            default_api_url,
+        ).strip().rstrip("/"),
         api_timeout_seconds=float(os.getenv("FINANCE_API_TIMEOUT_SECONDS", "10")),
     )

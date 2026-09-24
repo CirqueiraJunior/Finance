@@ -1,12 +1,20 @@
 """Localização única dos assets oficiais homologados do Finance."""
 
 from pathlib import Path
+import sys
 
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QWidget
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+def _runtime_root() -> Path:
+    """Resolve recursos tanto em DEV quanto no execut?vel PyInstaller."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parents[3]
+
+
+PROJECT_ROOT = _runtime_root()
 BRANDING_DIR = PROJECT_ROOT / "assets" / "branding"
 OFFICIAL_LOGO = BRANDING_DIR / "finance_icon_FINAL.png"
 OFFICIAL_MARK = BRANDING_DIR / "finance_mark_transparent_FINAL.png"

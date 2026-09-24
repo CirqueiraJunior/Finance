@@ -40,7 +40,20 @@ def _close_splash(application: QApplication, splash) -> None:
     application.processEvents()
 
 
+def _run_service_configuration() -> int:
+    from app.gui.service_config_dialog import ServiceConfigurationDialog
+
+    application = create_application()
+    dialog = ServiceConfigurationDialog()
+    result = dialog.exec()
+    application.processEvents()
+    return 0 if result == QDialog.DialogCode.Accepted else 1
+
+
 def main() -> int:
+    if "--configure-service" in sys.argv[1:]:
+        return _run_service_configuration()
+
     application = create_application()
     splash = show_splash(application)
     hold_splash(splash)
