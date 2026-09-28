@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import secrets
 from ipaddress import ip_address
 
 from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
@@ -45,6 +46,7 @@ from finance_server.schemas import (
     AssistedRecoveryRequestResponse, AuditResponse, ChangePasswordRequest,
     CompletePasswordChangeRequest, CompletePasswordChangeResponse,
     ForgotPasswordRequest, LoginRequest,
+    IdentityChallengeResponse, IdentityExchangeRequest,
     PersonalRecoveryRequest,
     InitialAdministratorCreate, InitialSetupStatus,
     RankingParameterResponse, RankingParameterValues,
@@ -94,6 +96,11 @@ from app.services.cashflow_catalog_service import CashflowCatalogService
 from finance_server.security import (
     create_access_token, decode_access_token, hash_password, random_token,
     token_hash, verify_password,
+)
+from finance_server.identity_exchange import (
+    IdentityExchangeError,
+    decode_public_key_b64,
+    verify_identity_envelope,
 )
 from finance_server.version import __version__
 
@@ -309,6 +316,132 @@ def create_app(
         except Exception:
             db.rollback()
             raise
+
+
+    identity_challenges: dict[str, datetime] = {}
+
+    def purge_identity_challenges() -> None:
+        now = utcnow()
+        expired = [
+            nonce
+            for nonce, expires_at in identity_challenges.items()
+            if expires_at <= now
+        ]
+        for nonce in expired:
+            identity_challenges.pop(nonce, None)
+
+    @app.post(
+        "/api/v1/auth/identity-challenge",
+        response_model=IdentityChallengeResponse,
+    )
+    def identity_challenge():
+        if not settings.control_center_identity_enabled:
+            raise HTTPException(status_code=404, detail="Recurso indisponível.")
+
+        purge_identity_challenges()
+
+        nonce = secrets.token_urlsafe(32)
+        expires_in = 60
+        identity_challenges[nonce] = utcnow() + timedelta(seconds=expires_in)
+
+        return IdentityChallengeResponse(
+            nonce=nonce,
+            expires_in=expires_in,
+        )
+
+    @app.post(
+        "/api/v1/auth/identity-exchange",
+        response_model=TokenPair,
+        response_model_exclude_none=True,
+    )
+    def identity_exchange(
+        payload: IdentityExchangeRequest,
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        if not settings.control_center_identity_enabled:
+            raise HTTPException(status_code=404, detail="Recurso indisponível.")
+
+        purge_identity_challenges()
+
+        expires_at = identity_challenges.pop(payload.nonce, None)
+
+        if expires_at is None or expires_at <= utcnow():
+            audit(
+                db,
+                "IDENTITY_EXCHANGE_FAILED",
+                origin=request.client.host if request.client else None,
+                details={"reason": "challenge"},
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=401,
+                detail="Prova de identidade inválida ou expirada.",
+            )
+
+        try:
+            public_key = decode_public_key_b64(
+                settings.control_center_identity_public_key_b64
+            )
+
+            identity = verify_identity_envelope(
+                payload.proof,
+                trusted_kid=settings.control_center_identity_kid,
+                trusted_public_key=public_key,
+                expected_nonce=payload.nonce,
+            )
+        except IdentityExchangeError:
+            audit(
+                db,
+                "IDENTITY_EXCHANGE_FAILED",
+                origin=request.client.host if request.client else None,
+                details={"reason": "proof"},
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=401,
+                detail="Prova de identidade inválida ou expirada.",
+            ) from None
+
+        user = db.scalar(
+            select(User).where(
+                func.lower(User.email) == identity.email
+            )
+        )
+
+        if user is None or not user.ativo:
+            audit(
+                db,
+                "IDENTITY_EXCHANGE_FAILED",
+                user,
+                origin=request.client.host if request.client else None,
+                details={"reason": "user"},
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=401,
+                detail="Identidade não autorizada para o Finance.",
+            )
+
+        user.ultimo_login = utcnow()
+
+        pair = issue_pair(db, user)
+
+        audit(
+            db,
+            "IDENTITY_EXCHANGE",
+            user,
+            origin=request.client.host if request.client else None,
+            details={
+                "central_sub": identity.sub,
+                "central_sid": identity.sid,
+                "central_jti": identity.jti,
+            },
+        )
+
+        db.commit()
+
+        return pair
 
     @app.post(
         "/api/v1/auth/login",

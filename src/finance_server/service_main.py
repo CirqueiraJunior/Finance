@@ -5,7 +5,10 @@ import sys
 import uvicorn
 
 from finance_server.app_factory import create_app
-from finance_server.config import ServerSettings
+from finance_server.config import (
+    ServerSettings,
+    get_control_center_identity_trust,
+)
 from finance_server.environment import (
     EnvironmentCommandError,
     build_postgres_url,
@@ -21,10 +24,16 @@ def build_service_settings() -> ServerSettings:
     connection, password, secret_key = ServiceServerConfigStore().load()
 
     database_url = build_postgres_url(connection, password)
+    identity_trust = get_control_center_identity_trust()
 
     return ServerSettings(
         database_url=database_url,
         secret_key=secret_key,
+        control_center_identity_enabled=identity_trust.enabled,
+        control_center_identity_kid=identity_trust.kid,
+        control_center_identity_public_key_b64=(
+            identity_trust.public_key_b64
+        ),
     )
 
 

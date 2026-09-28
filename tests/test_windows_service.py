@@ -28,6 +28,46 @@ def test_build_service_settings_uses_machine_store(monkeypatch):
     )
 
 
+def test_build_service_settings_propagates_identity_trust(monkeypatch):
+    connection = ServerConnectionConfig(
+        host="database.example", port=5432, database="postgres",
+        username="finance.user", sslmode="require",
+    )
+    public_key = "l9ch1W86s3WTt/et8PkhSzM+XTMzRN8l4wFrZ8aupY8="
+    monkeypatch.setattr(
+        service_main,
+        "ServiceServerConfigStore",
+        lambda: SimpleNamespace(
+            load=lambda: (connection, "Password1", "K" * 48)
+        ),
+    )
+    monkeypatch.setattr(
+        service_main,
+        "build_postgres_url",
+        lambda _connection, _password: "postgresql+psycopg://protected",
+    )
+    monkeypatch.setenv("CONTROL_CENTER_IDENTITY_ENABLED", "true")
+    monkeypatch.setenv(
+        "CONTROL_CENTER_IDENTITY_KID",
+        "cc-ed25519-b189c79a767b6f68",
+    )
+    monkeypatch.setenv(
+        "CONTROL_CENTER_IDENTITY_PUBLIC_KEY_B64",
+        public_key,
+    )
+
+    settings = service_main.build_service_settings()
+
+    assert settings.database_url == "postgresql+psycopg://protected"
+    assert settings.secret_key == "K" * 48
+    assert settings.control_center_identity_enabled is True
+    assert (
+        settings.control_center_identity_kid
+        == "cc-ed25519-b189c79a767b6f68"
+    )
+    assert settings.control_center_identity_public_key_b64 == public_key
+
+
 def test_service_main_returns_controlled_code_when_configuration_is_missing(
     monkeypatch, capsys,
 ):
@@ -122,6 +162,9 @@ def test_stop_requested_during_startup_prevents_server_from_staying_up(monkeypat
     service.SvcDoRun()
 
     assert len(created_servers) == 1
+    assert created_servers[0].config["host"] == "127.0.0.1"
+    assert created_servers[0].config["port"] == 8000
+    assert "workers" not in created_servers[0].config
     assert created_servers[0].should_exit is True
     assert created_servers[0].ran is True
     assert service.server is None

@@ -1,4 +1,4 @@
-from datetime import date, datetime
+﻿from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -8,6 +8,16 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 class LoginRequest(BaseModel):
     identifier: str
     password: str
+
+
+class IdentityChallengeResponse(BaseModel):
+    nonce: str
+    expires_in: int
+
+
+class IdentityExchangeRequest(BaseModel):
+    nonce: str = Field(min_length=1, max_length=256)
+    proof: str = Field(min_length=1, max_length=16384)
 
 
 class TokenPair(BaseModel):
