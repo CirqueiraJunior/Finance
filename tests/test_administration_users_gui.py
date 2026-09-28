@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QFormLayout, QMessageBox
 
 from app.gui.pages.administracao import AdministracaoPage, UserDialog
 from app.api_client.client import AuthenticatedUser
@@ -48,6 +48,47 @@ def test_profile_labels_are_friendly_while_payload_keeps_internal_values(qtbot):
     ]
     dialog.profile.setCurrentIndex(2)
     assert dialog.payload()["perfil"] == "OPERADOR_FINANCEIRO"
+
+
+def test_edit_user_dialog_shows_email_in_approved_order_and_payload(qtbot):
+    dialog = UserDialog(user=_user())
+    qtbot.addWidget(dialog)
+    layout = dialog.layout()
+
+    labels = [
+        layout.itemAt(row, QFormLayout.ItemRole.LabelRole).widget().text()
+        for row in range(5)
+    ]
+
+    assert labels == ["Nome", "E-mail", "Usuário", "Perfil", "Situação"]
+    assert dialog.email.text() == "usuario@finance.test"
+
+    dialog.name.setText("Usuário Editado")
+    dialog.email.setText("editado@finance.test")
+    dialog.username.setText("usuario.editado")
+    dialog.profile.setCurrentIndex(dialog.profile.findData("CONSULTA"))
+    dialog.active.setCurrentIndex(dialog.active.findData(False))
+
+    assert dialog.payload() == {
+        "nome": "Usuário Editado",
+        "email": "editado@finance.test",
+        "username": "usuario.editado",
+        "perfil": "CONSULTA",
+        "ativo": False,
+    }
+
+
+def test_edit_user_dialog_requires_email(qtbot, monkeypatch):
+    dialog = UserDialog(user=_user())
+    qtbot.addWidget(dialog)
+    messages = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: messages.append(args[2]))
+    dialog.email.clear()
+
+    dialog._validate()
+
+    assert dialog.result() != QDialog.DialogCode.Accepted
+    assert messages == ["Preencha todos os campos obrigatórios."]
 
 
 def test_new_user_dialog_validates_password_confirmation(qtbot, monkeypatch):

@@ -26,6 +26,7 @@ class UserDialog(QDialog):
         self.setWindowTitle("Editar usuário" if self._editing else "Novo usuário")
         layout = QFormLayout(self)
         self.name = QLineEdit(user.get("nome", "") if user else "")
+        self.email = QLineEdit(user.get("email", "") if user else "")
         self.username = QLineEdit(user.get("username", "") if user else "")
         self.profile = QComboBox()
         roles = USER_ROLES if allow_administrator else USER_ROLES[1:]
@@ -39,11 +40,11 @@ class UserDialog(QDialog):
             self.active.addItem("Ativo", True)
             self.active.addItem("Inativo", False)
             self.active.setCurrentIndex(0 if user.get("ativo", True) else 1)
+            layout.addRow("E-mail", self.email)
             layout.addRow("Usuário", self.username)
             layout.addRow("Perfil", self.profile)
             layout.addRow("Situação", self.active)
         else:
-            self.email = QLineEdit()
             self.password = QLineEdit()
             self.password.setEchoMode(QLineEdit.EchoMode.Password)
             self.password_confirmation = QLineEdit()
@@ -68,10 +69,15 @@ class UserDialog(QDialog):
         layout.addRow(buttons)
 
     def _validate(self) -> None:
-        required = [self.name.text().strip(), self.username.text().strip()]
+        required = [
+            self.name.text().strip(),
+            self.email.text().strip(),
+            self.username.text().strip(),
+        ]
         if not self._editing:
-            required.extend((self.email.text().strip(), self.username.text().strip(),
-                             self.password.text(), self.password_confirmation.text()))
+            required.extend(
+                (self.password.text(), self.password_confirmation.text())
+            )
         if not all(required):
             QMessageBox.warning(self, "Dados obrigatórios", "Preencha todos os campos obrigatórios.")
             return
@@ -90,6 +96,7 @@ class UserDialog(QDialog):
         if self._editing:
             return {
                 "nome": self.name.text().strip(),
+                "email": self.email.text().strip(),
                 "username": self.username.text().strip(),
                 "perfil": self.profile.currentData(),
                 "ativo": self.active.currentData(),

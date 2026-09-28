@@ -219,6 +219,58 @@ def test_rbac_users_crud_and_403(api_context):
     assert "password_hash" not in serialized and PASSWORD.casefold() not in serialized
 
 
+def test_administrator_can_update_user_email_with_normalization(api_context):
+    client, _, _, _ = api_context
+    administrator = auth(login(client).json())
+    created = client.post("/api/v1/users", headers=administrator, json={
+        "nome": "Operador", "email": "original@example.com", "username": "email.edit",
+        "password": PASSWORD, "perfil": "OPERADOR_FINANCEIRO",
+    })
+
+    response = client.patch(
+        f"/api/v1/users/{created.json()['id']}",
+        headers=administrator,
+        json={"email": " Updated.Email@Example.COM "},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["email"] == "updated.email@example.com"
+
+
+def test_user_email_update_rejects_another_users_email(api_context):
+    client, _, _, _ = api_context
+    administrator = auth(login(client).json())
+    created = client.post("/api/v1/users", headers=administrator, json={
+        "nome": "Operador", "email": "unique@example.com", "username": "email.duplicate",
+        "password": PASSWORD, "perfil": "OPERADOR_FINANCEIRO",
+    })
+
+    response = client.patch(
+        f"/api/v1/users/{created.json()['id']}",
+        headers=administrator,
+        json={"email": " GESTOR@EXAMPLE.COM "},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "E-mail já cadastrado para outro usuário."
+
+
+def test_user_email_update_allows_keeping_own_email(api_context):
+    client, _, _, _ = api_context
+    administrator = auth(login(client).json())
+    users = client.get("/api/v1/users", headers=administrator).json()
+    manager = next(item for item in users if item["username"] == "gestor")
+
+    response = client.patch(
+        f"/api/v1/users/{manager['id']}",
+        headers=administrator,
+        json={"email": " GESTOR@EXAMPLE.COM "},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["email"] == "gestor@example.com"
+
+
 def test_manager_cannot_administer_or_create_administrator(api_context):
     client, _, _, _ = api_context
     manager = auth(login(client, "gestor").json())

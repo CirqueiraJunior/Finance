@@ -832,6 +832,21 @@ def create_app(
                     status_code=403,
                     detail="Gestores não podem promover usuários a Administrador.",
                 )
+        if "email" in changes:
+            email = str(changes["email"]).strip().casefold()
+            duplicate = db.scalar(
+                select(User.id).where(
+                    func.lower(User.email) == email,
+                    User.id != target.id,
+                )
+            )
+            if duplicate is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="E-mail já cadastrado para outro usuário.",
+                )
+            changes["email"] = email
+
         if "username" in changes:
             username = changes["username"].strip().casefold()
             duplicate = db.scalar(
