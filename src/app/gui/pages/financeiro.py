@@ -387,7 +387,9 @@ class FinanceiroPage(QWidget):
         self.month_filter = MonthComboBox()
         self.month_filter.set_month(date.today().month)
         self.filter_button = QPushButton("Aplicar filtro")
+        self.filter_button.setProperty("buttonRole", "toolbar")
         self.new_entry_button = QPushButton("Novo Lançamento")
+        self.new_entry_button.setProperty("buttonRole", "primary")
         self.new_entry_button.setObjectName("primaryButton")
         self.new_indirect_button = self.new_entry_button
         for label, widget in (("Ano", self.year_filter), ("Mês", self.month_filter)):
@@ -404,8 +406,11 @@ class FinanceiroPage(QWidget):
         import_layout = QVBoxLayout(self.import_box)
         import_actions = QHBoxLayout()
         self.select_import_button = QPushButton("Selecionar arquivo")
+        self.select_import_button.setProperty("buttonRole", "secondary")
         self.validate_import_button = QPushButton("Validar")
+        self.validate_import_button.setProperty("buttonRole", "info")
         self.confirm_import_button = QPushButton("Importar")
+        self.confirm_import_button.setProperty("buttonRole", "primary")
         self.confirm_import_button.setObjectName("primaryButton")
         self.selected_import_file = QLabel("Nenhum arquivo selecionado.")
         self.validate_import_button.setEnabled(False)

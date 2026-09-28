@@ -57,6 +57,23 @@ class BudgetRepository(BaseRepository[BudgetEntry]):
 
         return {tuple(row) for row in rows}
 
+    def by_keys(
+        self, keys: Iterable[tuple[int, int, str, str]]
+    ) -> dict[tuple[int, int, str, str], BudgetEntry]:
+        requested = set(keys)
+        if not requested:
+            return {}
+        years = {key[0] for key in requested}
+        entries = self.session.scalars(
+            select(BudgetEntry).where(BudgetEntry.periodo_ano.in_(years))
+        )
+        return {
+            (item.periodo_ano, item.periodo_mes, item.tipo, item.categoria): item
+            for item in entries
+            if (item.periodo_ano, item.periodo_mes, item.tipo, item.categoria)
+            in requested
+        }
+
     def list_all(self) -> list[BudgetEntry]:
         statement = select(BudgetEntry).order_by(
             BudgetEntry.periodo_ano,

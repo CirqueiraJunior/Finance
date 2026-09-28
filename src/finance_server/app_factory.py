@@ -699,6 +699,21 @@ def create_app(
                     status_code=403,
                     detail="Gestores não podem promover usuários a Administrador.",
                 )
+        if "username" in changes:
+            username = changes["username"].strip().casefold()
+            duplicate = db.scalar(
+                select(User.id).where(
+                    func.lower(User.username) == username,
+                    User.id != target.id,
+                )
+            )
+            if duplicate is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Username já cadastrado.",
+                )
+            changes["username"] = username
+
         if "perfil" in changes:
             try:
                 changes["perfil"] = UserRole(changes["perfil"]).value
@@ -967,6 +982,32 @@ def create_app(
                     },
                 )
                 db.commit()
+
+                # A API somente confirma sucesso depois de verificar que todos
+                # os registros preparados pela importação realmente existem
+                # no banco após o commit.
+                db.expire_all()
+
+                missing_entries = [
+                    entry
+                    for entry in entries
+                    if getattr(entry, "id", None) is None
+                    or db.get(type(entry), entry.id) is None
+                ]
+                if missing_entries:
+                    raise RuntimeError(
+                        "A importação foi concluída, mas a verificação de "
+                        "persistência encontrou registros ausentes."
+                    )
+
+                historical_direct_imported = sum(
+                    1
+                    for entry in entries
+                    if isinstance(entry, CashflowEntry)
+                    and entry.categoria == "RECEITA_DIRETA"
+                    and entry.origem == "MANUAL"
+                )
+
             except FinancialImportValidationError as error:
                 db.rollback()
                 raise HTTPException(
@@ -983,6 +1024,8 @@ def create_app(
             "duplicates": validation.duplicates,
             "warnings": validation.warnings,
             "total": validation.total,
+            "verified": len(entries),
+            "historical_direct_imported": historical_direct_imported,
         })
 
     @app.post("/api/v1/investments", status_code=201)
@@ -1164,6 +1207,7 @@ def create_app(
             "warnings": validation.warnings,
             "errors": validation.errors,
             "can_import": validation.can_import,
+            "replacements": validation.replacements,
             "totals": {
                 "rows": len(validation.preview),
                 "value": validation.total,
@@ -1205,6 +1249,9 @@ def create_app(
                 validation, entries = service.stage_import(
                     path, file_name=file_name
                 )
+                updated = validation.replacements
+                inserted = len(entries) - updated
+
                 audit(
                     db,
                     "BUDGETS_IMPORTED",
@@ -1214,6 +1261,8 @@ def create_app(
                         "file_name": validation.file_name,
                         "year": validation.year,
                         "imported": len(entries),
+                        "inserted": inserted,
+                        "updated": updated,
                         "inconsistencies": len(validation.warnings),
                     },
                 )
@@ -1258,6 +1307,7 @@ def create_app(
             "warnings": validation.warnings,
             "errors": validation.errors,
             "can_import": validation.can_import,
+            "replacements": validation.replacements,
             "totals": {
                 "rows": len(validation.preview),
                 "target": validation.target_total,
@@ -1301,6 +1351,9 @@ def create_app(
                 validation, entries = service.stage_import(
                     path, file_name=file_name
                 )
+                updated = validation.replacements
+                inserted = len(entries) - updated
+
                 audit(
                     db, "TARGETS_IMPORTED", user,
                     entity_type="TargetEntry",
@@ -1325,6 +1378,8 @@ def create_app(
                 "file_name": validation.file_name,
                 "year": validation.year,
                 "imported": len(entries),
+                "inserted": inserted,
+                "updated": updated,
                 "warnings": validation.warnings,
                 "target_total": validation.target_total,
                 "actual_total": validation.actual_total,

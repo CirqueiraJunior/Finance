@@ -24,12 +24,12 @@ def provision_service_configuration(
     username = username.strip()
     if not host or not database or not username:
         raise EnvironmentCommandError(
-            "Host, banco e usuÃ¡rio PostgreSQL sÃ£o obrigatÃ³rios."
+            "Host, banco e usuário PostgreSQL são obrigatórios."
         )
     if not 1 <= port <= 65535:
-        raise EnvironmentCommandError("A porta PostgreSQL Ã© invÃ¡lida.")
+        raise EnvironmentCommandError("A porta PostgreSQL é inválida.")
     if not password:
-        raise EnvironmentCommandError("A senha PostgreSQL Ã© obrigatÃ³ria.")
+        raise EnvironmentCommandError("A senha PostgreSQL é obrigatória.")
 
     target = store or ServiceServerConfigStore()
     connection = ServerConnectionConfig(
@@ -49,5 +49,5 @@ def provision_service_configuration(
         or recovered_secret != secret_key
     ):
         raise EnvironmentCommandError(
-            "A validaÃ§Ã£o DPAPI da configuraÃ§Ã£o do serviÃ§o falhou."
+            "A validação DPAPI da configuração do serviço falhou."
         )

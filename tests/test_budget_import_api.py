@@ -269,7 +269,9 @@ def test_internal_duplicate_blocks_entire_budget_import(budget_import_context):
         assert db.scalar(select(func.count()).select_from(BudgetEntry)) == 0
 
 
-def test_persisted_duplicate_blocks_entire_budget_import(budget_import_context):
+def test_reimport_updates_matching_keys_and_preserves_other_periods(
+    budget_import_context,
+):
     client, app, tmp_path = budget_import_context
     path = _budget_workbook(tmp_path / "Orçamento 2026.xlsx")
     with app.state.session_factory() as db:
@@ -278,15 +280,32 @@ def test_persisted_duplicate_blocks_entire_budget_import(budget_import_context):
             categoria="RECEITA_DIRETA", descricao="Existente",
             valor_orcado=1,
         ))
+        db.add(BudgetEntry(
+            periodo_ano=2025, periodo_mes=12, tipo="DESPESA",
+            categoria="EVENTOS", descricao="Outro período",
+            valor_orcado=777,
+        ))
         db.commit()
 
     response = _upload(
         client, "/api/v1/budgets/import", path, _headers(client)
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 201
     with app.state.session_factory() as db:
-        assert db.scalar(select(func.count()).select_from(BudgetEntry)) == 1
+        january = db.scalar(select(BudgetEntry).where(
+            BudgetEntry.periodo_ano == 2026,
+            BudgetEntry.periodo_mes == 1,
+            BudgetEntry.tipo == "RECEITA",
+            BudgetEntry.categoria == "RECEITA_DIRETA",
+        ))
+        preserved = db.scalar(select(BudgetEntry).where(
+            BudgetEntry.periodo_ano == 2025,
+            BudgetEntry.periodo_mes == 12,
+        ))
+        assert january.valor_orcado == 200
+        assert preserved.valor_orcado == 777
+        assert db.scalar(select(func.count()).select_from(BudgetEntry)) == 5
 
 
 @pytest.mark.parametrize("username", ["admin", "gestor"])
@@ -322,6 +341,8 @@ def test_authorized_roles_import_and_audit(budget_import_context, username):
             "file_name": path.name,
             "year": 2026,
             "imported": 4,
+            "inserted": 4,
+            "updated": 0,
             "inconsistencies": 0,
         }
 

@@ -188,11 +188,13 @@ class PersonalRecoveryDialog(QDialog):
         self.identifier.textChanged.connect(self._update_password_state)
 
         self.reset_button = QPushButton("Redefinir senha")
+        self.reset_button.setProperty("buttonRole", "primary")
         self.reset_button.setEnabled(False)
         self.reset_button.clicked.connect(self._reset)
         layout.addWidget(self.reset_button)
 
         self.assisted_button = QPushButton("Não tenho a chave — Recuperação assistida")
+        self.assisted_button.setProperty("buttonRole", "info")
         self.assisted_button.clicked.connect(self._open_assisted_recovery)
         layout.addWidget(self.assisted_button)
 
@@ -278,6 +280,7 @@ class AssistedRecoveryDialog(QDialog):
         request_layout.addLayout(email_form)
 
         self.generate_button = QPushButton("Gerar código de solicitação")
+        self.generate_button.setProperty("buttonRole", "primary")
         self.generate_button.clicked.connect(self._generate_request)
         request_layout.addWidget(self.generate_button)
 
@@ -288,6 +291,7 @@ class AssistedRecoveryDialog(QDialog):
         request_layout.addWidget(self.request_code)
 
         self.copy_button = QPushButton("Copiar código")
+        self.copy_button.setProperty("buttonRole", "secondary")
         self.copy_button.setEnabled(False)
         self.copy_button.clicked.connect(self._copy_request)
         request_layout.addWidget(self.copy_button)
@@ -311,6 +315,7 @@ class AssistedRecoveryDialog(QDialog):
         auth_layout.addWidget(self.authorization)
 
         self.validate_button = QPushButton("Validar autorização")
+        self.validate_button.setProperty("buttonRole", "info")
         self.validate_button.setEnabled(False)
         self.validate_button.clicked.connect(self._validate_authorization)
         auth_layout.addWidget(self.validate_button)
@@ -335,6 +340,7 @@ class AssistedRecoveryDialog(QDialog):
         layout.addWidget(pwd_group)
 
         self.reset_button = QPushButton("Redefinir senha")
+        self.reset_button.setProperty("buttonRole", "primary")
         self.reset_button.setEnabled(False)
         self.reset_button.clicked.connect(self._reset_password)
         layout.addWidget(self.reset_button)
@@ -487,6 +493,7 @@ class LoginDialog(QDialog):
         actions.addSpacing(12)
 
         self.enter_button = QPushButton("Entrar")
+        self.enter_button.setProperty("buttonRole", "primary")
         self.enter_button.setObjectName("primaryButton")
         self.enter_button.setProperty("buttonRole", "primary")
         self.enter_button.setFixedSize(120, 38)

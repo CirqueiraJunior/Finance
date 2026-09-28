@@ -42,9 +42,9 @@ class BOEEntityTotal(Base):
         nullable=False,
         index=True,
     )
-    entity_id: Mapped[int] = mapped_column(
+    entity_id: Mapped[int | None] = mapped_column(
         ForeignKey("entities.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     codigo_entidade_origem: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -56,5 +56,5 @@ class BOEEntityTotal(Base):
     )
 
     boe_import: Mapped["BOEImport"] = relationship(back_populates="entity_totals")
-    entity: Mapped["Entity"] = relationship(back_populates="boe_totals")
+    entity: Mapped["Entity | None"] = relationship(back_populates="boe_totals")
 

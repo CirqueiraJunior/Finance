@@ -95,6 +95,7 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     nome: str | None = None
+    username: str | None = Field(default=None, min_length=3, max_length=100)
     perfil: str | None = None
     ativo: bool | None = None
 

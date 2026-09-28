@@ -1,8 +1,9 @@
 import os
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, QThread
 
 from app.gui.pages.administracao import AdministracaoPage
+from app.gui.processing import OperationWorker, ProcessingDialog
 from app.gui.pages.historical_import import HistoricalImportDialog
 from app.services.administration_service import AdministrationService
 from app.services.backup_service import BackupService
@@ -17,6 +18,9 @@ class AdministrationController(QObject):
         super().__init__(view)
         self.view, self.service, self.backup = view, service, backup
         self.historical = historical
+        self._backup_thread: QThread | None = None
+        self._backup_worker: OperationWorker | None = None
+        self._backup_dialog: ProcessingDialog | None = None
         view.refresh_button.clicked.connect(self.refresh)
         view.logs_button.clicked.connect(self.open_logs)
         view.backup_button.clicked.connect(self.create_backup)
@@ -36,11 +40,70 @@ class AdministrationController(QObject):
         os.startfile(directory)
 
     def create_backup(self) -> None:
-        try:
-            path = self.backup.create_manual_backup()
-            self.view.set_status(f"Backup concluído: {path}")
-        except (OSError, ValueError) as error:
-            self.view.set_status(f"Falha no backup: {error}", error=True)
+        if (
+            self._backup_thread is not None
+            and self._backup_thread.isRunning()
+        ):
+            return
+
+        dialog = ProcessingDialog(
+            self.view,
+            window_title="Criando Backup",
+        )
+        thread = QThread(self)
+        worker = OperationWorker(
+            self.backup.create_manual_backup
+        )
+        worker.moveToThread(thread)
+
+        self._backup_dialog = dialog
+        self._backup_thread = thread
+        self._backup_worker = worker
+
+        state = {
+            "ok": False,
+            "result": None,
+            "error": None,
+        }
+
+        def succeeded(path) -> None:
+            state["ok"] = True
+            state["result"] = path
+
+        def failed(error: Exception) -> None:
+            state["error"] = error
+
+        def finished() -> None:
+            if self._backup_dialog is not None:
+                self._backup_dialog.accept()
+                self._backup_dialog.deleteLater()
+
+            if self._backup_thread is not None:
+                self._backup_thread.deleteLater()
+
+            self._backup_dialog = None
+            self._backup_thread = None
+            self._backup_worker = None
+
+            if state["ok"]:
+                self.view.set_status(
+                    f"Backup conclu\u00eddo: {state['result']}"
+                )
+            else:
+                self.view.set_status(
+                    f"Falha no backup: {state['error']}",
+                    error=True,
+                )
+
+        thread.started.connect(worker.run)
+        worker.succeeded.connect(succeeded)
+        worker.failed.connect(failed)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(finished)
+
+        dialog.show()
+        thread.start()
 
     def open_historical_import(self) -> None:
         if self.historical is None:

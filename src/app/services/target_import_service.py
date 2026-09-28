@@ -34,6 +34,7 @@ class TargetImportValidation:
     errors: tuple[str, ...]
     target_total: Decimal
     actual_total: Decimal
+    replacements: int = 0
 
     @property
     def can_import(self) -> bool:
@@ -77,6 +78,7 @@ class TargetImportService:
         seen: set[tuple[int, int, int, str]] = set()
         target_total = Decimal("0.0000")
         actual_total = Decimal("0.0000")
+        replacements = 0
         for row in import_rows:
             entity = entities_by_code.get(row.code)
             key = (row.code, row.year, row.month, row.indicator)
@@ -84,17 +86,24 @@ class TargetImportService:
                 entity.id, row.year, row.month, row.indicator
             ) if entity is not None else None
             if entity is None:
-                errors.append(f"Linha {row.line}: Entidade {row.code} não cadastrada.")
+                if row.target == 0 and row.actual == 0:
+                    warnings.append(
+                        f"Linha {row.line}: Entidade {row.code} não cadastrada/inativa "
+                        "ignorada porque Meta e Realizado estão zerados."
+                    )
+                    seen.add(key)
+                    continue
+                errors.append(
+                    f"Linha {row.line}: Entidade {row.code} não cadastrada/inativa "
+                    "possui valores e não pode ser ignorada."
+                )
             elif key in seen:
                 errors.append(
                     f"Linha {row.line}: registro repetido no arquivo para Entidade "
                     f"{row.code}, {row.month:02d}/{row.year}, {row.indicator}."
                 )
             elif persisted_key in existing_keys:
-                errors.append(
-                    f"Linha {row.line}: já existe Meta para Entidade {row.code}, "
-                    f"{row.month:02d}/{row.year}, {row.indicator}."
-                )
+                replacements += 1
             seen.add(key)
             preview.append(TargetImportPreviewRow(
                 row.line, entity.id if entity else None, row.code,
@@ -104,6 +113,12 @@ class TargetImportService:
             target_total += row.target
             actual_total += row.actual
 
+        if replacements:
+            warnings.append(
+                f"{replacements} registro(s) existente(s) serão atualizado(s) "
+                "pela reimportação."
+            )
+
         if not preview and result.metadata.detected_type == "META_REALIZADO":
             errors.append("Nenhum registro de Meta válido foi encontrado no arquivo.")
         safe_name = Path(file_name or result.metadata.file_path.name).name
@@ -111,6 +126,7 @@ class TargetImportService:
             safe_name, result.metadata.detected_type, result.metadata.year,
             result.metadata.sheets, tuple(preview), tuple(warnings),
             tuple(dict.fromkeys(errors)), target_total, actual_total,
+            replacements,
         )
 
     def stage_import(self, file_path: str | Path, *, file_name: str | None = None
@@ -118,9 +134,27 @@ class TargetImportService:
         validation = self.validate(file_path, file_name=file_name)
         if not validation.can_import:
             raise TargetImportValidationError(validation)
-        entries = []
+        entries: list[TargetEntry] = []
+        new_entries: list[TargetEntry] = []
+
         try:
             for row in validation.preview:
+                existing = self.targets.get_by_key(
+                    row.entity_id,
+                    row.year,
+                    row.month,
+                    row.indicator,
+                )
+
+                if existing is not None:
+                    existing.valor_meta = row.target
+                    existing.valor_realizado = row.actual
+                    existing.observacao = (
+                        f"Reimportação operacional: {validation.file_name}"
+                    )
+                    entries.append(existing)
+                    continue
+
                 entry = TargetEntry(
                     entity_id=row.entity_id,
                     periodo_ano=row.year,
@@ -130,9 +164,14 @@ class TargetImportService:
                     valor_realizado=row.actual,
                     observacao=f"Importação operacional: {validation.file_name}",
                 )
+                new_entries.append(entry)
                 entries.append(entry)
-            self.targets.add_all(entries)
+
+            self.targets.add_all(new_entries)
+            self.targets.session.flush()
+
         except Exception:
             self.targets.session.rollback()
             raise
+
         return validation, tuple(entries)

@@ -33,7 +33,7 @@ class AppHeader(QFrame):
                 )
             )
 
-        self.tagline = QLabel("Planeje • Analise • Gerencie")
+        self.tagline = QLabel("Gestão • Controle • Resultados")
         self.tagline.setObjectName("headerTagline")
 
         self.user = QLabel(f"{user_name}\n{user_role}" if user_name else "")

@@ -249,3 +249,62 @@ def test_operational_query_filters_entity_and_calculates_all_kpis(boe_service):
     assert all_entities.unit_value == Decimal("0.2000")
     assert [row.entity_id for row in only_second.rows] == [second.id]
     assert only_second.total_queries == 75
+
+
+def test_boe_accepts_fcdl_7600_without_master_entity(
+    db_session,
+    tmp_path,
+) -> None:
+    from decimal import Decimal
+
+    from app.importers.boe_importer import BOEImporter
+    from app.repositories.boe_repository import BOERepository
+    from app.repositories.entity_repository import EntityRepository
+    from app.services.boe_service import BOEService
+
+    repository = BOERepository(db_session)
+    entity_repository = EntityRepository(db_session)
+    service = BOEService(
+        repository,
+        entity_repository,
+        BOEImporter(),
+    )
+
+    class FakeRow:
+        linha = 10
+        codigo_entidade = 7600
+        nome_entidade = "FCDL"
+        quantidade_consultas = 5
+        valor_total = Decimal("123.4500")
+
+    class FakeResult:
+        hash_arquivo = "fcdl-7600-test"
+        periodo_ano = 2026
+        periodo_mes = 8
+        nome_arquivo = "BOE - 08.26.xlsx"
+        caminho_arquivo = tmp_path / "BOE - 08.26.xlsx"
+        linhas = [FakeRow()]
+        inconsistencias = []
+        aprovado = True
+        valor_total_calculado = Decimal("123.4500")
+
+    service.importer.parse = lambda _path: FakeResult()
+
+    validation = service.validate_file(FakeResult.caminho_arquivo)
+
+    assert validation.aprovado is True
+    assert not any(
+        issue.codigo == "7600"
+        and "Base Mestra" in issue.mensagem
+        for issue in validation.inconsistencias
+    )
+
+    imported = service.import_file(FakeResult.caminho_arquivo)
+
+    totals = repository.list_totals_by_import(imported.id)
+
+    assert len(totals) == 1
+    assert totals[0].codigo_entidade_origem == 7600
+    assert totals[0].nome_entidade_origem == "FCDL"
+    assert totals[0].entity_id is None
+    assert totals[0].valor_total == Decimal("123.4500")

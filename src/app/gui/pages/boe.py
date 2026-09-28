@@ -64,14 +64,17 @@ class BoePage(QWidget):
         self.file_path.setReadOnly(True)
         self.file_path.setPlaceholderText("Selecione um arquivo BOE no formato .xlsx")
         self.select_button = QPushButton("Selecionar arquivo")
+        self.select_button.setProperty("buttonRole", "secondary")
         self.select_button.setObjectName("primaryButton")
         file_layout.addWidget(self.file_path, 1)
         file_layout.addWidget(self.select_button)
 
         action_layout = QHBoxLayout()
         self.validate_button = QPushButton("Validar")
+        self.validate_button.setProperty("buttonRole", "info")
         self.validate_button.setEnabled(False)
         self.import_button = QPushButton("Importar")
+        self.import_button.setProperty("buttonRole", "primary")
         self.import_button.setObjectName("primaryButton")
         self.import_button.setEnabled(False)
         action_layout.addWidget(self.validate_button)
@@ -135,6 +138,7 @@ class BoePage(QWidget):
         self.entity_filter.setObjectName("boeEntityFilter")
         self.entity_filter.addItem("Todas", None)
         self.query_button = QPushButton("Consultar")
+        self.query_button.setProperty("buttonRole", "info")
         self.query_button.setObjectName("primaryButton")
         for label_text, widget in (
             ("Período inicial", self.start_period),

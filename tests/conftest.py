@@ -26,7 +26,7 @@ def db_session() -> Session:
 
 @pytest.fixture
 def isolated_app_database(tmp_path, monkeypatch):
-    """Isola testes que instanciam MainWindow do banco persistente da aplica??o."""
+    """Isola testes que instanciam MainWindow do banco persistente da aplicação."""
     from app.core.config import get_settings
     from app.database.session import get_engine, get_session_factory
 

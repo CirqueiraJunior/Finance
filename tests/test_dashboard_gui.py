@@ -110,6 +110,15 @@ def test_controller_updates_all_blocks_when_filter_changes(qtbot):
     page.set_period(2026, 8)
     controller.refresh()
 
+    qtbot.waitUntil(
+        lambda: (
+            bool(service.calls)
+            and service.calls[-1] == (2026, 8)
+            and controller._refresh_thread is None
+        ),
+        timeout=5000,
+    )
+
     assert service.calls[-1] == (2026, 8)
     assert page.financial_cards["total_revenue"].text() == "R$ 100,00"
     assert "08/2026" in page.status.text()

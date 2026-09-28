@@ -133,6 +133,10 @@ def test_remote_user_create_edit_toggle_and_api_error(qtbot, monkeypatch, tmp_pa
     qtbot.addWidget(window)
     page = window.pages["administracao"]
     window._load_remote_users(page)
+    qtbot.waitUntil(
+        lambda: getattr(window, "_user_operation_thread", None) is None,
+        timeout=3000,
+    )
 
     AcceptedDialog.payload_value = {
         "nome": "Novo Usuário", "email": "novo@finance.test", "username": "novo",
@@ -140,16 +144,28 @@ def test_remote_user_create_edit_toggle_and_api_error(qtbot, monkeypatch, tmp_pa
     }
     monkeypatch.setattr(module, "UserDialog", AcceptedDialog)
     window._create_remote_user(page)
+    qtbot.waitUntil(
+        lambda: getattr(window, "_user_operation_thread", None) is None,
+        timeout=3000,
+    )
     assert api.created[-1]["password"] == "Strong!Pass123"
     assert page.status.text() == "Usuário criado com sucesso."
 
     page.multiuser_table.selectRow(0)
     AcceptedDialog.payload_value = {"nome": "Nome Editado", "perfil": "ADMINISTRADOR", "ativo": True}
     window._edit_remote_user(page)
+    qtbot.waitUntil(
+        lambda: getattr(window, "_user_operation_thread", None) is None,
+        timeout=3000,
+    )
     assert api.updated[-1] == (7, AcceptedDialog.payload_value)
 
     page.multiuser_table.selectRow(0)
     window._toggle_remote_user(page)
+    qtbot.waitUntil(
+        lambda: getattr(window, "_user_operation_thread", None) is None,
+        timeout=3000,
+    )
     assert api.updated[-1] == (7, {"ativo": False})
     assert page.status.text() == "Usuário inativado com sucesso."
 
@@ -158,6 +174,10 @@ def test_remote_user_create_edit_toggle_and_api_error(qtbot, monkeypatch, tmp_pa
 
     api.create_user = fail
     window._create_remote_user(page)
+    qtbot.waitUntil(
+        lambda: getattr(window, "_user_operation_thread", None) is None,
+        timeout=3000,
+    )
     assert "Email ou username já cadastrado" in page.status.text()
     assert "#b91c1c" in page.status.styleSheet()
 

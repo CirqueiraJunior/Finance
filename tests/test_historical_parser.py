@@ -69,7 +69,7 @@ def test_parser_is_pure_and_has_no_database_or_persistence_dependencies(tmp_path
     assert isinstance(result.data[0], TargetImportData)
 
 
-def test_target_parser_excludes_only_consolidated_code_and_preserves_values(tmp_path):
+def test_target_parser_excludes_non_entity_7500_and_7600_and_preserves_values(tmp_path):
     path = tmp_path / "Meta x Realizado 2026.xlsx"
     _target_workbook(path)
 
@@ -82,6 +82,67 @@ def test_target_parser_excludes_only_consolidated_code_and_preserves_values(tmp_
     }
     assert all(row.code != 7500 for row in result.data)
     assert result.warnings
+
+
+def test_target_parser_accepts_unambiguous_year_and_region_sheet_suffixes(tmp_path):
+    path = tmp_path / "Metas 2026 - GO.xlsm"
+    workbook = Workbook()
+    target = workbook.active
+    target.title = "Meta 2026 - GO"
+    target.append(["META DE CONSULTAS"])
+    target.append([7500, "Consolidado", 999])
+    target.append([7600, "FCDL", 999])
+    target.append([7501, "Goiânia", 100])
+    actual = workbook.create_sheet("Faturamento 2026 - GO")
+    actual.append(["CONSULTAS REALIZADAS"])
+    actual.append([7500, "Consolidado", 999])
+    actual.append([7600, "FCDL", 999])
+    actual.append([7501, "Goiânia", 80])
+    workbook.save(path)
+
+    result = HistoricalWorkbookParser().parse(path)
+
+    assert result.metadata.detected_type == "META_REALIZADO"
+    assert [(row.code, row.target, row.actual) for row in result.data] == [
+        (7501, Decimal("100.0000"), Decimal("80.0000"))
+    ]
+
+
+def test_target_parser_supports_real_go_2026_structural_layout(tmp_path):
+    path = tmp_path / "Metas 2026 - GO.xlsm"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "GO - Metas 2026(Metas 2026)"
+    sheet.append(["PLANEJAMENTO DE METAS 2026"])
+    sheet.append(["Metas aprovadas no Conselho Nacional em 28/11/2025"])
+    sheet.append([])
+    sheet.append([
+        "COD.", "ENTIDADE", "VERTENTE", "Jan", "Fev", "Mar",
+        "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov",
+        "Dez", "TOTAL ANUAL",
+    ])
+    monthly_7501 = list(range(101, 113))
+    monthly_7503 = list(range(201, 213))
+    sheet.append([7501, "CDL GOIANIA/GO-7501", "CONSULTAS", *monthly_7501, "=SUM(D5:O5)"])
+    sheet.append(["7503", "CDL VALPARAISO DE GOIAS/GO-7503", "CONSULTAS", *monthly_7503, "=SUM(D6:O6)"])
+    sheet.append([7500, "CONSOLIDADO", "CONSULTAS", *([999] * 12), "=SUM(D7:O7)"])
+    sheet.append([7600, "FCDL", "CONSULTAS", *([888] * 12), "=SUM(D8:O8)"])
+    workbook.save(path)
+
+    result = HistoricalWorkbookParser().parse(path)
+
+    assert result.metadata.detected_type == "META_REALIZADO"
+    assert result.metadata.year == 2026
+    assert len(result.data) == 24
+    assert {row.code for row in result.data} == {7501, 7503}
+    assert {row.entity_name for row in result.data} == {
+        "CDL GOIANIA/GO-7501", "CDL VALPARAISO DE GOIAS/GO-7503",
+    }
+    assert [row.target for row in result.data if row.code == 7501] == [
+        Decimal(f"{value}.0000") for value in monthly_7501
+    ]
+    assert all(row.actual == Decimal("0.0000") for row in result.data)
+    assert all(row.code not in {7500, 7600} for row in result.data)
 
 
 def test_budget_parser_keeps_only_current_operational_categories(tmp_path):

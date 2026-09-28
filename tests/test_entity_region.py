@@ -10,6 +10,8 @@ from finance_server.app_factory import create_app
 from finance_server.config import ServerSettings
 from finance_server.models import User, UserRole
 from finance_server.security import hash_password
+from app.api_client.client import APIClient
+from app.gui.processing import ProcessingDialog
 
 
 PASSWORD = "Strong!Pass123"
@@ -154,3 +156,19 @@ def test_remote_toggle_sends_region_without_historical_location(qtbot):
     assert api.payload["ativa"] is False
     assert "municipio" not in api.payload
     assert "uf" not in api.payload
+
+
+def test_real_remote_registration_refresh_uses_worker_and_processing_dialog(
+    qtbot, monkeypatch,
+):
+    api = APIClient("http://127.0.0.1:1")
+    monkeypatch.setattr(api, "get", lambda _path: [])
+    page = CadastrosPage()
+    qtbot.addWidget(page)
+
+    controller = RemoteRegistrationController(page, api)
+
+    assert isinstance(controller._operation_dialog, ProcessingDialog)
+    qtbot.waitUntil(lambda: controller._operation_thread is None, timeout=3000)
+    assert controller._operation_dialog is None
+    api.close()

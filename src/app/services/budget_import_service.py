@@ -30,6 +30,7 @@ class BudgetImportValidation:
     warnings: tuple[str, ...]
     errors: tuple[str, ...]
     total: Decimal
+    replacements: int = 0
 
     @property
     def can_import(self) -> bool:
@@ -80,6 +81,7 @@ class BudgetImportService:
         preview: list[BudgetImportPreviewRow] = []
         seen: set[tuple[int, int, str, str]] = set()
         total = Decimal("0.0000")
+        replacements = 0
 
         for row in import_rows:
             key = (row.year, row.month, row.entry_type, row.category)
@@ -90,10 +92,7 @@ class BudgetImportService:
                     f"{row.month:02d}/{row.year}, {row.entry_type}, {row.category}."
                 )
             elif key in existing_keys:
-                errors.append(
-                    f"Linha {row.line}: já existe Orçamento para "
-                    f"{row.month:02d}/{row.year}, {row.entry_type}, {row.category}."
-                )
+                replacements += 1
 
             seen.add(key)
 
@@ -114,6 +113,11 @@ class BudgetImportService:
             errors.append(
                 "Nenhum registro de Orçamento válido foi encontrado no arquivo."
             )
+        if replacements:
+            warnings.append(
+                f"{replacements} registros existentes serão atualizados "
+                "pela mesma chave de período, tipo e categoria."
+            )
 
         safe_name = Path(
             file_name or result.metadata.file_path.name
@@ -128,6 +132,7 @@ class BudgetImportService:
             warnings=tuple(warnings),
             errors=tuple(dict.fromkeys(errors)),
             total=total,
+            replacements=replacements,
         )
 
     def stage_import(
@@ -144,9 +149,17 @@ class BudgetImportService:
         entries: list[BudgetEntry] = []
 
         try:
+            keys = {
+                (row.year, row.month, row.entry_type, row.category)
+                for row in validation.preview
+            }
+            existing = self.budgets.by_keys(keys)
+            new_entries: list[BudgetEntry] = []
             for row in validation.preview:
-                entries.append(
-                    BudgetEntry(
+                key = (row.year, row.month, row.entry_type, row.category)
+                entry = existing.get(key)
+                if entry is None:
+                    entry = BudgetEntry(
                         periodo_ano=row.year,
                         periodo_mes=row.month,
                         tipo=row.entry_type,
@@ -157,9 +170,16 @@ class BudgetImportService:
                             f"Importação operacional: {validation.file_name}"
                         ),
                     )
-                )
+                    new_entries.append(entry)
+                else:
+                    entry.descricao = row.source_label or None
+                    entry.valor_orcado = row.value
+                    entry.observacao = (
+                        f"Importação operacional: {validation.file_name}"
+                    )
+                entries.append(entry)
 
-            self.budgets.add_all(entries)
+            self.budgets.add_all(new_entries)
 
         except Exception:
             self.budgets.session.rollback()

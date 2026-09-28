@@ -118,7 +118,7 @@ class FinancialImportService:
                     )
                     continue
                 if category == "RECEITA_DIRETA":
-                    if self._is_january_2026_historical_direct(row):
+                    if self._can_use_historical_direct_revenue(row):
                         warnings.append(
                             "Receita Direta de 01/2026 importada da base histórica "
                             "por ausência de BOE 12/2025."
@@ -164,12 +164,19 @@ class FinancialImportService:
             total=source.total,
         )
 
-    def _is_january_2026_historical_direct(self, row: dict) -> bool:
-        if (row["year"], row["month"]) != (2026, 1):
+    def _can_use_historical_direct_revenue(self, row: dict) -> bool:
+        period = (row["year"], row["month"])
+        if period > (2026, 1):
             return False
+
+        previous_year, previous_month = row["year"], row["month"] - 1
+        if previous_month == 0:
+            previous_year -= 1
+            previous_month = 12
+
         previous_boe = self.session.scalar(select(BOEImport.id).where(
-            BOEImport.periodo_ano == 2025,
-            BOEImport.periodo_mes == 12,
+            BOEImport.periodo_ano == previous_year,
+            BOEImport.periodo_mes == previous_month,
             BOEImport.status == "imported",
         ))
         return previous_boe is None

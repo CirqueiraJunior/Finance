@@ -79,9 +79,35 @@ class DashboardRepository:
         if category in (None, "RECEITA_DIRETA") and entry_type in (None, "RECEITA"):
             for row in self.session.execute(source):
                 competence = 1 if row.periodo_mes == 12 else row.periodo_mes + 1
-                competence_year = row.periodo_ano + 1 if row.periodo_mes == 12 else row.periodo_ano
+                competence_year = (
+                    row.periodo_ano + 1
+                    if row.periodo_mes == 12
+                    else row.periodo_ano
+                )
                 if competence_year == year:
                     direct[competence] = row.valor_total
+
+            if year <= 2026:
+                historical_query = (
+                    select(
+                        CashflowEntry.periodo_mes,
+                        func.sum(CashflowEntry.valor).label("value"),
+                    )
+                    .where(
+                        CashflowEntry.periodo_ano == year,
+                        CashflowEntry.categoria == "RECEITA_DIRETA",
+                        CashflowEntry.origem == "MANUAL",
+                    )
+                    .group_by(CashflowEntry.periodo_mes)
+                )
+
+                for historical_row in self.session.execute(historical_query):
+                    if (year, historical_row.periodo_mes) > (2026, 1):
+                        continue
+                    direct.setdefault(
+                        historical_row.periodo_mes,
+                        historical_row.value,
+                    )
 
         applied = {
             row.month: row.value for row in self.session.execute(select(

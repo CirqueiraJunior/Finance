@@ -171,7 +171,9 @@ class CashflowService:
             zero,
         )
         use_historical_direct = (
-            (year, month) == (2026, 1) and source_boe is None
+            (year, month) <= (2026, 1)
+            and source_boe is None
+            and historical_direct > zero
         )
         direct = (
             source_boe.valor_total if source_boe is not None

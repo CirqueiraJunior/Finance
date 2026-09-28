@@ -31,7 +31,11 @@ def test_budget_page_has_filters_cards_and_read_only_table(qtbot):
     assert page.new_button.text() == "Novo Orçamento"
     assert page.month_filter.itemData(0) == 0
     assert page.table.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
-    assert page.import_file_button.text() == "Importar Orçamento"
+    assert page.import_file_button.text() == "Selecionar arquivo"
+    assert page.validate_import_button.text() == "Validar"
+    assert page.confirm_import_button.text() == "Importar"
+    assert not page.validate_import_button.isEnabled()
+    assert not page.confirm_import_button.isEnabled()
 
 
 def test_budget_dialog_filters_categories(qtbot):
@@ -279,10 +283,17 @@ def test_budget_controller_validates_selected_file(qtbot, monkeypatch):
 
     controller.select_import_file()
 
+    assert controller.selected_import_file_path == "selecionado.xlsx"
+    assert controller.import_file_path is None
+    assert page.validate_import_button.isEnabled()
+    assert not page.confirm_import_button.isEnabled()
+    assert service.validated_path is None
+
+    controller.validate_selected_import_file()
+
     assert service.validated_path == "selecionado.xlsx"
     assert controller.import_file_path == "selecionado.xlsx"
     assert page.confirm_import_button.isEnabled()
-
 
 def test_budget_import_runs_in_worker_blocks_duplicate_and_refreshes(qtbot):
     service = _RemoteBudgetImportService(wait=True)
@@ -316,7 +327,7 @@ def test_budget_import_runs_in_worker_blocks_duplicate_and_refreshes(qtbot):
     assert page.import_file_button.isEnabled()
     assert not page.confirm_import_button.isEnabled()
     assert "Orçamento importado com sucesso" in page.status.text()
-    assert service.refresh_calls >= 2
+    assert service.refresh_calls == 1
 
 
 @pytest.mark.parametrize(

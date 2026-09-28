@@ -245,19 +245,33 @@ def test_import_supports_queries_and_registrations(target_import_context):
         }
 
 
-def test_target_import_revalidates_and_blocks_duplicates(target_import_context):
+def test_target_import_revalidates_and_updates_existing(target_import_context):
     client, _, tmp_path = target_import_context
     path = _workbook(tmp_path / "Meta x Realizado 2026.xlsx")
     headers = _headers(client)
-    assert _upload(client, "/api/v1/targets/import", path, headers).status_code == 201
+
+    first = _upload(client, "/api/v1/targets/import", path, headers)
+    assert first.status_code == 201
+    assert first.json()["inserted"] > 0
+    assert first.json()["updated"] == 0
 
     validation = _upload(
         client, "/api/v1/targets/import/validate", path, headers
     ).json()
-    assert validation["can_import"] is False
-    assert any("já existe Meta" in error for error in validation["errors"])
+
+    assert validation["can_import"] is True
+    assert validation["replacements"] > 0
+
+    second = _upload(client, "/api/v1/targets/import", path, headers)
+    assert second.status_code == 201
+    assert second.json()["inserted"] == 0
+    assert second.json()["updated"] == validation["replacements"]
+    assert validation["errors"] == []
+    assert any("atualizado(s)" in warning for warning in validation["warnings"])
     repeated = _upload(client, "/api/v1/targets/import", path, headers)
-    assert repeated.status_code == 422
+    assert repeated.status_code == 201
+    assert repeated.json()["inserted"] == 0
+    assert repeated.json()["updated"] == validation["replacements"]
 
 
 def test_read_only_cannot_validate_or_import_targets(target_import_context):

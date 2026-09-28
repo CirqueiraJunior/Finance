@@ -40,7 +40,11 @@ def test_page_has_filters_cards_table_and_empty_state(qtbot):
     assert page.indicator_filter.count() == 2
     assert page.table.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
     assert page.empty_state.isVisibleTo(page)
-    assert page.import_file_button.text() == "Importar Metas"
+    assert page.import_file_button.text() == "Selecionar arquivo"
+    assert page.validate_import_button.text() == "Validar"
+    assert page.confirm_import_button.text() == "Importar"
+    assert not page.validate_import_button.isEnabled()
+    assert not page.confirm_import_button.isEnabled()
 
 
 def test_import_preview_enables_confirmation_only_when_valid(qtbot):

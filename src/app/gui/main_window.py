@@ -39,6 +39,7 @@ from app.gui.pages.metas import MetasPage
 from app.gui.pages.orcamento import OrcamentoPage
 from app.gui.pages.relatorios import RelatoriosPage
 from app.gui.pages.historical_import import HistoricalImportDialog
+from app.gui.processing import OperationWorker, ProcessingDialog
 from app.gui.controllers.historical_import_controller import HistoricalImportController
 from app.importers.boe_importer import BOEImporter
 from app.importers.historical_importer import HistoricalWorkbookImporter
@@ -71,7 +72,7 @@ from app.widgets.app_header import AppHeader
 from app.api_client.client import APIClient, AuthenticatedUser
 from app.gui.login_dialog import ChangePasswordDialog, LoginDialog
 from app.gui.help_dialog import HelpDialog
-from app.gui.processing import OperationWorker
+from app.gui.processing import OperationWorker, ProcessingDialog
 from app.services.update_service import UpdateCheckResult, UpdateService, UpdateStatus
 from PySide6.QtWidgets import QDialog
 from app.services.remote_services import (
@@ -110,6 +111,10 @@ class MainWindow(QMainWindow):
         self._update_thread: QThread | None = None
         self._update_worker: OperationWorker | None = None
         self._update_page: AdministracaoPage | None = None
+        self._update_dialog: ProcessingDialog | None = None
+        self._admin_operation_thread: QThread | None = None
+        self._admin_operation_worker: OperationWorker | None = None
+        self._admin_operation_dialog: ProcessingDialog | None = None
         administracao_page.check_updates_button.clicked.connect(
             lambda: self._check_for_updates(administracao_page)
         )
@@ -431,15 +436,99 @@ class MainWindow(QMainWindow):
         else:
             self.close()
 
+    def _run_admin_operation(
+        self,
+        page: AdministracaoPage,
+        *,
+        title: str,
+        operation,
+        succeeded,
+        failed,
+    ) -> None:
+        # O APIClient real executa chamadas remotas e deve ficar fora
+        # da thread da interface. Stubs dos testes permanecem síncronos.
+        if not isinstance(self._api_client, APIClient):
+            try:
+                succeeded(operation())
+            except Exception as error:
+                failed(error)
+            return
+
+        if (
+            self._admin_operation_thread is not None
+            and self._admin_operation_thread.isRunning()
+        ):
+            return
+
+        dialog = ProcessingDialog(
+            page,
+            window_title=title,
+        )
+        thread = QThread(self)
+        worker = OperationWorker(operation)
+        worker.moveToThread(thread)
+
+        self._admin_operation_dialog = dialog
+        self._admin_operation_thread = thread
+        self._admin_operation_worker = worker
+
+        state = {
+            "ok": False,
+            "result": None,
+            "error": None,
+        }
+
+        def store_success(result) -> None:
+            state["ok"] = True
+            state["result"] = result
+
+        def store_failure(error) -> None:
+            state["error"] = error
+
+        def finished() -> None:
+            if self._admin_operation_dialog is not None:
+                self._admin_operation_dialog.accept()
+                self._admin_operation_dialog.deleteLater()
+
+            if self._admin_operation_thread is not None:
+                self._admin_operation_thread.deleteLater()
+
+            self._admin_operation_dialog = None
+            self._admin_operation_thread = None
+            self._admin_operation_worker = None
+
+            if state["ok"]:
+                succeeded(state["result"])
+            else:
+                failed(state["error"])
+
+        thread.started.connect(worker.run)
+        worker.succeeded.connect(store_success)
+        worker.failed.connect(store_failure)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(finished)
+
+        dialog.show()
+        thread.start()
+
     def _load_server_status(self, page: AdministracaoPage) -> None:
-        try:
-            health = self._api_client.health()
+        def succeeded(health) -> None:
             page.set_status(
-                f"API online | versão {health['version']} | "
-                f"{health.get('database', 'banco não informado')}"
+                f"API online | versao {health['version']} | "
+                f"{health.get('database', 'banco nao informado')}"
             )
-        except RuntimeError as error:
+
+        def failed(error: Exception) -> None:
             page.set_status(str(error), error=True)
+
+        self._run_admin_operation(
+            page,
+            title="Status do Servidor",
+            operation=self._api_client.health,
+            succeeded=succeeded,
+            failed=failed,
+        )
 
     def _check_for_updates(self, page: AdministracaoPage) -> None:
         if self._update_thread is not None and self._update_thread.isRunning():
@@ -447,6 +536,11 @@ class MainWindow(QMainWindow):
         page.set_update_check_running(True)
         page.set_status("Consultando a última versão publicada...")
         self._update_page = page
+        self._update_dialog = ProcessingDialog(
+            page,
+            window_title="Verificando atualizacoes",
+        )
+        self._update_dialog.show()
         self._update_thread = QThread(self)
         self._update_worker = OperationWorker(self._update_service.check)
         self._update_worker.moveToThread(self._update_thread)
@@ -483,6 +577,11 @@ class MainWindow(QMainWindow):
     def _finish_update_check(self) -> None:
         if self._update_page is not None:
             self._update_page.set_update_check_running(False)
+
+        if self._update_dialog is not None:
+            self._update_dialog.accept()
+            self._update_dialog.deleteLater()
+            self._update_dialog = None
         if self._update_thread is not None:
             self._update_thread.deleteLater()
         self._update_thread = None
@@ -490,12 +589,23 @@ class MainWindow(QMainWindow):
         self._update_page = None
 
     def _load_remote_information(self, page: AdministracaoPage) -> None:
-        try:
-            health = self._api_client.health()
+        def succeeded(health) -> None:
             page.show_remote_information(health)
             page.set_status("Informações centrais atualizadas.")
-        except RuntimeError as error:
-            page.set_status(f"Falha ao consultar informações: {error}", error=True)
+
+        def failed(error: Exception) -> None:
+            page.set_status(
+                f"Falha ao consultar informacoes: {error}",
+                error=True,
+            )
+
+        self._run_admin_operation(
+            page,
+            title="Atualizando Informacoes",
+            operation=self._api_client.health,
+            succeeded=succeeded,
+            failed=failed,
+        )
 
     def _open_historical_import(self, page: AdministracaoPage) -> None:
         if self._historical_import_service is None:
@@ -507,12 +617,72 @@ class MainWindow(QMainWindow):
         )
         dialog.exec()
 
+    def _run_user_operation(
+        self,
+        page: AdministracaoPage,
+        *,
+        title: str,
+        operation,
+        success_message: str,
+        error_prefix: str,
+    ) -> None:
+        current_thread = getattr(self, "_user_operation_thread", None)
+        if current_thread is not None and current_thread.isRunning():
+            return
+
+        dialog = ProcessingDialog(page, window_title=title)
+        thread = QThread(self)
+        worker = OperationWorker(operation)
+        worker.moveToThread(thread)
+
+        self._user_operation_dialog = dialog
+        self._user_operation_thread = thread
+        self._user_operation_worker = worker
+
+        def succeeded(result) -> None:
+            if result is not None:
+                page.show_users(result)
+            page.set_status(success_message)
+
+        def failed(error: Exception) -> None:
+            page.set_status(f"{error_prefix}: {error}", error=True)
+
+        def finished() -> None:
+            current_dialog = getattr(
+                self, "_user_operation_dialog", None
+            )
+            if current_dialog is not None:
+                current_dialog.accept()
+                current_dialog.deleteLater()
+
+            current_thread = getattr(
+                self, "_user_operation_thread", None
+            )
+            if current_thread is not None:
+                current_thread.deleteLater()
+
+            self._user_operation_dialog = None
+            self._user_operation_thread = None
+            self._user_operation_worker = None
+
+        thread.started.connect(worker.run)
+        worker.succeeded.connect(succeeded)
+        worker.failed.connect(failed)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(finished)
+
+        dialog.show()
+        thread.start()
+
     def _load_remote_users(self, page: AdministracaoPage) -> None:
-        try:
-            page.show_users(self._api_client.list_users())
-            page.set_status("Usuários atualizados.")
-        except RuntimeError as error:
-            page.set_status(str(error), error=True)
+        self._run_user_operation(
+            page,
+            title="Carregando usuários",
+            operation=self._api_client.list_users,
+            success_message="Usuários atualizados.",
+            error_prefix="Não foi possível carregar os usuários",
+        )
 
     def _create_remote_user(self, page: AdministracaoPage) -> None:
         dialog = UserDialog(
@@ -521,65 +691,120 @@ class MainWindow(QMainWindow):
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        try:
-            self._api_client.create_user(dialog.payload())
-            self._load_remote_users(page)
-            page.set_status("Usuário criado com sucesso.")
-        except RuntimeError as error:
-            page.set_status(f"Não foi possível criar o usuário: {error}", error=True)
+
+        payload = dialog.payload()
+
+        def operation():
+            self._api_client.create_user(payload)
+            return self._api_client.list_users()
+
+        self._run_user_operation(
+            page,
+            title="Criando usuário",
+            operation=operation,
+            success_message="Usuário criado com sucesso.",
+            error_prefix="Não foi possível criar o usuário",
+        )
 
     def _edit_remote_user(self, page: AdministracaoPage) -> None:
         user = page.selected_user()
         if user is None:
-            page.set_status("Selecione um usuário para editar.", error=True)
+            page.set_status(
+                "Selecione um usuário para editar.",
+                error=True,
+            )
             return
+
         if (
             self._authenticated_role == "GESTOR"
             and user.get("perfil") == "ADMINISTRADOR"
         ):
             page.set_status(
-                "Gestores não podem administrar usuários Administrador.", error=True
+                "Gestores não podem administrar usuários Administrador.",
+                error=True,
             )
             return
+
         dialog = UserDialog(
-            page, user=user,
+            page,
+            user=user,
             allow_administrator=self._authenticated_role == "ADMINISTRADOR",
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        try:
-            self._api_client.update_user(user["id"], dialog.payload())
-            self._load_remote_users(page)
-            page.set_status("Usuário atualizado com sucesso.")
-        except RuntimeError as error:
-            page.set_status(f"Não foi possível atualizar o usuário: {error}", error=True)
+
+        user_id = user["id"]
+        payload = dialog.payload()
+
+        def operation():
+            self._api_client.update_user(user_id, payload)
+            return self._api_client.list_users()
+
+        self._run_user_operation(
+            page,
+            title="Atualizando usuário",
+            operation=operation,
+            success_message="Usuário atualizado com sucesso.",
+            error_prefix="Não foi possível atualizar o usuário",
+        )
 
     def _toggle_remote_user(self, page: AdministracaoPage) -> None:
         user = page.selected_user()
         if user is None:
-            page.set_status("Selecione um usuário para ativar ou inativar.", error=True)
+            page.set_status(
+                "Selecione um usuário para ativar ou inativar.",
+                error=True,
+            )
             return
+
         if (
             self._authenticated_role == "GESTOR"
             and user.get("perfil") == "ADMINISTRADOR"
         ):
             page.set_status(
-                "Gestores não podem administrar usuários Administrador.", error=True
+                "Gestores não podem administrar usuários Administrador.",
+                error=True,
             )
             return
-        active = not user["ativo"]
-        try:
-            self._api_client.update_user(user["id"], {"ativo": active})
-            self._load_remote_users(page)
-            page.set_status(f"Usuário {'ativado' if active else 'inativado'} com sucesso.")
-        except RuntimeError as error:
-            page.set_status(f"Não foi possível alterar a situação do usuário: {error}", error=True)
 
-    def _reset_remote_user_password(self, page: AdministracaoPage) -> None:
+        user_id = user["id"]
+        active = not user["ativo"]
+
+        def operation():
+            self._api_client.update_user(
+                user_id,
+                {"ativo": active},
+            )
+            return self._api_client.list_users()
+
+        self._run_user_operation(
+            page,
+            title=(
+                "Ativando usuário"
+                if active
+                else "Inativando usuário"
+            ),
+            operation=operation,
+            success_message=(
+                "Usuário ativado com sucesso."
+                if active
+                else "Usuário inativado com sucesso."
+            ),
+            error_prefix="Não foi possível alterar a situação do usuário",
+        )
+
+    def _reset_remote_user_password(
+        self,
+        page: AdministracaoPage,
+    ) -> None:
         user = page.selected_user()
         if user is None:
-            page.set_status("Selecione um usuário para redefinir a senha.", error=True)
+            page.set_status(
+                "Selecione um usuário para redefinir a senha.",
+                error=True,
+            )
             return
+
         if (
             self._authenticated_role == "GESTOR"
             and user.get("perfil") == "ADMINISTRADOR"
@@ -607,50 +832,129 @@ class MainWindow(QMainWindow):
         )
         if not ok:
             return
+
         if temporary_password != confirmation:
-            page.set_status("As senhas temporárias não coincidem.", error=True)
+            page.set_status(
+                "As senhas temporárias não coincidem.",
+                error=True,
+            )
             return
 
         try:
             validate_password(temporary_password)
-            self._api_client.reset_user_password(user["id"], temporary_password)
-            self._load_remote_users(page)
+        except ValueError as error:
             page.set_status(
-                "Senha temporária definida. O usuário deverá alterá-la no próximo acesso."
+                f"Não foi possível redefinir a senha: {error}",
+                error=True,
             )
-        except (RuntimeError, ValueError) as error:
-            page.set_status(f"Não foi possível redefinir a senha: {error}", error=True)
+            return
+
+        user_id = user["id"]
+
+        def operation():
+            self._api_client.reset_user_password(
+                user_id,
+                temporary_password,
+            )
+            return self._api_client.list_users()
+
+        self._run_user_operation(
+            page,
+            title="Redefinindo senha",
+            operation=operation,
+            success_message=(
+                "Senha temporária definida. "
+                "O usuário deverá alterá-la no próximo acesso."
+            ),
+            error_prefix="Não foi possível redefinir a senha",
+        )
 
     def _load_remote_audit(self, page: AdministracaoPage) -> None:
-        try:
-            values = self._api_client.get("/api/v1/audit")
-            page.show_remote_rows([(item["timestamp"], str(item.get("user_id") or "—"),
-                                    item["action"], item.get("entity_type") or "—") for item in values])
-            page.set_status("Auditoria atualizada (somente leitura).")
-        except RuntimeError as error:
+        def succeeded(values) -> None:
+            rows = [
+                (
+                    item["timestamp"],
+                    str(item.get("user_id") or "-"),
+                    item["action"],
+                    item.get("entity_type") or "-",
+                )
+                for item in values
+            ]
+            page.show_remote_rows(rows)
+            page.set_status(
+                "Auditoria atualizada (somente leitura)."
+            )
+
+        def failed(error: Exception) -> None:
             page.set_status(str(error), error=True)
+
+        self._run_admin_operation(
+            page,
+            title="Carregando Auditoria",
+            operation=lambda: self._api_client.get("/api/v1/audit"),
+            succeeded=succeeded,
+            failed=failed,
+        )
 
     def _load_ranking_parameters(self, page: AdministracaoPage) -> None:
         widget = page.ranking_parameters_widget
-        try:
-            values = self._api_client.get_ranking_parameters(widget.year.value())
+        year = widget.year.value()
+
+        def succeeded(values) -> None:
             widget.show_parameters(values)
-        except RuntimeError as error:
-            widget.set_status(f"Não foi possível carregar: {error}", error=True)
+
+        def failed(error: Exception) -> None:
+            widget.set_status(
+                f"Nao foi possivel carregar: {error}",
+                error=True,
+            )
+
+        self._run_admin_operation(
+            page,
+            title="Parametros do Ranking",
+            operation=lambda: self._api_client.get_ranking_parameters(
+                year
+            ),
+            succeeded=succeeded,
+            failed=failed,
+        )
 
     def _save_ranking_parameters(self, page: AdministracaoPage) -> None:
         widget = page.ranking_parameters_widget
+
         try:
             payload = widget.payload()
-            values = self._api_client.save_ranking_parameters(
-                widget.year.value(), payload
+        except ValueError as error:
+            widget.set_status(
+                f"Nao foi possivel salvar: {error}",
+                error=True,
             )
+            return
+
+        year = widget.year.value()
+
+        def succeeded(values) -> None:
             widget.show_parameters(values)
             widget.set_status(
-                f"Parâmetros do Ranking de {widget.year.value()} salvos com sucesso."
+                f"Parametros do Ranking de {year} salvos com sucesso."
             )
-        except (RuntimeError, ValueError) as error:
-            widget.set_status(f"Não foi possível salvar: {error}", error=True)
+
+        def failed(error: Exception) -> None:
+            widget.set_status(
+                f"Nao foi possivel salvar: {error}",
+                error=True,
+            )
+
+        self._run_admin_operation(
+            page,
+            title="Salvando Parametros do Ranking",
+            operation=lambda: self._api_client.save_ranking_parameters(
+                year,
+                payload,
+            ),
+            succeeded=succeeded,
+            failed=failed,
+        )
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._api_client is not None:

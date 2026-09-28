@@ -233,9 +233,13 @@ class CadastrosPage(QWidget):
         entity_layout = QVBoxLayout(entity_tab)
         entity_actions = QHBoxLayout()
         self.new_entity_button = QPushButton("Nova Entidade")
+        self.new_entity_button.setProperty("buttonRole", "primary")
         self.edit_entity_button = QPushButton("Editar Entidade")
+        self.edit_entity_button.setProperty("buttonRole", "secondary")
         self.toggle_entity_button = QPushButton("Ativar/Inativar")
+        self.toggle_entity_button.setProperty("buttonRole", "warning")
         self.aliases_button = QPushButton("Consultar Aliases")
+        self.aliases_button.setProperty("buttonRole", "info")
         for button in (self.new_entity_button, self.edit_entity_button,
                        self.toggle_entity_button, self.aliases_button):
             entity_actions.addWidget(button)
@@ -252,7 +256,9 @@ class CadastrosPage(QWidget):
         catalog_layout = QVBoxLayout(catalog_tab)
         catalog_actions = QHBoxLayout()
         self.new_catalog_button = QPushButton("Novo Item")
+        self.new_catalog_button.setProperty("buttonRole", "primary")
         self.edit_catalog_button = QPushButton("Editar Item")
+        self.edit_catalog_button.setProperty("buttonRole", "secondary")
         catalog_actions.addWidget(self.new_catalog_button)
         catalog_actions.addWidget(self.edit_catalog_button)
         catalog_actions.addStretch()

@@ -26,6 +26,7 @@ class UserDialog(QDialog):
         self.setWindowTitle("Editar usuário" if self._editing else "Novo usuário")
         layout = QFormLayout(self)
         self.name = QLineEdit(user.get("nome", "") if user else "")
+        self.username = QLineEdit(user.get("username", "") if user else "")
         self.profile = QComboBox()
         roles = USER_ROLES if allow_administrator else USER_ROLES[1:]
         for role in roles:
@@ -38,11 +39,11 @@ class UserDialog(QDialog):
             self.active.addItem("Ativo", True)
             self.active.addItem("Inativo", False)
             self.active.setCurrentIndex(0 if user.get("ativo", True) else 1)
+            layout.addRow("Usuário", self.username)
             layout.addRow("Perfil", self.profile)
             layout.addRow("Situação", self.active)
         else:
             self.email = QLineEdit()
-            self.username = QLineEdit()
             self.password = QLineEdit()
             self.password.setEchoMode(QLineEdit.EchoMode.Password)
             self.password_confirmation = QLineEdit()
@@ -67,7 +68,7 @@ class UserDialog(QDialog):
         layout.addRow(buttons)
 
     def _validate(self) -> None:
-        required = [self.name.text().strip()]
+        required = [self.name.text().strip(), self.username.text().strip()]
         if not self._editing:
             required.extend((self.email.text().strip(), self.username.text().strip(),
                              self.password.text(), self.password_confirmation.text()))
@@ -89,6 +90,7 @@ class UserDialog(QDialog):
         if self._editing:
             return {
                 "nome": self.name.text().strip(),
+                "username": self.username.text().strip(),
                 "perfil": self.profile.currentData(),
                 "ativo": self.active.currentData(),
             }
@@ -144,7 +146,9 @@ class RankingParametersWidget(QFrame):
         self.fields["minimum_achievement_percent"] = minimum
         top.addWidget(minimum)
         self.load_button = QPushButton("Carregar")
+        self.load_button.setProperty("buttonRole", "info")
         self.save_button = QPushButton("Salvar")
+        self.save_button.setProperty("buttonRole", "primary")
         top.addWidget(self.load_button)
         top.addWidget(self.save_button)
         self.status = QLabel("Selecione o ano e carregue a configuração.")
@@ -337,6 +341,7 @@ class AdministracaoPage(QWidget):
         account_layout.addWidget(self.account_description)
 
         self.change_password_button = QPushButton("Alterar senha")
+        self.change_password_button.setProperty("buttonRole", "secondary")
         self.change_password_button.setMinimumWidth(210)
         self.change_password_button.setMinimumHeight(40)
         account_actions = QHBoxLayout()
@@ -392,6 +397,7 @@ class AdministracaoPage(QWidget):
         compact_text.addWidget(compact_description)
         compact_layout.addLayout(compact_text, 1)
         self.compact_change_password_button = QPushButton("Alterar senha")
+        self.compact_change_password_button.setProperty("buttonRole", "secondary")
         compact_layout.addWidget(self.compact_change_password_button)
         layout.addWidget(self.compact_account_widget)
 
@@ -433,13 +439,21 @@ class AdministracaoPage(QWidget):
         controls.setContentsMargins(0, 1, 0, 0)
         controls.setSpacing(6)
         self.refresh_button = QPushButton("Consultar informações")
+        self.refresh_button.setProperty("buttonRole", "info")
         self.check_updates_button = QPushButton("Verificar atualizações")
+        self.check_updates_button.setProperty("buttonRole", "info")
         self.logs_button = QPushButton("Abrir diretório de logs")
+        self.logs_button.setProperty("buttonRole", "secondary")
         self.backup_button = QPushButton("Fazer Backup")
+        self.backup_button.setProperty("buttonRole", "primary")
         self.import_button = QPushButton("Importação histórica")
+        self.import_button.setProperty("buttonRole", "secondary")
         self.server_button = QPushButton("Status do servidor")
+        self.server_button.setProperty("buttonRole", "info")
         self.users_button = QPushButton("Usuários")
+        self.users_button.setProperty("buttonRole", "info")
         self.audit_button = QPushButton("Auditoria")
+        self.audit_button.setProperty("buttonRole", "info")
         for button in (
             self.refresh_button,
             self.check_updates_button,
@@ -473,10 +487,15 @@ class AdministracaoPage(QWidget):
         user_actions.addWidget(self.audit_button)
         user_actions.addWidget(self.users_button)
         self.new_user_button = QPushButton("Novo usuário")
+        self.new_user_button.setProperty("buttonRole", "primary")
         self.edit_user_button = QPushButton("Editar")
+        self.edit_user_button.setProperty("buttonRole", "secondary")
         self.toggle_user_button = QPushButton("Ativar/Inativar")
+        self.toggle_user_button.setProperty("buttonRole", "warning")
         self.reset_password_button = QPushButton("Redefinir senha")
+        self.reset_password_button.setProperty("buttonRole", "info")
         self.reload_users_button = QPushButton("Atualizar lista")
+        self.reload_users_button.setProperty("buttonRole", "secondary")
         for button in (self.new_user_button, self.edit_user_button,
                        self.toggle_user_button, self.reset_password_button,
                        self.reload_users_button):

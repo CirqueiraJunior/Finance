@@ -139,10 +139,24 @@ def test_dashboard_refresh_button_responds_to_real_mouse_click(qtbot):
 
     service = ServiceStub()
     controller = DashboardController(page, service)
+
+    qtbot.waitUntil(
+        lambda: controller._refresh_thread is None,
+        timeout=5000,
+    )
+
     calls_after_initial_load = service.calls
     page.show()
 
     qtbot.mouseClick(page.refresh_button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(
+        lambda: (
+            service.calls == calls_after_initial_load + 1
+            and controller._refresh_thread is None
+        ),
+        timeout=5000,
+    )
 
     assert service.calls == calls_after_initial_load + 1
     assert controller.view.status.text().startswith("Dashboard atualizado")

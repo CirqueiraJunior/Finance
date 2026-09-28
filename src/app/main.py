@@ -2,6 +2,7 @@ import logging
 import sys
 
 from PySide6.QtGui import QFont
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from app.api_client import APIClient, APIConnectionError
@@ -13,6 +14,7 @@ from app.database.startup import DatabaseStartupError, validate_database_startup
 from app.gui.login_dialog import LoginDialog
 from app.gui.initial_setup_dialog import InitialSetupDialog
 from app.gui.main_window import MainWindow
+from app.gui.processing import ProcessingDialog
 from app.gui.splash import hold_splash, show_splash
 from app.resources import load_stylesheet
 from app.widgets.buttons import ButtonStyleFilter
@@ -104,12 +106,29 @@ def main() -> int:
             return 0
         authenticated_user = login.user
 
-    window = MainWindow(
-        settings,
-        api_client=api_client,
-        authenticated_user=authenticated_user,
+    loading = ProcessingDialog(
+        None,
+        window_title="Finance",
+        title="Carregando Finance...",
+        description="Aguarde enquanto o ambiente é preparado.",
     )
-    window.show()
+    loading.show()
+
+    state = {"window": None}
+
+    def open_main_window() -> None:
+        try:
+            state["window"] = MainWindow(
+                settings,
+                api_client=api_client,
+                authenticated_user=authenticated_user,
+            )
+            state["window"].show()
+        finally:
+            loading.accept()
+            loading.deleteLater()
+
+    QTimer.singleShot(100, open_main_window)
 
     return application.exec()
 

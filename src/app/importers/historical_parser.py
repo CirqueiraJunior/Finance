@@ -46,6 +46,7 @@ class TargetImportData:
     indicator: str
     target: Decimal
     actual: Decimal
+    entity_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +82,10 @@ class HistoricalWorkbookParser:
         "DESPESAS COM EVENTOS": ("DESPESA", "EVENTOS"),
         "DESPESAS COM A OPERACAO": ("DESPESA", "OPERACIONAL"),
     }
+    TARGET_MONTH_HEADERS = (
+        "JAN", "FEV", "MAR", "ABR", "MAI", "JUN",
+        "JUL", "AGO", "SET", "OUT", "NOV", "DEZ",
+    )
 
     def parse(self, file_path: str | Path) -> HistoricalParseResult:
         path = Path(file_path)
@@ -90,9 +95,17 @@ class HistoricalWorkbookParser:
         try:
             names = {normalized(name): name for name in workbook.sheetnames}
             sheets = tuple(workbook.sheetnames)
-            if "META" in names and "FATURAMENTO" in names:
+            structural = self._structural_target_sheet(workbook)
+            if structural is not None:
+                sheet, header_line, columns = structural
+                return self._structural_targets(
+                    path, sheets, sheet, header_line, columns
+                )
+            target_name = self._sheet_name(names, "META")
+            actual_name = self._sheet_name(names, "FATURAMENTO")
+            if target_name is not None and actual_name is not None:
                 return self._targets(
-                    path, sheets, workbook[names["META"]], workbook[names["FATURAMENTO"]],
+                    path, sheets, workbook[target_name], workbook[actual_name],
                     has_association="ASSOCIACOES" in names,
                 )
             if "PLANEJ. ORCAMENTARIO" in names:
@@ -100,6 +113,89 @@ class HistoricalWorkbookParser:
             return self._unknown(path, sheets, "Estrutura operacional não reconhecida.")
         finally:
             workbook.close()
+
+    def _structural_target_sheet(self, workbook):
+        required = {
+            "COD.", "ENTIDADE", "VERTENTE", "TOTAL ANUAL",
+            *self.TARGET_MONTH_HEADERS,
+        }
+        matches = []
+        for sheet in workbook.worksheets:
+            for line, values in enumerate(
+                sheet.iter_rows(min_row=1, max_row=25, values_only=True), start=1
+            ):
+                columns = {
+                    normalized(value): index
+                    for index, value in enumerate(values)
+                    if value is not None
+                }
+                if required.issubset(columns):
+                    matches.append((sheet, line, columns))
+                    break
+        return matches[0] if len(matches) == 1 else None
+
+    def _structural_targets(
+        self, path: Path, sheets: tuple[str, ...], sheet,
+        header_line: int, columns: dict[str, int],
+    ) -> HistoricalParseResult:
+        year = self._year_from_name(path) or self._year_from_name(Path(sheet.title))
+        if year is None:
+            return self._unknown(
+                path, sheets, "Ano das Metas não identificado no arquivo ou na aba."
+            )
+        data: list[TargetImportData] = []
+        warnings: list[str] = []
+        errors: list[str] = []
+        ignored_vertentes: set[str] = set()
+        for line, values in enumerate(
+            sheet.iter_rows(min_row=header_line + 1, values_only=True),
+            start=header_line + 1,
+        ):
+            code = self._entity_code(values[columns["COD."]] if len(values) > columns["COD."] else None)
+            if code is None:
+                continue
+            entity_name = values[columns["ENTIDADE"]] if len(values) > columns["ENTIDADE"] else None
+            source_indicator = normalized(
+                values[columns["VERTENTE"]] if len(values) > columns["VERTENTE"] else None
+            )
+            indicator = {
+                "CONSULTAS": "CONSULTAS",
+                "REGISTRO": "REGISTROS",
+                "REGISTROS": "REGISTROS",
+            }.get(source_indicator)
+
+            if indicator is None:
+                if source_indicator:
+                    ignored_vertentes.add(source_indicator)
+                continue
+            if not isinstance(entity_name, str) or not entity_name.strip():
+                errors.append(f"Linha {line}: nome da Entidade ausente.")
+                continue
+            for month, header in enumerate(self.TARGET_MONTH_HEADERS, start=1):
+                index = columns[header]
+                value = values[index] if len(values) > index else None
+                if value is None:
+                    continue
+                try:
+                    target = decimal_value(value)
+                except ValueError as error:
+                    errors.append(f"Linha {line}, mês {month}: {error}")
+                    continue
+                data.append(TargetImportData(
+                    line=line, code=code, year=year, month=month,
+                    indicator=indicator, target=target,
+                    actual=Decimal("0.0000"),
+                    entity_name=entity_name.strip(),
+                ))
+        if ignored_vertentes:
+            warnings.append(
+                "Vertentes ainda não suportadas foram ignoradas: "
+                + ", ".join(sorted(ignored_vertentes)) + "."
+            )
+        return HistoricalParseResult(
+            HistoricalParseMetadata(path, "META_REALIZADO", year, sheets),
+            tuple(data), tuple(warnings), tuple(errors),
+        )
 
     def _targets(self, path: Path, sheets: tuple[str, ...], target_sheet,
                  actual_sheet, *, has_association: bool) -> HistoricalParseResult:
@@ -122,6 +218,7 @@ class HistoricalWorkbookParser:
             "META DE REGISTROS": "REGISTROS",
         })
         for indicator, line, code, values in target_rows:
+            entity_name = values[1] if len(values) > 1 else None
             for month in range(1, 13):
                 target = values[month + 1] if len(values) > month + 1 else None
                 actual = actual_by_key.get((indicator, code, month))
@@ -131,6 +228,7 @@ class HistoricalWorkbookParser:
                     data.append(TargetImportData(
                         line, code, year, month, indicator,
                         decimal_value(target or 0), decimal_value(actual or 0),
+                        str(entity_name).strip(),
                     ))
                 except ValueError as error:
                     errors.append(f"Linha {line}, mês {month}: {error}")
@@ -216,10 +314,28 @@ class HistoricalWorkbookParser:
 
     @staticmethod
     def _entity_code(value: object) -> int | None:
-        if not isinstance(value, (int, float)):
+        if isinstance(value, bool):
             return None
-        code = int(value)
-        return code if code > 0 and code != 7500 else None
+        try:
+            numeric = Decimal(str(value).strip())
+        except (InvalidOperation, AttributeError, ValueError):
+            return None
+        if not numeric.is_finite() or numeric != numeric.to_integral_value():
+            return None
+        code = int(numeric)
+        return code if code > 0 and code not in {7500, 7600} else None
+
+    @staticmethod
+    def _sheet_name(names: dict[str, str], expected: str) -> str | None:
+        """Accept official regional/year suffixes without guessing by content."""
+        exact = names.get(expected)
+        if exact is not None:
+            return exact
+        matches = [
+            original for normalized_name, original in names.items()
+            if re.fullmatch(rf"{re.escape(expected)}(?:\s*[-_]\s*|\s+).+", normalized_name)
+        ]
+        return matches[0] if len(matches) == 1 else None
 
     @staticmethod
     def _year_from_name(path: Path) -> int | None:

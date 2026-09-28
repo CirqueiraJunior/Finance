@@ -11,6 +11,7 @@ from app.importers.historical_importer import (
 )
 from app.models.association_entry import AssociationEntry
 from app.models.budget_entry import BudgetEntry
+from app.models.boe_import import BOEImport
 from app.models.cashflow_entry import CashflowEntry
 from app.models.investment_movement import InvestmentMovement
 from app.models.financial_balance_entry import FinancialBalanceEntry
@@ -135,10 +136,36 @@ class HistoricalImportService:
             elif kind == "SALDO" or category == "SALDO_APLICADO":
                 row["balance_type"] = "SALDO_APLICADO"
             elif category == "RECEITA_DIRETA":
-                row["skip"] = True
-                preview.warnings.append(
-                    f"Linha {row['line']}: Receita Direta excluída; deve vir do importador BOE."
-                )
+                if self._can_use_historical_direct_revenue(row):
+                    preview.warnings.append(
+                        "Receita Direta de 01/2026 importada da base histórica "
+                        "por ausência de BOE 12/2025."
+                    )
+                else:
+                    row["skip"] = True
+                    preview.warnings.append(
+                        f"Linha {row['line']}: Receita Direta excluída; "
+                        "deve vir do importador BOE."
+                    )
+
+    def _can_use_historical_direct_revenue(self, row: dict) -> bool:
+        period = (row["year"], row["month"])
+        if period > (2026, 1):
+            return False
+
+        previous_year, previous_month = row["year"], row["month"] - 1
+        if previous_month == 0:
+            previous_year -= 1
+            previous_month = 12
+
+        previous_boe = self.session.scalar(
+            select(BOEImport.id).where(
+                BOEImport.periodo_ano == previous_year,
+                BOEImport.periodo_mes == previous_month,
+                BOEImport.status == "imported",
+            )
+        )
+        return previous_boe is None
 
     def _mark_duplicates(self, preview: HistoricalPreview) -> None:
         for row in preview.rows:

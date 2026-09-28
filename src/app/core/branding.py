@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 
 def _runtime_root() -> Path:
-    """Resolve recursos tanto em DEV quanto no execut?vel PyInstaller."""
+    """Resolve recursos tanto em DEV quanto no executável PyInstaller."""
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         return Path(sys._MEIPASS)
     return Path(__file__).resolve().parents[3]

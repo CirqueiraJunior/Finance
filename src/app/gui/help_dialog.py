@@ -61,8 +61,14 @@ class HelpDialog(QDialog):
 
         self.whatsapp = QPushButton("Falar com o suporte pelo WhatsApp")
         self.whatsapp.setProperty("buttonRole", "primary")
+        self.whatsapp.setMinimumWidth(280)
+        self.whatsapp.setMaximumWidth(360)
         self.whatsapp.clicked.connect(self._open_whatsapp)
-        layout.addWidget(self.whatsapp)
+
+        support_actions = QHBoxLayout()
+        support_actions.addWidget(self.whatsapp)
+        support_actions.addStretch()
+        layout.addLayout(support_actions)
         self._filter("")
 
     def _filter(self, value: str) -> None:

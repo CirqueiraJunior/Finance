@@ -1,10 +1,12 @@
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, QThread
 from PySide6.QtWidgets import QDialog, QMessageBox
 
 from app.gui.pages.cadastros import CadastrosPage, CatalogDialog, EntityDialog
 from app.services.cashflow_catalog_service import CashflowCatalogService
 from app.services.entity_service import EntityService
 from app.core.exceptions import EntityDomainError
+from app.api_client.client import APIClient
+from app.gui.processing import OperationWorker, ProcessingDialog
 
 
 class RegistrationController(QObject):
@@ -106,6 +108,9 @@ class RemoteRegistrationController(QObject):
         self._allowed_areas = set(
             {"entities", "catalog"} if allowed_areas is None else allowed_areas
         )
+        self._operation_thread: QThread | None = None
+        self._operation_worker: OperationWorker | None = None
+        self._operation_dialog: ProcessingDialog | None = None
 
         view.new_entity_button.clicked.connect(self.new_entity)
         view.edit_entity_button.clicked.connect(self.edit_entity)
@@ -115,6 +120,73 @@ class RemoteRegistrationController(QObject):
         view.edit_catalog_button.clicked.connect(self.edit_catalog)
 
         self.refresh()
+
+    def _run_remote(self, title, operation, succeeded) -> None:
+        """Keep real API I/O off Qt's GUI thread; test doubles stay synchronous."""
+        def failed(error: Exception) -> None:
+            self.view.set_status(str(error), error=True)
+
+        if not isinstance(self.api, APIClient):
+            try:
+                succeeded(operation())
+            except RuntimeError as error:
+                failed(error)
+            return
+        if self._operation_thread is not None and self._operation_thread.isRunning():
+            return
+
+        dialog = ProcessingDialog(self.view, window_title=title)
+        thread = QThread(self)
+        worker = OperationWorker(operation)
+        worker.moveToThread(thread)
+        self._operation_dialog = dialog
+        self._operation_thread = thread
+        self._operation_worker = worker
+        state = {"ok": False, "value": None, "error": None}
+
+        worker.succeeded.connect(
+            lambda value: state.update(ok=True, value=value)
+        )
+        worker.failed.connect(lambda error: state.update(error=error))
+
+        def finished() -> None:
+            if self._operation_dialog is not None:
+                self._operation_dialog.accept()
+                self._operation_dialog.deleteLater()
+            if self._operation_thread is not None:
+                self._operation_thread.deleteLater()
+            self._operation_dialog = None
+            self._operation_thread = None
+            self._operation_worker = None
+            if state["ok"]:
+                succeeded(state["value"])
+            else:
+                failed(state["error"])
+
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(finished)
+        dialog.show()
+        thread.start()
+
+    def _load_data(self):
+        entities = (
+            [self._entity_object(item) for item in self.api.get("/api/v1/entities")]
+            if "entities" in self._allowed_areas else []
+        )
+        catalog = (
+            [self._catalog_object(item) for item in self.api.get("/api/v1/catalog")]
+            if "catalog" in self._allowed_areas else []
+        )
+        return entities, catalog
+
+    def _show_data(self, payload) -> None:
+        entities, catalog = payload
+        self._entities = {item.id: item for item in entities}
+        self._catalog = {item.id: item for item in catalog}
+        self.view.show_entities(entities)
+        self.view.show_catalog(catalog)
 
     def set_allowed_areas(self, allowed_areas: set[str]) -> None:
         self._allowed_areas = set(allowed_areas)
@@ -152,38 +224,20 @@ class RemoteRegistrationController(QObject):
         )
 
     def refresh(self) -> None:
-        entities = []
-        catalog = []
-        try:
-            if "entities" in self._allowed_areas:
-                entities = [
-                    self._entity_object(item)
-                    for item in self.api.get("/api/v1/entities")
-                ]
-            if "catalog" in self._allowed_areas:
-                catalog = [
-                    self._catalog_object(item)
-                    for item in self.api.get("/api/v1/catalog")
-                ]
-        except RuntimeError as error:
-            self.view.set_status(str(error), error=True)
-            return
-
-        self._entities = {item.id: item for item in entities}
-        self._catalog = {item.id: item for item in catalog}
-        self.view.show_entities(entities)
-        self.view.show_catalog(catalog)
+        self._run_remote("Atualizando Cadastros", self._load_data, self._show_data)
 
     def new_entity(self) -> None:
         dialog = EntityDialog(self.view)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        try:
-            self.api.post("/api/v1/entities", dialog.values())
-            self.refresh()
+        values = dialog.values()
+        def operation():
+            self.api.post("/api/v1/entities", values)
+            return self._load_data()
+        def succeeded(payload):
+            self._show_data(payload)
             self.view.set_status("Entidade cadastrada no servidor.")
-        except RuntimeError as error:
-            self.view.set_status(str(error), error=True)
+        self._run_remote("Cadastrando Entidade", operation, succeeded)
 
     def edit_entity(self) -> None:
         entity_id = self.view.selected_entity_id()
@@ -199,12 +253,13 @@ class RemoteRegistrationController(QObject):
         values = dialog.values()
         values.pop("codigo_entidade", None)
 
-        try:
+        def operation():
             self.api.patch(f"/api/v1/entities/{entity.id}", values)
-            self.refresh()
+            return self._load_data()
+        def succeeded(payload):
+            self._show_data(payload)
             self.view.set_status("Entidade atualizada no servidor.")
-        except RuntimeError as error:
-            self.view.set_status(str(error), error=True)
+        self._run_remote("Atualizando Entidade", operation, succeeded)
 
     def toggle_entity(self) -> None:
         entity_id = self.view.selected_entity_id()
@@ -221,12 +276,13 @@ class RemoteRegistrationController(QObject):
             "ativa": not entity.ativa,
         }
 
-        try:
+        def operation():
             self.api.patch(f"/api/v1/entities/{entity.id}", payload)
-            self.refresh()
+            return self._load_data()
+        def succeeded(values):
+            self._show_data(values)
             self.view.set_status("Situação da Entidade atualizada no servidor.")
-        except RuntimeError as error:
-            self.view.set_status(str(error), error=True)
+        self._run_remote("Alterando Entidade", operation, succeeded)
 
     def show_aliases(self) -> None:
         entity_id = self.view.selected_entity_id()
@@ -234,26 +290,28 @@ class RemoteRegistrationController(QObject):
             self.view.set_status("Selecione uma Entidade.", error=True)
             return
 
-        try:
-            aliases = self.api.get(f"/api/v1/entities/{entity_id}/aliases")
-        except RuntimeError as error:
-            self.view.set_status(str(error), error=True)
-            return
-
-        text = "\n".join(item["alias"] for item in aliases) or "Nenhum alias cadastrado."
-        QMessageBox.information(self.view, "Aliases", text)
+        def succeeded(aliases):
+            text = "\n".join(item["alias"] for item in aliases) or "Nenhum alias cadastrado."
+            QMessageBox.information(self.view, "Aliases", text)
+        self._run_remote(
+            "Carregando Aliases",
+            lambda: self.api.get(f"/api/v1/entities/{entity_id}/aliases"),
+            succeeded,
+        )
 
     def new_catalog(self) -> None:
         dialog = CatalogDialog(self.view)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
-        try:
-            self.api.post("/api/v1/catalog", dialog.values())
-            self.refresh()
+        values = dialog.values()
+        def operation():
+            self.api.post("/api/v1/catalog", values)
+            return self._load_data()
+        def succeeded(payload):
+            self._show_data(payload)
             self.view.set_status("Item cadastrado no servidor.")
-        except RuntimeError as error:
-            self.view.set_status(str(error), error=True)
+        self._run_remote("Cadastrando Item", operation, succeeded)
 
     def edit_catalog(self) -> None:
         entry_id = self.view.selected_catalog_id()
@@ -266,9 +324,11 @@ class RemoteRegistrationController(QObject):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
-        try:
-            self.api.patch(f"/api/v1/catalog/{entry.id}", dialog.values())
-            self.refresh()
+        values = dialog.values()
+        def operation():
+            self.api.patch(f"/api/v1/catalog/{entry.id}", values)
+            return self._load_data()
+        def succeeded(payload):
+            self._show_data(payload)
             self.view.set_status("Item atualizado no servidor.")
-        except RuntimeError as error:
-            self.view.set_status(str(error), error=True)
+        self._run_remote("Atualizando Item", operation, succeeded)

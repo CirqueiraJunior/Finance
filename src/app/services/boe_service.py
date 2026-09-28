@@ -110,6 +110,9 @@ class BOEService:
 
         seen_codes: set[int] = set()
         for row in result.linhas:
+            if row.codigo_entidade == 7600:
+                seen_codes.add(row.codigo_entidade)
+                continue
             if row.codigo_entidade in seen_codes:
                 self._add_error(
                     result,
@@ -168,12 +171,12 @@ class BOEService:
             self.repository.add_import(boe_import)
             for row in result.linhas:
                 entity = self.entity_repository.get_by_code(row.codigo_entidade)
-                if entity is None:
+                if entity is None and row.codigo_entidade != 7600:
                     raise BOEValidationError(result)
                 self.repository.add_entity_total(
                     BOEEntityTotal(
                         boe_import_id=boe_import.id,
-                        entity_id=entity.id,
+                        entity_id=entity.id if entity is not None else None,
                         codigo_entidade_origem=row.codigo_entidade,
                         nome_entidade_origem=row.nome_entidade,
                         quantidade_consultas=row.quantidade_consultas,

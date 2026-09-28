@@ -32,7 +32,7 @@ def test_reusable_button_roles(qtbot):
         button = cls("Ação")
         qtbot.addWidget(button)
         assert button.property("buttonRole") == role
-        assert button.minimumHeight() == 36
+        assert button.minimumHeight() == 40
 
 
 def test_main_window_dashboard_refresh_real_integration(qtbot, monkeypatch, isolated_app_database):
@@ -45,11 +45,26 @@ def test_main_window_dashboard_refresh_real_integration(qtbot, monkeypatch, isol
         calls.append((year, month))
         return {}
 
+    qtbot.waitUntil(
+        lambda: controller._refresh_thread is None,
+        timeout=5000,
+    )
+
     monkeypatch.setattr(controller.service, "get_dashboard_data", tracked)
     window.show()
     qtbot.waitExposed(window)
     assert page.refresh_button.isEnabled()
+
     qtbot.mouseClick(page.refresh_button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(
+        lambda: (
+            calls == [page.selected_period()]
+            and controller._refresh_thread is None
+        ),
+        timeout=5000,
+    )
+
     assert calls == [page.selected_period()]
     assert "Dashboard atualizado" in page.status.text()
 

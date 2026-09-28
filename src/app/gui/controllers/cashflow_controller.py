@@ -3,6 +3,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 from PySide6.QtWidgets import QDialog, QFileDialog
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.core.exceptions import CashflowDomainError, InvestmentDomainError
 from app.gui.pages.financeiro import CashflowEntryDialog, FinanceiroPage
@@ -53,13 +54,101 @@ class CashflowController(QObject):
         self._import_thread: QThread | None = None
         self._import_worker: OperationWorker | None = None
         self._import_dialog: ProcessingDialog | None = None
+        self._operation_thread: QThread | None = None
+        self._operation_worker: OperationWorker | None = None
+        self._operation_dialog: ProcessingDialog | None = None
         self.view.filter_button.clicked.connect(self.refresh_entries)
         self.view.new_entry_button.clicked.connect(self.open_new_entry_dialog)
         self.view.select_import_button.clicked.connect(self.select_import_file)
         self.view.validate_import_button.clicked.connect(self.validate_import_file)
         self.view.confirm_import_button.clicked.connect(self.import_validated_file)
         self.view.select_import_button.setEnabled(import_service is not None)
-        self.refresh_entries()
+        # A MainWindow possui o ProcessingDialog global de pós-login.
+        # Evita abrir um segundo diálogo "Financeiro" durante a construção.
+
+    def _run_operation(
+        self,
+        *,
+        window_title: str,
+        title: str,
+        description: str,
+        operation,
+        succeeded,
+        error_prefix: str,
+    ) -> None:
+        repository = getattr(self.service, "repository", None)
+        local_session = getattr(repository, "session", None)
+
+        # Sessões SQLAlchemy locais não podem atravessar threads.
+        # O Finance em produção usa serviços remotos; esses continuam
+        # executando em QThread com ProcessingDialog.
+        if isinstance(local_session, Session):
+            try:
+                succeeded(operation())
+            except Exception as error:
+                try:
+                    local_session.rollback()
+                except Exception:
+                    pass
+                self.view.set_status(
+                    f"{error_prefix}: {error}",
+                    error=True,
+                )
+            return
+
+        if (
+            self._operation_thread is not None
+            and self._operation_thread.isRunning()
+        ):
+            return
+
+        self._operation_dialog = ProcessingDialog(
+            self.view,
+            window_title=window_title,
+            title=title,
+            description=description,
+        )
+        self._operation_thread = QThread(self)
+        self._operation_worker = OperationWorker(operation)
+        self._operation_worker.moveToThread(self._operation_thread)
+
+        def failed(error: Exception) -> None:
+            try:
+                self.service.repository.session.rollback()
+            except Exception:
+                pass
+            self.view.set_status(
+                f"{error_prefix}: {error}",
+                error=True,
+            )
+
+        def finished() -> None:
+            if self._operation_dialog is not None:
+                self._operation_dialog.accept()
+                self._operation_dialog.deleteLater()
+                self._operation_dialog = None
+
+            if self._operation_thread is not None:
+                self._operation_thread.deleteLater()
+
+            self._operation_thread = None
+            self._operation_worker = None
+
+        self._operation_thread.started.connect(
+            self._operation_worker.run
+        )
+        self._operation_worker.succeeded.connect(succeeded)
+        self._operation_worker.failed.connect(failed)
+        self._operation_worker.finished.connect(
+            self._operation_thread.quit
+        )
+        self._operation_worker.finished.connect(
+            self._operation_worker.deleteLater
+        )
+        self._operation_thread.finished.connect(finished)
+
+        self._operation_dialog.show()
+        self._operation_thread.start()
 
     def select_import_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -79,15 +168,32 @@ class CashflowController(QObject):
     def validate_import_file(self) -> None:
         if not self.import_service or not self.import_file_path:
             return
+
         self.view.confirm_import_button.setEnabled(False)
-        try:
-            validation = self.import_service.validate_import(self.import_file_path)
+        selected_file = self.import_file_path
+
+        def succeeded(validation: dict) -> None:
             self.view.show_import_validation(validation)
-            self._import_validated = bool(validation.get("can_import"))
-        except RuntimeError as error:
-            self.view.set_status(
-                f"Falha ao validar arquivo Financeiro: {error}", error=True
+            self._import_validated = bool(
+                validation.get("can_import")
             )
+            self.view.confirm_import_button.setEnabled(
+                self._import_validated
+            )
+
+        self._run_operation(
+            window_title="Validacao Financeiro",
+            title="Validando arquivo...",
+            description=(
+                "Aguarde enquanto o arquivo Financeiro "
+                "e analisado."
+            ),
+            operation=lambda: self.import_service.validate_import(
+                selected_file
+            ),
+            succeeded=succeeded,
+            error_prefix="Falha ao validar arquivo Financeiro",
+        )
 
     def import_validated_file(self) -> None:
         if not self.import_service or not self.import_file_path or not self._import_validated or (
@@ -146,23 +252,51 @@ class CashflowController(QObject):
 
     def refresh_entries(self) -> None:
         year, month = self.view.selected_period()
-        try:
-            self.view.show_financial_flow(
-                self.financial_flow.list_by_period(year, month),
-                self.financial_flow.get_summary(year, month),
-                (
-                    self.financial_balance.position(year, month)
-                    if self.financial_balance is not None
-                    else (
-                        self.financial_flow.get_position(year, month)
-                        if hasattr(self.financial_flow, "get_position")
-                        else None
-                    )
-                ),
+
+        def operation():
+            entries = self.financial_flow.list_by_period(
+                year,
+                month,
             )
-        except (CashflowDomainError, InvestmentDomainError, SQLAlchemyError, RuntimeError) as error:
-            self.service.repository.session.rollback()
-            self.view.set_status(f"Falha ao carregar lançamentos: {error}", error=True)
+            summary = self.financial_flow.get_summary(
+                year,
+                month,
+            )
+
+            if self.financial_balance is not None:
+                position = self.financial_balance.position(
+                    year,
+                    month,
+                )
+            elif hasattr(self.financial_flow, "get_position"):
+                position = self.financial_flow.get_position(
+                    year,
+                    month,
+                )
+            else:
+                position = None
+
+            return entries, summary, position
+
+        def succeeded(result) -> None:
+            entries, summary, position = result
+            self.view.show_financial_flow(
+                entries,
+                summary,
+                position,
+            )
+
+        self._run_operation(
+            window_title="Financeiro",
+            title="Carregando informacoes...",
+            description=(
+                f"Aguarde enquanto o periodo "
+                f"{month:02d}/{year} e processado."
+            ),
+            operation=operation,
+            succeeded=succeeded,
+            error_prefix="Falha ao carregar lancamentos",
+        )
 
     def open_new_entry_dialog(self) -> None:
         year, month = self.view.selected_period()
@@ -175,48 +309,119 @@ class CashflowController(QObject):
 
         def update_balance() -> None:
             dialog.set_available_balance(
-                self.investment_service.get_applied_balance(dialog.movement_date())
+                self.investment_service.get_applied_balance(
+                    dialog.movement_date()
+                )
             )
 
         dialog.category.currentIndexChanged.connect(update_balance)
         dialog.year_input.valueChanged.connect(update_balance)
         dialog.month_input.currentIndexChanged.connect(update_balance)
         update_balance()
+
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        entry_type, entry_date, description, category, value, notes, boe = dialog.values()
-        year, month = entry_date.year, entry_date.month
-        try:
+
+        (
+            entry_type,
+            entry_date,
+            description,
+            category,
+            value,
+            notes,
+            boe,
+        ) = dialog.values()
+
+        year = entry_date.year
+        month = entry_date.month
+
+        def operation():
             if entry_type == CashflowType.REVENUE.value:
                 self.service.create_indirect_revenue(
-                    year=year, month=month, entry_date=entry_date,
-                    description=description, value=value, notes=notes, boe=boe,
+                    year=year,
+                    month=month,
+                    entry_date=entry_date,
+                    description=description,
+                    value=value,
+                    notes=notes,
+                    boe=boe,
                 )
                 message = "Receita Indireta cadastrada com sucesso."
+
             elif entry_type == CashflowType.EXPENSE.value:
                 self.service.create_expense(
-                    year=year, month=month, entry_date=entry_date,
-                    description=description, category=category,
-                    value=value, notes=notes, boe=boe,
+                    year=year,
+                    month=month,
+                    entry_date=entry_date,
+                    description=description,
+                    category=category,
+                    value=value,
+                    notes=notes,
+                    boe=boe,
                 )
                 message = "Despesa cadastrada com sucesso."
+
             elif entry_type == InvestmentMovementType.APPLICATION.value:
                 self.financial_flow.create_application(
-                    movement_date=entry_date, description=description,
-                    value=value, notes=notes,
+                    movement_date=entry_date,
+                    description=description,
+                    value=value,
+                    notes=notes,
                 )
-                message = "Aplicação cadastrada com sucesso."
+                message = "Aplicacao cadastrada com sucesso."
+
             else:
                 self.financial_flow.create_redemption(
-                    movement_date=entry_date, description=description,
-                    value=value, notes=notes,
+                    movement_date=entry_date,
+                    description=description,
+                    value=value,
+                    notes=notes,
                 )
                 message = "Resgate cadastrado com sucesso."
-        except (CashflowDomainError, InvestmentDomainError, RuntimeError) as error:
-            self.view.set_status(str(error), error=True)
-            return
-        self.view.set_status(message)
-        self.refresh_entries()
+
+            entries = self.financial_flow.list_by_period(
+                year,
+                month,
+            )
+            summary = self.financial_flow.get_summary(
+                year,
+                month,
+            )
+
+            if self.financial_balance is not None:
+                position = self.financial_balance.position(
+                    year,
+                    month,
+                )
+            elif hasattr(self.financial_flow, "get_position"):
+                position = self.financial_flow.get_position(
+                    year,
+                    month,
+                )
+            else:
+                position = None
+
+            return message, entries, summary, position
+
+        def succeeded(result) -> None:
+            message, entries, summary, position = result
+            self.view.show_financial_flow(
+                entries,
+                summary,
+                position,
+            )
+            self.view.set_status(message)
+
+        self._run_operation(
+            window_title="Financeiro",
+            title="Salvando lancamento...",
+            description=(
+                "Aguarde enquanto o lancamento e processado."
+            ),
+            operation=operation,
+            succeeded=succeeded,
+            error_prefix="Falha ao salvar lancamento",
+        )
 
     def open_indirect_revenue_dialog(self) -> None:
         self.open_new_entry_dialog()

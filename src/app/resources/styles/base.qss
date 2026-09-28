@@ -11,28 +11,33 @@ QFrame#sidebar {
 
 QPushButton#navigationButton,
 QPushButton#sidebarActionButton {
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    color: #eef3ff;
-    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 9px;
+    color: #f4f7ff;
+    padding: 9px 12px;
     text-align: left;
     font-family: "Segoe UI";
     font-size: 10pt;
     font-weight: 500;
-    min-height: 22px;
+    min-height: 26px;
 }
 
 QPushButton#navigationButton:hover,
 QPushButton#sidebarActionButton:hover {
-    background: rgba(74, 119, 255, 0.18);
-    border: 1px solid rgba(122, 164, 255, 0.35);
+    background: rgba(74, 119, 255, 0.22);
+    border: 1px solid rgba(147, 197, 253, 0.55);
     color: #ffffff;
+}
+
+QPushButton#navigationButton:pressed,
+QPushButton#sidebarActionButton:pressed {
+    background: rgba(74, 119, 255, 0.30);
 }
 
 QPushButton#navigationButton:checked {
     background: #2d64f1;
-    border: 1px solid #7aa4ff;
+    border: 1px solid #8db4ff;
     color: #ffffff;
     font-weight: 600;
 }
@@ -148,49 +153,196 @@ QRadioButton::indicator:unchecked:disabled {
     background: #f8fafc;
 }
 
-QPushButton {
-    background: #e5e7eb;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    color: #1f2937;
-    padding: 9px 14px;
-    min-height: 18px;
-}
-QPushButton:hover { background: #dbe3ef; }
-QPushButton:pressed { background: #cbd5e1; }
-QPushButton:focus { border: 2px solid #60a5fa; }
+/* ============================================================
+   BUTTONS ? J.A. Technology / Control Center visual standard
+   ============================================================ */
 
-QPushButton[buttonRole="primary"], QPushButton#primaryButton {
-    background: #1d4ed8;
-    border-color: #1d4ed8;
-    color: #ffffff;
+QPushButton {
+    background: #ffffff;
+    color: #17324d;
+    border: 1px solid #c9d4df;
+    border-radius: 8px;
+    padding: 8px 16px;
+    min-height: 22px;
+    font-weight: 500;
 }
-QPushButton[buttonRole="primary"]:hover, QPushButton#primaryButton:hover { background: #1e40af; }
-QPushButton[buttonRole="primary"]:pressed, QPushButton#primaryButton:pressed { background: #172554; }
-QPushButton[buttonRole="danger"] {
-    background: #b91c1c;
-    border-color: #b91c1c;
-    color: #ffffff;
+
+QPushButton:hover {
+    background: #f4f7fa;
+    border-color: #9fb3c8;
 }
-QPushButton[buttonRole="danger"]:hover { background: #991b1b; }
-QPushButton[buttonRole="danger"]:pressed { background: #7f1d1d; }
+
+QPushButton:pressed {
+    background: #e9eef4;
+    border-color: #829ab1;
+}
+
+QPushButton:focus {
+    border: 2px solid #6d9fc7;
+}
+
+/* Prim?rio */
+QPushButton[buttonRole="primary"],
+QPushButton#primaryButton {
+    background: #0b4a7f;
+    border: 1px solid #0b4a7f;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+QPushButton[buttonRole="primary"]:hover,
+QPushButton#primaryButton:hover {
+    background: #083d69;
+    border-color: #083d69;
+}
+
+QPushButton[buttonRole="primary"]:pressed,
+QPushButton#primaryButton:pressed {
+    background: #062f52;
+    border-color: #062f52;
+}
+
+/* Secund?rio */
+QPushButton[buttonRole="secondary"] {
+    background: #ffffff;
+    color: #17324d;
+    border: 1px solid #c9d4df;
+}
+
+QPushButton[buttonRole="secondary"]:hover {
+    background: #f4f7fa;
+    border-color: #9fb3c8;
+}
+
+/* Toolbar */
 QPushButton[buttonRole="toolbar"] {
     background: #ffffff;
-    border-color: #94a3b8;
-    color: #172554;
-    padding: 7px 12px;
+    color: #17324d;
+    border: 1px solid #9fb3c8;
+    padding: 7px 14px;
 }
-QPushButton:disabled { background: #e5e7eb; color: #9ca3af; }
-QPushButton[buttonRole="primary"]:disabled, QPushButton#primaryButton:disabled {
-    background: #e5e7eb;
-    color: #9ca3af;
+
+QPushButton[buttonRole="toolbar"]:hover {
+    background: #edf4f8;
+    border-color: #6d9fc7;
 }
+
+/* Informa??o / gest?o */
+QPushButton[buttonRole="info"] {
+    background: #eaf3f9;
+    color: #0b4a7f;
+    border: 1px solid #7fa8c7;
+    font-weight: 500;
+}
+
+QPushButton[buttonRole="info"]:hover {
+    background: #dcecf6;
+    border-color: #5f91b6;
+}
+
+QPushButton[buttonRole="info"]:pressed {
+    background: #cfe3f0;
+    border-color: #4f7fa2;
+}
+
+/* Aten??o / ativa??o */
+QPushButton[buttonRole="warning"] {
+    background: #fff8df;
+    color: #765900;
+    border: 1px solid #e0aa00;
+    font-weight: 600;
+}
+
+QPushButton[buttonRole="warning"]:hover {
+    background: #fff1bf;
+    border-color: #c89500;
+}
+
+QPushButton[buttonRole="warning"]:pressed {
+    background: #f5e49f;
+    border-color: #aa7e00;
+}
+
+/* Perigo */
+QPushButton[buttonRole="danger"] {
+    background: #b42318;
+    border: 1px solid #b42318;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+QPushButton[buttonRole="danger"]:hover {
+    background: #912018;
+    border-color: #912018;
+}
+
+QPushButton[buttonRole="danger"]:pressed {
+    background: #761b14;
+    border-color: #761b14;
+}
+
+/* Desabilitado */
+QPushButton:disabled,
+QPushButton[buttonRole="primary"]:disabled,
+QPushButton#primaryButton:disabled,
+QPushButton[buttonRole="secondary"]:disabled,
+QPushButton[buttonRole="toolbar"]:disabled,
+QPushButton[buttonRole="info"]:disabled,
+QPushButton[buttonRole="warning"]:disabled {
+    background: #eef1f4;
+    color: #9aa6b2;
+    border: 1px solid #d8dee5;
+}
+
 QStatusBar {
     background: #ffffff;
     border-top: 1px solid #e5e7eb;
     color: #4b5563;
 }
 
+
+
+/* GLOBAL TABS - J.A. TECHNOLOGY */
+
+QTabWidget::pane {
+    background: #ffffff;
+    border: 1px solid #d8e1ec;
+    border-radius: 9px;
+    top: -1px;
+}
+
+QTabBar::tab {
+    background: #edf3f8;
+    color: #29445f;
+    border: 1px solid #d2dce7;
+    border-bottom: 2px solid #d2dce7;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    min-height: 34px;
+    padding: 8px 18px;
+    margin-right: 4px;
+    font-weight: 500;
+}
+
+QTabBar::tab:hover:!selected {
+    background: #dfeaf4;
+    color: #0b4a7f;
+    border-color: #9fb7cd;
+}
+
+QTabBar::tab:selected {
+    background: #0b4a7f;
+    color: #ffffff;
+    border: 1px solid #0b4a7f;
+    border-bottom: 3px solid #d9aa00;
+    font-weight: 600;
+}
+
+QTabBar::tab:disabled {
+    background: #eef1f4;
+    color: #9aa6b2;
+    border-color: #d8dee5;
+}
 
 /* ============================================================
    DASHBOARD — PADRÃO VISUAL J.A. TECHNOLOGY

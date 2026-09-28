@@ -23,16 +23,16 @@ class ServiceConfigurationDialog(QDialog):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Finance â€” ConfiguraÃ§Ã£o do servidor")
+        self.setWindowTitle("Finance — Configuração do servidor")
         self.setModal(True)
         self.setMinimumWidth(520)
         apply_window_icon(self)
 
-        title = QLabel("ConfiguraÃ§Ã£o segura do servidor")
+        title = QLabel("Configuração segura do servidor")
         title.setObjectName("pageTitle")
         description = QLabel(
-            "Informe a conexÃ£o PostgreSQL utilizada pelo Finance. A senha serÃ¡ "
-            "protegida pelo Windows e nÃ£o serÃ¡ armazenada em texto aberto."
+            "Informe a conexão PostgreSQL utilizada pelo Finance. A senha será "
+            "protegida pelo Windows e não será armazenada em texto aberto."
         )
         description.setWordWrap(True)
 
@@ -50,12 +50,14 @@ class ServiceConfigurationDialog(QDialog):
         form.addRow("Host:", self.host)
         form.addRow("Porta:", self.port)
         form.addRow("Banco:", self.database)
-        form.addRow("UsuÃ¡rio:", self.username)
+        form.addRow("Usuário:", self.username)
         form.addRow("Senha:", self.password)
 
         self.cancel_button = QPushButton("Cancelar")
+        self.cancel_button.setProperty("buttonRole", "secondary")
         self.cancel_button.clicked.connect(self.reject)
-        self.save_button = QPushButton("Salvar configuraÃ§Ã£o")
+        self.save_button = QPushButton("Salvar configuração")
+        self.save_button.setProperty("buttonRole", "primary")
         self.save_button.setDefault(True)
         self.save_button.clicked.connect(self._save)
 
@@ -83,14 +85,14 @@ class ServiceConfigurationDialog(QDialog):
                 password=self.password.text(),
             )
         except (EnvironmentCommandError, OSError, ValueError) as error:
-            QMessageBox.critical(self, "ConfiguraÃ§Ã£o do servidor", str(error))
+            QMessageBox.critical(self, "Configuração do servidor", str(error))
             self.save_button.setEnabled(True)
             return
 
         self.password.clear()
         QMessageBox.information(
             self,
-            "ConfiguraÃ§Ã£o do servidor",
-            "ConfiguraÃ§Ã£o protegida salva com sucesso.",
+            "Configuração do servidor",
+            "Configuração protegida salva com sucesso.",
         )
         self.accept()
