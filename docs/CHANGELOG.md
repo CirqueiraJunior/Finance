@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.0 ? Release Final ? 2026-09-28
+
+- Homologa??o final da interface e padroniza??o visual global.
+- Importa??es controladas de Or?amento e Metas com inser??o/substitui??o audit?vel.
+- Ajustes finais do BOE e escopo da entidade 7600.
+- Integra??o confi?vel de identidade entre os componentes da J.A. Technology.
+- Administra??o multiusu?rio com altera??o de nome, e-mail, usu?rio, perfil e situa??o.
+- Valida??o de unicidade e normaliza??o de e-mail e username.
+- Finance abre maximizado e o carregamento inicial do Dashboard foi estabilizado.
+- Schema PostgreSQL homologado em `20260927_26`.
+- Su?te consolidada: 613 testes aprovados.
+- Distribui??o Windows por `Finance.exe`, `FinanceServer.exe` e instalador Inno Setup.
+
+
 ## 1.0.0 pré-release — Sprint 12.A
 
 - API FastAPI, login, tokens, Argon2id, RBAC, usuários e auditoria.

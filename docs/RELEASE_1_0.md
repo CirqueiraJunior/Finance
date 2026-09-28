@@ -4,10 +4,10 @@
 
 **HOMOLOGADA — código-fonte e ambiente central.**
 
-Versão: `1.0.0`  
-Tag Git: `v1.0.0`  
-Commit homologado: `a539ab0535a7a1de5ffc5f3c22650216e208200f`  
-Schema central: `20260922_24`
+Versão: `1.0.0`
+Tag Git: `v1.0.0`
+Commit homologado: `b22ac48d4e7a6cd1d17f2948cceccb8dce34eb70`
+Schema central: `20260927_26`
 
 ## Escopo
 
@@ -36,7 +36,7 @@ operação multiusuário por API central.
 
 - [x] PostgreSQL central provisionado e operacional
 - [x] Migrations aplicadas até `20260922_24`
-- [x] `alembic current` = `20260922_24 (head)`
+- [x] `alembic current` = `20260927_26 (head)`
 - [x] `alembic check` sem operações pendentes
 - [x] API conectada ao PostgreSQL central
 - [x] `/health` = `status: ok`
@@ -86,10 +86,32 @@ assinatura.`
 
 Até a implementação do `DIST-001`, não há instalador oficial da versão 1.0.0.
 
+
+## Instalador homologado
+
+Artefato:
+
+`Finance_Setup_1.0.0.exe`
+
+SHA-256:
+
+`567717D25EF151A68F530DE615F9D228B7B6FC92031D4356528A6E2C2FCDEDFA`
+
+Valida??o final em produ??o local:
+
+- Servi?o `JATechnologyFinanceServer` em execu??o autom?tica.
+- API oficial dispon?vel na porta `8000`.
+- `/health` com `status: ok`.
+- Vers?o reportada pela API: `1.0.0`.
+- Ambiente: `SERVER`.
+- Banco oficial: PostgreSQL central.
+- Importa??o hist?rica desabilitada em produ??o.
+- Cliente instalado homologado visual e funcionalmente.
+
 ## Rastreabilidade
 
-Branch: `main`  
-Tag: `v1.0.0`  
-Commit: `a539ab0535a7a1de5ffc5f3c22650216e208200f`
+Branch: `main`
+Tag: `v1.0.0`
+Commit: `b22ac48d4e7a6cd1d17f2948cceccb8dce34eb70`
 
 O tag remoto `v1.0.0` foi validado apontando para o mesmo commit homologado.
