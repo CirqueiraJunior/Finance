@@ -25,8 +25,6 @@ class DashboardController(QObject):
         for widget in self.view.dashboard_filters():
             widget.currentIndexChanged.connect(self.refresh)
 
-        self.refresh()
-
     def refresh(self) -> None:
         if (
             self._refresh_thread is not None

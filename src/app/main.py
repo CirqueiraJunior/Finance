@@ -123,7 +123,18 @@ def main() -> int:
                 api_client=api_client,
                 authenticated_user=authenticated_user,
             )
-            state["window"].show()
+            state["window"].showMaximized()
+
+            dashboard_controller = getattr(
+                state["window"],
+                "_dashboard_controller",
+                None,
+            )
+            if dashboard_controller is not None:
+                QTimer.singleShot(
+                    250,
+                    dashboard_controller.refresh,
+                )
         finally:
             loading.accept()
             loading.deleteLater()

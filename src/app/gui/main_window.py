@@ -432,7 +432,7 @@ class MainWindow(QMainWindow):
         dialog = LoginDialog(self._api_client, self)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.user is not None:
             self.apply_authenticated_user(dialog.user)
-            self.show()
+            self.showMaximized()
         else:
             self.close()
 
