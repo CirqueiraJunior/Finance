@@ -9,6 +9,7 @@ import pytest
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QMainWindow
 
+import app.services.update_service as update_module
 from app.core.version import __version__
 from app.gui.main_window import MainWindow
 from app.gui.pages.administracao import AdministracaoPage
@@ -79,6 +80,123 @@ def test_update_service_invokes_external_updater_contract():
     assert result.status == UpdateStatus.UP_TO_DATE
     assert result.installed_version == "1.0.0"
     assert result.available_version == "1.0.0"
+
+
+def test_configured_updater_has_priority(monkeypatch, tmp_path):
+    configured = tmp_path / "configured" / "J.A. Updater.exe"
+    configured.parent.mkdir()
+    configured.touch()
+    official = (
+        tmp_path
+        / "Program Files"
+        / "J.A. Technology"
+        / "J.A. Updater"
+        / "J.A. Updater.exe"
+    )
+    official.parent.mkdir(parents=True)
+    official.touch()
+    calls = []
+
+    monkeypatch.setenv("JA_UPDATER_EXECUTABLE", str(configured))
+    monkeypatch.setenv("PROGRAMFILES", str(tmp_path / "Program Files"))
+    monkeypatch.setattr(
+        update_module.shutil,
+        "which",
+        lambda _name: str(tmp_path / "path" / "ja-updater.exe"),
+    )
+
+    def runner(command, **_kwargs):
+        calls.append(command)
+        return _completed(_payload())
+
+    UpdateService(runner=runner).check()
+
+    assert calls == [
+        [str(configured), "check", "--product", "finance"]
+    ]
+
+
+def test_missing_configured_updater_fails_closed_without_fallback(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv(
+        "JA_UPDATER_EXECUTABLE",
+        str(tmp_path / "missing" / "J.A. Updater.exe"),
+    )
+    monkeypatch.setenv("PROGRAMFILES", str(tmp_path))
+    monkeypatch.setattr(
+        update_module.shutil,
+        "which",
+        lambda _name: pytest.fail("PATH fallback must not be consulted"),
+    )
+
+    with pytest.raises(
+        UpdateCheckUnavailableError,
+        match="J.A. Updater configurado não foi encontrado",
+    ):
+        UpdateService().check()
+
+
+def test_official_program_files_updater_is_selected(monkeypatch, tmp_path):
+    official = (
+        tmp_path
+        / "J.A. Technology"
+        / "J.A. Updater"
+        / "J.A. Updater.exe"
+    )
+    official.parent.mkdir(parents=True)
+    official.touch()
+    calls = []
+
+    monkeypatch.delenv("JA_UPDATER_EXECUTABLE", raising=False)
+    monkeypatch.setenv("PROGRAMFILES", str(tmp_path))
+    monkeypatch.setattr(
+        update_module.shutil,
+        "which",
+        lambda _name: pytest.fail("PATH fallback must not be consulted"),
+    )
+
+    def runner(command, **_kwargs):
+        calls.append(command)
+        return _completed(_payload())
+
+    UpdateService(runner=runner).check()
+
+    assert calls == [
+        [str(official), "check", "--product", "finance"]
+    ]
+
+
+def test_path_updater_is_used_only_after_previous_locations(monkeypatch, tmp_path):
+    discovered = str(tmp_path / "path" / "ja-updater.exe")
+    calls = []
+
+    monkeypatch.delenv("JA_UPDATER_EXECUTABLE", raising=False)
+    monkeypatch.setenv("PROGRAMFILES", str(tmp_path / "empty-program-files"))
+    monkeypatch.setattr(update_module.shutil, "which", lambda _name: discovered)
+
+    def runner(command, **_kwargs):
+        calls.append(command)
+        return _completed(_payload())
+
+    UpdateService(runner=runner).check()
+
+    assert calls == [
+        [discovered, "check", "--product", "finance"]
+    ]
+
+
+def test_missing_updater_in_all_locations_fails_closed(monkeypatch, tmp_path):
+    monkeypatch.delenv("JA_UPDATER_EXECUTABLE", raising=False)
+    monkeypatch.setenv("PROGRAMFILES", str(tmp_path / "empty-program-files"))
+    monkeypatch.setattr(update_module.shutil, "which", lambda _name: None)
+
+    with pytest.raises(
+        UpdateCheckUnavailableError,
+        match="J.A. Updater não está disponível neste ambiente",
+    ):
+        UpdateService().check()
 
 
 @pytest.mark.parametrize(

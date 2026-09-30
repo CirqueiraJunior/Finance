@@ -48,6 +48,19 @@ def _resolve_updater_command() -> tuple[str, ...]:
 
         return (str(executable),)
 
+    program_files = os.environ.get("PROGRAMFILES", "").strip()
+
+    if program_files:
+        installed = (
+            Path(program_files)
+            / "J.A. Technology"
+            / "J.A. Updater"
+            / "J.A. Updater.exe"
+        )
+
+        if installed.is_file():
+            return (str(installed),)
+
     discovered = shutil.which("ja-updater")
 
     if discovered:
