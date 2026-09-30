@@ -557,7 +557,16 @@ class MainWindow(QMainWindow):
         if self._update_page is None:
             return
         if result.status == UpdateStatus.UPDATE_AVAILABLE:
-            message = f"Nova versão disponível: {result.available_version}."
+            if (
+                not result.installable
+                and result.reason == "missing_sha256"
+            ):
+                message = (
+                    f"Nova versão disponível: {result.available_version}. "
+                    "A release oficial não possui SHA-256 verificável."
+                )
+            else:
+                message = f"Nova versão disponível: {result.available_version}."
         elif result.status == UpdateStatus.INSTALLED_NEWER:
             message = (
                 "A versão instalada é mais recente que a última versão publicada."

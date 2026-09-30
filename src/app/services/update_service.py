@@ -2,18 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-
-import httpx
-from packaging.version import InvalidVersion, Version
-
-from app.core.version import __version__
-
-
-LATEST_RELEASE_URL = (
-    "https://api.github.com/repos/CirqueiraJunior/"
-    "JA-Technology-Releases/releases?per_page=100"
-)
-PRODUCT_TAG_PREFIX = "finance-v"
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+from typing import Callable, Sequence
 
 
 class UpdateStatus(StrEnum):
@@ -28,115 +22,159 @@ class UpdateCheckResult:
     installed_version: str
     available_version: str
     release_url: str | None = None
+    installable: bool = False
+    reason: str | None = None
+    asset_name: str | None = None
+    sha256: str | None = None
 
 
 class UpdateCheckUnavailableError(RuntimeError):
-    """Raised when the official release cannot be consulted safely."""
+    """Raised when the standalone updater cannot be consulted safely."""
+
+
+ProcessRunner = Callable[..., subprocess.CompletedProcess[str]]
+
+
+def _resolve_updater_command() -> tuple[str, ...]:
+    configured = os.environ.get("JA_UPDATER_EXECUTABLE", "").strip()
+
+    if configured:
+        executable = Path(configured).expanduser()
+
+        if not executable.is_file():
+            raise UpdateCheckUnavailableError(
+                "J.A. Updater configurado não foi encontrado."
+            )
+
+        return (str(executable),)
+
+    discovered = shutil.which("ja-updater")
+
+    if discovered:
+        return (discovered,)
+
+    raise UpdateCheckUnavailableError(
+        "J.A. Updater não está disponível neste ambiente."
+    )
 
 
 class UpdateService:
     def __init__(
         self,
         *,
-        endpoint: str = LATEST_RELEASE_URL,
-        timeout: float = 5.0,
-        transport: httpx.BaseTransport | None = None,
+        command: Sequence[str] | None = None,
+        timeout: float = 15.0,
+        runner: ProcessRunner = subprocess.run,
     ) -> None:
-        self.endpoint = endpoint
+        self.command = tuple(command) if command is not None else None
         self.timeout = timeout
-        self.transport = transport
+        self.runner = runner
 
     def check(self) -> UpdateCheckResult:
-        installed = self._parse_version(__version__)
+        base_command = (
+            self.command
+            if self.command is not None
+            else _resolve_updater_command()
+        )
+
+        command = [
+            *base_command,
+            "check",
+            "--product",
+            "finance",
+        ]
+
         try:
-            with httpx.Client(
+            completed = self.runner(
+                command,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
                 timeout=self.timeout,
-                transport=self.transport,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "User-Agent": f"J.A.-Finance/{__version__}",
-                },
-            ) as client:
-                response = client.get(self.endpoint)
-        except httpx.RequestError as error:
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
             raise UpdateCheckUnavailableError(
                 "Não foi possível consultar atualizações no momento."
             ) from error
 
-        if response.status_code != httpx.codes.OK:
-            raise UpdateCheckUnavailableError(
-                "Não foi possível consultar atualizações no momento."
-            )
+        stdout = str(completed.stdout or "").strip()
 
         try:
-            payload = response.json()
-        except ValueError as error:
+            payload = json.loads(stdout)
+        except (json.JSONDecodeError, TypeError) as error:
             raise UpdateCheckUnavailableError(
-                "Não foi possível consultar atualizações no momento."
+                "O J.A. Updater retornou uma resposta inválida."
             ) from error
 
-        release = self._select_finance_release(payload)
-        if release is None:
+        if not isinstance(payload, dict):
             raise UpdateCheckUnavailableError(
-                "Não foi possível consultar atualizações no momento."
+                "O J.A. Updater retornou uma resposta inválida."
             )
 
-        available = self._version_from_tag(release["tag_name"])
-        release_url = release.get("html_url")
+        if completed.returncode != 0:
+            message = str(
+                payload.get("message")
+                or "Não foi possível consultar atualizações no momento."
+            ).strip()
+
+            raise UpdateCheckUnavailableError(message)
+
+        return self._result_from_payload(payload)
+
+    @staticmethod
+    def _result_from_payload(payload: dict) -> UpdateCheckResult:
+        product_id = str(payload.get("product_id") or "").strip().casefold()
+
+        if product_id != "finance":
+            raise UpdateCheckUnavailableError(
+                "O J.A. Updater retornou um produto inválido."
+            )
+
+        installed = str(payload.get("installed_version") or "").strip()
+        available = str(payload.get("latest_version") or "").strip()
+
+        if not installed or not available:
+            raise UpdateCheckUnavailableError(
+                "O J.A. Updater retornou versões inválidas."
+            )
+
+        raw_status = str(payload.get("status") or "").strip().casefold()
+
+        if raw_status == "up_to_date":
+            status = UpdateStatus.UP_TO_DATE
+        elif raw_status in ("update_available", "update_unavailable"):
+            status = UpdateStatus.UPDATE_AVAILABLE
+        elif raw_status == "installed_newer":
+            status = UpdateStatus.INSTALLED_NEWER
+        else:
+            raise UpdateCheckUnavailableError(
+                "O J.A. Updater retornou um estado inválido."
+            )
+
+        release_url = payload.get("release_url")
         if not isinstance(release_url, str):
             release_url = None
 
-        if installed < available:
-            status = UpdateStatus.UPDATE_AVAILABLE
-        elif installed > available:
-            status = UpdateStatus.INSTALLED_NEWER
-        else:
-            status = UpdateStatus.UP_TO_DATE
+        asset_name = payload.get("asset_name")
+        if not isinstance(asset_name, str):
+            asset_name = None
+
+        sha256 = payload.get("sha256")
+        if not isinstance(sha256, str):
+            sha256 = None
+
+        reason = payload.get("reason")
+        if not isinstance(reason, str):
+            reason = None
+
         return UpdateCheckResult(
             status=status,
-            installed_version=str(installed),
-            available_version=str(available),
+            installed_version=installed,
+            available_version=available,
             release_url=release_url,
+            installable=payload.get("installable") is True,
+            reason=reason,
+            asset_name=asset_name,
+            sha256=sha256,
         )
-
-    @classmethod
-    def _select_finance_release(cls, payload: object) -> dict | None:
-        if not isinstance(payload, list):
-            return None
-
-        candidates: list[tuple[Version, dict]] = []
-        for release in payload:
-            if not isinstance(release, dict):
-                continue
-            if release.get("draft") is True or release.get("prerelease") is True:
-                continue
-            tag_name = release.get("tag_name")
-            if not isinstance(tag_name, str) or not tag_name.startswith(
-                PRODUCT_TAG_PREFIX
-            ):
-                continue
-            try:
-                version = cls._version_from_tag(tag_name)
-            except UpdateCheckUnavailableError:
-                continue
-            candidates.append((version, release))
-
-        if not candidates:
-            return None
-        return max(candidates, key=lambda candidate: candidate[0])[1]
-
-    @classmethod
-    def _version_from_tag(cls, tag_name: str) -> Version:
-        return cls._parse_version(tag_name[len(PRODUCT_TAG_PREFIX):])
-
-    @staticmethod
-    def _parse_version(value: str) -> Version:
-        normalized = value.strip()
-        if normalized[:1].lower() == "v":
-            normalized = normalized[1:]
-        try:
-            return Version(normalized)
-        except InvalidVersion as error:
-            raise UpdateCheckUnavailableError(
-                "Não foi possível consultar atualizações no momento."
-            ) from error

@@ -1,181 +1,268 @@
 from __future__ import annotations
 
+import json
+import subprocess
 from threading import Event
 from time import monotonic
 
-import httpx
 import pytest
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QMainWindow
 
-import app.services.update_service as update_module
+from app.core.version import __version__
 from app.gui.main_window import MainWindow
 from app.gui.pages.administracao import AdministracaoPage
 from app.services.update_service import (
+    UpdateCheckResult,
     UpdateCheckUnavailableError,
     UpdateService,
     UpdateStatus,
 )
 
 
-def _service_with_response(
-    *, status_code: int = 200, json: object | None = None, content: bytes | None = None
-) -> UpdateService:
-    def handler(request: httpx.Request) -> httpx.Response:
-        kwargs = {"status_code": status_code, "request": request}
-        if content is not None:
-            kwargs["content"] = content
-        else:
-            kwargs["json"] = json
-        return httpx.Response(**kwargs)
-
-    return UpdateService(transport=httpx.MockTransport(handler))
+def _completed(payload: dict, *, returncode: int = 0):
+    return subprocess.CompletedProcess(
+        args=[],
+        returncode=returncode,
+        stdout=json.dumps(payload),
+        stderr="",
+    )
 
 
-def _release(
-    tag_name: str,
+def _payload(
     *,
-    draft: bool = False,
-    prerelease: bool = False,
-    html_url: str | None = None,
-) -> dict:
+    status="up_to_date",
+    installed="1.0.0",
+    latest="1.0.0",
+    installable=False,
+    reason=None,
+):
     return {
-        "tag_name": tag_name,
-        "draft": draft,
-        "prerelease": prerelease,
-        "html_url": html_url or f"https://example.test/{tag_name}",
+        "status": status,
+        "product_id": "finance",
+        "installed_version": installed,
+        "latest_version": latest,
+        "update_available": status in (
+            "update_available",
+            "update_unavailable",
+        ),
+        "installable": installable,
+        "reason": reason,
+        "release_url": "https://example.test/release",
+        "asset_name": f"Finance_Setup_{latest}.exe",
+        "sha256": "a" * 64,
     }
 
 
-@pytest.mark.parametrize(
-    ("installed", "remote", "expected"),
-    [
-        ("1.0.0", "finance-v1.0.0", UpdateStatus.UP_TO_DATE),
-        ("1.0.0", "finance-v1.0.1", UpdateStatus.UPDATE_AVAILABLE),
-        ("1.9.0", "finance-v1.10.0", UpdateStatus.UPDATE_AVAILABLE),
-        ("1.1.0", "finance-v1.0.9", UpdateStatus.INSTALLED_NEWER),
-    ],
-)
-def test_update_service_compares_versions_semantically(
-    monkeypatch, installed, remote, expected
-):
-    monkeypatch.setattr(update_module, "__version__", installed)
-    service = _service_with_response(
-        json=[_release(remote, html_url="https://example.test/release")]
+def test_update_service_invokes_external_updater_contract():
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append((command, kwargs))
+        return _completed(_payload())
+
+    service = UpdateService(
+        command=[r"C:\Tools\ja-updater.exe"],
+        runner=runner,
     )
 
     result = service.check()
 
+    assert calls[0][0] == [
+        r"C:\Tools\ja-updater.exe",
+        "check",
+        "--product",
+        "finance",
+    ]
+    assert calls[0][1]["check"] is False
+    assert calls[0][1]["capture_output"] is True
+    assert result.status == UpdateStatus.UP_TO_DATE
+    assert result.installed_version == "1.0.0"
+    assert result.available_version == "1.0.0"
+
+
+@pytest.mark.parametrize(
+    ("remote_status", "expected"),
+    [
+        ("up_to_date", UpdateStatus.UP_TO_DATE),
+        ("update_available", UpdateStatus.UPDATE_AVAILABLE),
+        ("update_unavailable", UpdateStatus.UPDATE_AVAILABLE),
+        ("installed_newer", UpdateStatus.INSTALLED_NEWER),
+    ],
+)
+def test_update_service_maps_updater_status(remote_status, expected):
+    def runner(_command, **_kwargs):
+        return _completed(
+            _payload(
+                status=remote_status,
+                latest=(
+                    "1.1.0"
+                    if remote_status in (
+                        "update_available",
+                        "update_unavailable",
+                    )
+                    else "1.0.0"
+                ),
+                installable=(remote_status == "update_available"),
+                reason=(
+                    "missing_sha256"
+                    if remote_status == "update_unavailable"
+                    else None
+                ),
+            )
+        )
+
+    result = UpdateService(
+        command=["ja-updater"],
+        runner=runner,
+    ).check()
+
+    assert result.status == expected
+
+
+def test_missing_sha256_state_is_preserved():
+    def runner(_command, **_kwargs):
+        return _completed(
+            _payload(
+                status="update_unavailable",
+                latest="1.1.0",
+                installable=False,
+                reason="missing_sha256",
+            )
+        )
+
+    result = UpdateService(
+        command=["ja-updater"],
+        runner=runner,
+    ).check()
+
+    assert result.status == UpdateStatus.UPDATE_AVAILABLE
+    assert result.installable is False
+    assert result.reason == "missing_sha256"
+
+
+def test_nonzero_updater_exit_fails_closed():
+    def runner(_command, **_kwargs):
+        return _completed(
+            {
+                "status": "error",
+                "reason": "network_unavailable",
+                "message": "offline",
+            },
+            returncode=5,
+        )
+
+    with pytest.raises(
+        UpdateCheckUnavailableError,
+        match="offline",
+    ):
+        UpdateService(
+            command=["ja-updater"],
+            runner=runner,
+        ).check()
+
+
+@pytest.mark.parametrize("stdout", ["", "not-json", "[]"])
+def test_invalid_updater_output_fails_closed(stdout):
+    def runner(_command, **_kwargs):
+        return subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=stdout,
+            stderr="",
+        )
+
+    with pytest.raises(UpdateCheckUnavailableError):
+        UpdateService(
+            command=["ja-updater"],
+            runner=runner,
+        ).check()
+
+
+def test_process_failure_is_controlled():
+    def runner(_command, **_kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd="ja-updater",
+            timeout=1,
+        )
+
+    with pytest.raises(UpdateCheckUnavailableError):
+        UpdateService(
+            command=["ja-updater"],
+            runner=runner,
+        ).check()
+
+
+@pytest.mark.parametrize(
+    ("installed", "latest", "remote_status", "expected"),
+    [
+        ("1.0.0", "1.0.0", "up_to_date", UpdateStatus.UP_TO_DATE),
+        ("1.0.0", "1.0.1", "update_available", UpdateStatus.UPDATE_AVAILABLE),
+        ("1.9.0", "1.10.0", "update_available", UpdateStatus.UPDATE_AVAILABLE),
+        ("1.1.0", "1.0.9", "installed_newer", UpdateStatus.INSTALLED_NEWER),
+    ],
+)
+def test_update_service_preserves_semantic_version_states_from_updater(
+    installed,
+    latest,
+    remote_status,
+    expected,
+):
+    def runner(_command, **_kwargs):
+        return _completed(
+            _payload(
+                status=remote_status,
+                installed=installed,
+                latest=latest,
+                installable=remote_status == "update_available",
+            )
+        )
+
+    result = UpdateService(command=["ja-updater"], runner=runner).check()
+
     assert result.status == expected
     assert result.installed_version == installed
-    assert result.available_version == remote.removeprefix("finance-v")
-    assert result.release_url == "https://example.test/release"
+    assert result.available_version == latest
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"product_id": "bookmaker"},
+        {"product_id": ""},
+        {"installed_version": ""},
+        {"latest_version": None},
+        {"status": "unknown"},
+        {"status": None},
+    ],
+)
+def test_invalid_updater_contract_payload_fails_closed(overrides):
+    payload = _payload()
+    payload.update(overrides)
+
+    def runner(_command, **_kwargs):
+        return _completed(payload)
+
+    with pytest.raises(UpdateCheckUnavailableError):
+        UpdateService(command=["ja-updater"], runner=runner).check()
 
 
 @pytest.mark.parametrize(
     "error",
-    [httpx.ReadTimeout("timeout"), httpx.ConnectError("offline")],
+    [
+        OSError("executable unavailable"),
+        subprocess.TimeoutExpired(cmd="ja-updater", timeout=1),
+    ],
 )
-def test_update_service_handles_network_failures(monkeypatch, error):
-    def handler(request: httpx.Request) -> httpx.Response:
+def test_updater_communication_failures_have_controlled_message(error):
+    def runner(_command, **_kwargs):
         raise error
-
-    monkeypatch.setattr(update_module, "__version__", "1.0.0")
-    service = UpdateService(transport=httpx.MockTransport(handler))
 
     with pytest.raises(
         UpdateCheckUnavailableError,
         match="Não foi possível consultar atualizações no momento",
     ):
-        service.check()
-
-
-@pytest.mark.parametrize("status_code", [404, 403, 429])
-def test_update_service_handles_unavailable_github_responses(status_code):
-    service = _service_with_response(status_code=status_code, json={})
-
-    with pytest.raises(UpdateCheckUnavailableError):
-        service.check()
-
-
-@pytest.mark.parametrize(
-    "service",
-    [
-        _service_with_response(content=b"not-json"),
-        _service_with_response(json={}),
-        _service_with_response(json=[_release("finance-vnot-a-version")]),
-        _service_with_response(json=[{"tag_name": 101}]),
-    ],
-)
-def test_update_service_rejects_invalid_remote_payload(service):
-    with pytest.raises(UpdateCheckUnavailableError):
-        service.check()
-
-
-@pytest.mark.parametrize(
-    "foreign_release",
-    [
-        _release("bookmaker-v9.0.0"),
-        _release("other-product-v9.0.0"),
-        _release("Finance-v9.0.0"),
-    ],
-)
-def test_update_service_ignores_releases_from_other_products(foreign_release):
-    service = _service_with_response(json=[foreign_release])
-
-    with pytest.raises(UpdateCheckUnavailableError):
-        service.check()
-
-
-def test_update_service_selects_highest_stable_finance_release(monkeypatch):
-    monkeypatch.setattr(update_module, "__version__", "1.0.0")
-    service = _service_with_response(
-        json=[
-            _release("bookmaker-v8.0.0"),
-            _release("finance-v1.2.0", html_url="https://example.test/finance-1.2.0"),
-            _release("finance-v1.10.0", html_url="https://example.test/finance-1.10.0"),
-            _release("finance-v1.9.0", html_url="https://example.test/finance-1.9.0"),
-        ]
-    )
-
-    result = service.check()
-
-    assert result.available_version == "1.10.0"
-    assert result.release_url == "https://example.test/finance-1.10.0"
-
-
-@pytest.mark.parametrize(
-    "ignored",
-    [
-        _release("finance-v9.0.0", draft=True),
-        _release("finance-v9.0.0", prerelease=True),
-        _release("finance-vinvalid"),
-    ],
-)
-def test_update_service_ignores_non_stable_or_invalid_finance_release(
-    monkeypatch, ignored
-):
-    monkeypatch.setattr(update_module, "__version__", "1.0.0")
-    service = _service_with_response(
-        json=[ignored, _release("finance-v1.0.1")]
-    )
-
-    result = service.check()
-
-    assert result.available_version == "1.0.1"
-
-
-def test_update_service_reports_absence_of_valid_finance_release():
-    service = _service_with_response(
-        json=[
-            _release("bookmaker-v1.0.0"),
-            _release("finance-v2.0.0", draft=True),
-            _release("finance-vbad"),
-        ]
-    )
-
-    with pytest.raises(UpdateCheckUnavailableError):
-        service.check()
+        UpdateService(command=["ja-updater"], runner=runner).check()
 
 
 class _UpdateWindowHarness(QMainWindow):
@@ -186,10 +273,22 @@ class _UpdateWindowHarness(QMainWindow):
 
     def __init__(self, service) -> None:
         super().__init__()
+
         self._update_service = service
         self._update_thread: QThread | None = None
         self._update_worker = None
         self._update_page = None
+        self._update_dialog = None
+
+
+class _ImmediateService:
+    def __init__(self, result):
+        self.result = result
+        self.calls = 0
+
+    def check(self):
+        self.calls += 1
+        return self.result
 
 
 class _ControlledService:
@@ -202,17 +301,56 @@ class _ControlledService:
         self.calls += 1
         self.started.set()
         self.release.wait(2)
-        return update_module.UpdateCheckResult(
+        return UpdateCheckResult(
             status=UpdateStatus.UPDATE_AVAILABLE,
             installed_version="1.0.0",
             available_version="1.0.1",
         )
 
 
-def test_update_button_is_manual_non_blocking_and_disabled_while_running(qtbot):
+def test_update_button_remains_manual_and_non_blocking(qtbot):
+    page = AdministracaoPage()
+
+    service = _ImmediateService(
+        UpdateCheckResult(
+            status=UpdateStatus.UP_TO_DATE,
+            installed_version="1.0.0",
+            available_version="1.0.0",
+        )
+    )
+
+    window = _UpdateWindowHarness(service)
+
+    qtbot.addWidget(page)
+    qtbot.addWidget(window)
+
+    page.check_updates_button.clicked.connect(
+        lambda: window._check_for_updates(page)
+    )
+
+    assert service.calls == 0
+
+    page.check_updates_button.click()
+
+    qtbot.waitUntil(
+        lambda: window._update_thread is None,
+        timeout=3000,
+    )
+
+    assert service.calls == 1
+    assert page.check_updates_button.isEnabled()
+    assert (
+        page.check_updates_button.text()
+        == "Verificar atualizações"
+    )
+    assert page.status.text() == "O Finance está atualizado."
+
+
+def test_update_button_is_disabled_and_concurrent_check_is_prevented(qtbot):
     page = AdministracaoPage()
     service = _ControlledService()
     window = _UpdateWindowHarness(service)
+
     qtbot.addWidget(page)
     qtbot.addWidget(window)
     page.check_updates_button.clicked.connect(
@@ -221,6 +359,7 @@ def test_update_button_is_manual_non_blocking_and_disabled_while_running(qtbot):
 
     assert page.check_updates_button.text() == "Verificar atualizações"
     assert service.calls == 0
+
     started_at = monotonic()
     page.check_updates_button.click()
     elapsed = monotonic() - started_at
@@ -229,7 +368,8 @@ def test_update_button_is_manual_non_blocking_and_disabled_while_running(qtbot):
     assert service.started.wait(1)
     assert not page.check_updates_button.isEnabled()
     assert page.check_updates_button.text() == "Consultando..."
-    page.check_updates_button.click()
+
+    window._check_for_updates(page)
     assert service.calls == 1
 
     service.release.set()
@@ -239,25 +379,65 @@ def test_update_button_is_manual_non_blocking_and_disabled_while_running(qtbot):
     assert page.status.text() == "Nova versão disponível: 1.0.1."
 
 
-@pytest.mark.parametrize(
-    ("status", "expected"),
-    [
-        (UpdateStatus.UP_TO_DATE, "O Finance está atualizado."),
-        (
-            UpdateStatus.INSTALLED_NEWER,
-            "A versão instalada é mais recente que a última versão publicada.",
-        ),
-    ],
-)
-def test_update_result_messages_are_clear(qtbot, status, expected):
+def test_non_installable_update_message_is_clear(qtbot):
     page = AdministracaoPage()
     window = _UpdateWindowHarness(None)
+
     qtbot.addWidget(page)
     qtbot.addWidget(window)
+
     window._update_page = page
 
     window._update_succeeded(
-        update_module.UpdateCheckResult(
+        UpdateCheckResult(
+            status=UpdateStatus.UPDATE_AVAILABLE,
+            installed_version="1.0.0",
+            available_version="1.1.0",
+            installable=False,
+            reason="missing_sha256",
+        )
+    )
+
+    assert (
+        page.status.text()
+        == (
+            "Nova versão disponível: 1.1.0. "
+            "A release oficial não possui SHA-256 verificável."
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (
+            UpdateStatus.UP_TO_DATE,
+            "O Finance está atualizado.",
+        ),
+        (
+            UpdateStatus.INSTALLED_NEWER,
+            (
+                "A versão instalada é mais recente "
+                "que a última versão publicada."
+            ),
+        ),
+    ],
+)
+def test_update_result_messages_are_preserved(
+    qtbot,
+    status,
+    expected,
+):
+    page = AdministracaoPage()
+    window = _UpdateWindowHarness(None)
+
+    qtbot.addWidget(page)
+    qtbot.addWidget(window)
+
+    window._update_page = page
+
+    window._update_succeeded(
+        UpdateCheckResult(
             status=status,
             installed_version="1.0.0",
             available_version="1.0.0",
@@ -270,6 +450,7 @@ def test_update_result_messages_are_clear(qtbot, status, expected):
 def test_update_failure_message_is_controlled(qtbot):
     page = AdministracaoPage()
     window = _UpdateWindowHarness(None)
+
     qtbot.addWidget(page)
     qtbot.addWidget(window)
     window._update_page = page
@@ -292,4 +473,4 @@ def test_administration_displays_installed_desktop_version_not_server_version(qt
         }
     )
 
-    assert page.fields["version"].text() == update_module.__version__
+    assert page.fields["version"].text() == __version__
