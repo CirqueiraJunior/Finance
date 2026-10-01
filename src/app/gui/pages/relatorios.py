@@ -1,3 +1,4 @@
+from app.widgets.wheel_guard import WheelBlockedSpinBox
 from datetime import date
 from pathlib import Path
 
@@ -33,7 +34,7 @@ class RelatoriosPage(QWidget):
         description.setObjectName("pageDescription")
 
         filters = QHBoxLayout()
-        self.year_filter = QSpinBox()
+        self.year_filter = WheelBlockedSpinBox()
         self.year_filter.setRange(2000, 9999)
         self.year_filter.setValue(date.today().year)
         self.refresh_button = QPushButton("Atualizar relatório")

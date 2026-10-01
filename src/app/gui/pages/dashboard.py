@@ -1,3 +1,4 @@
+from app.widgets.wheel_guard import WheelBlockedComboBox, WheelBlockedSpinBox, WheelBlockedTabWidget
 from datetime import date
 from decimal import Decimal
 
@@ -150,7 +151,7 @@ class DashboardPage(QWidget):
         )
         description.setObjectName("pageDescription")
         filters = QHBoxLayout()
-        self.year_filter = QSpinBox()
+        self.year_filter = WheelBlockedSpinBox()
         self.year_filter.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.year_filter.setRange(2000, 9999)
         self.year_filter.setValue(date.today().year)
@@ -173,7 +174,7 @@ class DashboardPage(QWidget):
         layout.addWidget(description)
         layout.addWidget(global_filter_panel)
 
-        self.tabs = QTabWidget()
+        self.tabs = WheelBlockedTabWidget()
         self.tabs.setObjectName("dashboardTabs")
         self.tabs.setDocumentMode(True)
         self.tabs.setMovable(False)
@@ -193,13 +194,13 @@ class DashboardPage(QWidget):
         layout.addWidget(self.tabs)
 
         finance_filters = QHBoxLayout()
-        self.finance_category_filter = QComboBox()
+        self.finance_category_filter = WheelBlockedComboBox()
         self.finance_category_filter.addItem("Todas as categorias", None)
         for value in ("RECEITA_DIRETA", "RECEITA_INDIRETA", "ADMINISTRATIVO",
                       "DIRETORIA", "EVENTOS", "OPERACIONAL", "PESSOAL",
                       "INVESTIMENTO", "OUTROS"):
             self.finance_category_filter.addItem(value.replace("_", " ").title(), value)
-        self.finance_type_filter = QComboBox()
+        self.finance_type_filter = WheelBlockedComboBox()
         self.finance_type_filter.addItem("Todos os tipos", None)
         self.finance_type_filter.addItem("Receita", "RECEITA")
         self.finance_type_filter.addItem("Despesa", "DESPESA")
@@ -250,7 +251,7 @@ class DashboardPage(QWidget):
         self.boe_start_month.set_month(1)
         self.boe_end_month = MonthComboBox()
         self.boe_end_month.set_month(date.today().month)
-        self.boe_entity_filter = QComboBox()
+        self.boe_entity_filter = WheelBlockedComboBox()
         self.boe_entity_filter.addItem("Todas as entidades", None)
         boe_filters.addWidget(QLabel("Período"))
         boe_filters.addWidget(self.boe_start_month)
@@ -298,9 +299,9 @@ class DashboardPage(QWidget):
         self.target_start_month.set_month(1)
         self.target_end_month = MonthComboBox()
         self.target_end_month.set_month(date.today().month)
-        self.target_entity_filter = QComboBox()
+        self.target_entity_filter = WheelBlockedComboBox()
         self.target_entity_filter.addItem("Todas as entidades", None)
-        self.target_indicator_filter = QComboBox()
+        self.target_indicator_filter = WheelBlockedComboBox()
         for label, value in (("Todas", "TODAS"), ("Consultas", "CONSULTAS"),
                              ("Registros", "REGISTROS")):
             self.target_indicator_filter.addItem(label, value)

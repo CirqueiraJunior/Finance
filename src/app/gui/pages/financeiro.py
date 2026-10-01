@@ -1,3 +1,4 @@
+from app.widgets.wheel_guard import WheelBlockedComboBox, WheelBlockedDateEdit, WheelBlockedSpinBox
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
@@ -57,16 +58,16 @@ class CashflowEntryDialog(QDialog):
         layout = QFormLayout(self)
 
         # Mantido como estado interno para compatibilidade dos controllers/testes antigos.
-        self.entry_type = QComboBox()
+        self.entry_type = WheelBlockedComboBox()
         for label, value in self.TYPE_OPTIONS:
             self.entry_type.addItem(label, value)
 
-        self.entry_date = QDateEdit(QDate.currentDate())
+        self.entry_date = WheelBlockedDateEdit(QDate.currentDate())
         self.entry_date.setCalendarPopup(True)
         self.entry_date.setDisplayFormat("dd/MM/yyyy")
 
-        self.description = QComboBox() if self._catalog_mode else QLineEdit()
-        self.category = QComboBox()
+        self.description = WheelBlockedComboBox() if self._catalog_mode else QLineEdit()
+        self.category = WheelBlockedComboBox()
         self.value = BRLCurrencyEdit()
         self.value.setPlaceholderText("R$ 0,00")
         self.notes = QPlainTextEdit()
@@ -105,7 +106,7 @@ class CashflowEntryDialog(QDialog):
         boe_layout.addStretch()
 
         if self._catalog_mode:
-            self.year_input = QSpinBox()
+            self.year_input = WheelBlockedSpinBox()
             self.year_input.setRange(2000, 9999)
             self.year_input.setValue(self._period_year)
             self.month_input = MonthComboBox()
@@ -381,7 +382,7 @@ class FinanceiroPage(QWidget):
         description = QLabel("Receitas, despesas, aplicações e resgates no mesmo fluxo financeiro.")
         description.setObjectName("pageDescription")
         filters = QHBoxLayout()
-        self.year_filter = QSpinBox()
+        self.year_filter = WheelBlockedSpinBox()
         self.year_filter.setRange(2000, 9999)
         self.year_filter.setValue(date.today().year)
         self.month_filter = MonthComboBox()

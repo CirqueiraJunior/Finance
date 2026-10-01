@@ -1,3 +1,4 @@
+from app.widgets.wheel_guard import WheelBlockedComboBox, WheelBlockedDoubleSpinBox, WheelBlockedSpinBox
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel,
@@ -28,7 +29,7 @@ class UserDialog(QDialog):
         self.name = QLineEdit(user.get("nome", "") if user else "")
         self.email = QLineEdit(user.get("email", "") if user else "")
         self.username = QLineEdit(user.get("username", "") if user else "")
-        self.profile = QComboBox()
+        self.profile = WheelBlockedComboBox()
         roles = USER_ROLES if allow_administrator else USER_ROLES[1:]
         for role in roles:
             self.profile.addItem(ROLE_LABELS[role], role)
@@ -36,7 +37,7 @@ class UserDialog(QDialog):
             self.profile.setCurrentIndex(self.profile.findData(user["perfil"]))
         layout.addRow("Nome", self.name)
         if self._editing:
-            self.active = QComboBox()
+            self.active = WheelBlockedComboBox()
             self.active.addItem("Ativo", True)
             self.active.addItem("Inativo", False)
             self.active.setCurrentIndex(0 if user.get("ativo", True) else 1)
@@ -141,7 +142,7 @@ class RankingParametersWidget(QFrame):
 
         top = QHBoxLayout()
         top.addWidget(QLabel("Ano"))
-        self.year = QSpinBox()
+        self.year = WheelBlockedSpinBox()
         self.year.setRange(2000, 9999)
         self.year.setValue(2026)
         self.year.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -221,7 +222,7 @@ class RankingParametersWidget(QFrame):
         return super().eventFilter(watched, event)
 
     def _decimal_spin(self, decimals: int) -> QDoubleSpinBox:
-        field = QDoubleSpinBox()
+        field = WheelBlockedDoubleSpinBox()
         field.setDecimals(decimals)
         field.setRange(0, 999999999)
         field.setGroupSeparatorShown(True)
@@ -230,7 +231,7 @@ class RankingParametersWidget(QFrame):
         return field
 
     def _points_spin(self) -> QSpinBox:
-        field = QSpinBox()
+        field = WheelBlockedSpinBox()
         field.setRange(0, 999999)
         field.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         field.installEventFilter(self)

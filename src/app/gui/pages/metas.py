@@ -1,3 +1,4 @@
+from app.widgets.wheel_guard import WheelBlockedComboBox, WheelBlockedSpinBox, WheelBlockedTabWidget
 from datetime import date
 from decimal import Decimal
 
@@ -15,7 +16,7 @@ from app.services.ranking_service import AnnualRankingEntry, RankingEntry
 from app.widgets import BrazilianDecimalEdit, MonthComboBox
 
 
-class EntityMultiSelectCombo(QComboBox):
+class EntityMultiSelectCombo(WheelBlockedComboBox):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setView(QListView())
@@ -102,16 +103,16 @@ class TargetDialog(QDialog):
         self.setWindowTitle("Editar Meta" if target else "Nova Meta")
         self.setMinimumWidth(440)
         layout = QFormLayout(self)
-        self.year = QSpinBox()
+        self.year = WheelBlockedSpinBox()
         self.year.setRange(2000, 9999)
         self.year.setValue(target.periodo_ano if target else date.today().year)
         self.month = MonthComboBox()
         self.month.set_month(target.periodo_mes if target else date.today().month)
-        self.entity = QComboBox()
+        self.entity = WheelBlockedComboBox()
         for entity in entities:
             name = entity.nome_oficial or entity.nome
             self.entity.addItem(f"{entity.codigo_entidade} — {name}", entity.id)
-        self.indicator = QComboBox()
+        self.indicator = WheelBlockedComboBox()
         self.indicator.addItem("Consultas", TargetIndicator.QUERIES.value)
         self.indicator.addItem("Registros", TargetIndicator.REGISTRATIONS.value)
         self.target_value = BrazilianDecimalEdit()
@@ -170,7 +171,7 @@ class MetasPage(QWidget):
         self.setObjectName("contentPage")
         outer = QVBoxLayout(self)
         outer.setContentsMargins(20, 20, 20, 20)
-        self.tabs = QTabWidget()
+        self.tabs = WheelBlockedTabWidget()
         operational = QWidget()
         layout = QVBoxLayout(operational)
         layout.setContentsMargins(32, 2, 32, 12)
@@ -183,12 +184,13 @@ class MetasPage(QWidget):
         description.setObjectName("pageDescription")
 
         filters = QHBoxLayout()
-        self.year_filter = QSpinBox()
+        self.year_filter = WheelBlockedSpinBox()
         self.year_filter.setRange(2000, 9999)
         self.year_filter.setValue(date.today().year)
         self.month_filter = MonthComboBox()
         self.month_filter.set_month(date.today().month)
-        self.indicator_filter = QComboBox()
+        self.indicator_filter = WheelBlockedComboBox()
+        self.indicator_filter.addItem("Todas", "TODAS")
         self.indicator_filter.addItem("Consultas", TargetIndicator.QUERIES.value)
         self.indicator_filter.addItem("Registros", TargetIndicator.REGISTRATIONS.value)
         self.entity_filter = EntityMultiSelectCombo()
@@ -280,15 +282,15 @@ class MetasPage(QWidget):
         self.ranking_tab = QWidget()
         ranking_layout = QVBoxLayout(self.ranking_tab)
         ranking_filters = QHBoxLayout()
-        self.ranking_year = QSpinBox()
+        self.ranking_year = WheelBlockedSpinBox()
         self.ranking_year.setRange(2000, 9999)
         self.ranking_year.setValue(date.today().year)
-        self.ranking_quarter = QComboBox()
+        self.ranking_quarter = WheelBlockedComboBox()
         for quarter in range(1, 5):
             self.ranking_quarter.addItem(f"{quarter}º Trimestre", quarter)
         self.ranking_refresh = QPushButton("Atualizar ranking")
         self.ranking_refresh.setProperty("buttonRole", "info")
-        self.ranking_entity = QComboBox()
+        self.ranking_entity = WheelBlockedComboBox()
         self.ranking_entity.addItem("Todas as Entidades", None)
         ranking_filters.addWidget(QLabel("Ano"))
         ranking_filters.addWidget(self.ranking_year)

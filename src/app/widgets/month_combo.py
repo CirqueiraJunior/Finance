@@ -1,3 +1,4 @@
+from app.widgets.wheel_guard import WheelBlockedComboBox
 from PySide6.QtWidgets import QComboBox
 
 
@@ -17,7 +18,7 @@ MONTH_NAMES = (
 )
 
 
-class MonthComboBox(QComboBox):
+class MonthComboBox(WheelBlockedComboBox):
     """Seletor mensal padronizado com nome visível e número interno."""
 
     def __init__(self, parent=None, *, include_all: bool = False) -> None:

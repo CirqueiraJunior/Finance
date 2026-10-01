@@ -1,3 +1,4 @@
+from app.widgets.wheel_guard import WheelBlockedComboBox
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
@@ -21,7 +22,7 @@ class HistoricalImportDialog(QDialog):
         file_row.addWidget(self.file_path, 1)
         file_row.addWidget(self.choose_button)
         form.addRow("Arquivo", file_row)
-        self.requested_type = QComboBox()
+        self.requested_type = WheelBlockedComboBox()
         self.requested_type.addItem("Detectar automaticamente", None)
         self.requested_type.addItem("Associação", "ASSOCIACAO")
         form.addRow("Tipo", self.requested_type)

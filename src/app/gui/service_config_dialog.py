@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.widgets.wheel_guard import WheelBlockedSpinBox
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -38,7 +39,7 @@ class ServiceConfigurationDialog(QDialog):
 
         self.host = QLineEdit()
         self.host.setPlaceholderText("Servidor PostgreSQL")
-        self.port = QSpinBox()
+        self.port = WheelBlockedSpinBox()
         self.port.setRange(1, 65535)
         self.port.setValue(5432)
         self.database = QLineEdit("postgres")

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 from PySide6.QtWidgets import QDialog, QFileDialog
@@ -200,7 +201,7 @@ class TargetController(QObject):
             year, month, indicator, entity_id = (
                 self.view.selected_filters()
             )
-            result = self.service.get_target_vs_actual(
+            result = self._get_target_vs_actual(
                 year,
                 month,
                 indicator,
@@ -306,7 +307,7 @@ class TargetController(QObject):
             import_result = self.service.import_file(selected_file)
 
             entities = self.service.list_entities()
-            target_result = self.service.get_target_vs_actual(
+            target_result = self._get_target_vs_actual(
                 *filters
             )
 
@@ -428,6 +429,66 @@ class TargetController(QObject):
             failed=failed,
         )
 
+    def _get_target_vs_actual(self, year, month, indicator, entity_id):
+        if indicator != "TODAS":
+            return self.service.get_target_vs_actual(
+                year,
+                month,
+                indicator,
+                entity_id,
+            )
+
+        queries = self.service.get_target_vs_actual(
+            year,
+            month,
+            "CONSULTAS",
+            entity_id,
+        )
+        registrations = self.service.get_target_vs_actual(
+            year,
+            month,
+            "REGISTROS",
+            entity_id,
+        )
+
+        comparisons = tuple(queries.comparisons) + tuple(
+            registrations.comparisons
+        )
+
+        zero = Decimal("0.0000")
+        target_total = sum(
+            (item.target for item in comparisons),
+            zero,
+        )
+        actual_total = sum(
+            (item.actual for item in comparisons),
+            zero,
+        )
+        difference_total = actual_total - target_total
+
+        achievement = (
+            None
+            if target_total == 0
+            else (
+                actual_total
+                / target_total
+                * Decimal("100")
+            ).quantize(Decimal("0.0001"))
+        )
+
+        summary = type(queries.summary)(
+            len({item.entity_code for item in comparisons}),
+            target_total,
+            actual_total,
+            difference_total,
+            achievement,
+        )
+
+        return type(queries)(
+            comparisons,
+            summary,
+        )
+
     def refresh(self) -> None:
         filters = self.view.selected_filters()
 
@@ -444,7 +505,7 @@ class TargetController(QObject):
         self._run_operation(
             service=self.service,
             window_title="Metas",
-            operation=lambda: self.service.get_target_vs_actual(
+            operation=lambda: self._get_target_vs_actual(
                 *filters
             ),
             succeeded=succeeded,
@@ -520,7 +581,7 @@ class TargetController(QObject):
                 notes=notes,
             )
 
-            return self.service.get_target_vs_actual(
+            return self._get_target_vs_actual(
                 *selected_filters
             )
 
@@ -609,7 +670,7 @@ class TargetController(QObject):
                 notes=notes,
             )
 
-            return self.service.get_target_vs_actual(
+            return self._get_target_vs_actual(
                 *selected_filters
             )
 

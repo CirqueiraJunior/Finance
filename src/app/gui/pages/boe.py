@@ -1,3 +1,4 @@
+from app.widgets.wheel_guard import WheelBlockedComboBox, WheelBlockedDateEdit
 from decimal import Decimal
 
 from PySide6.QtCore import QDate, Qt
@@ -20,7 +21,7 @@ from app.models.boe_import import BOEImport
 from app.services.boe_service import BOEImportDetails, BOEOperationalSummary
 
 
-class BOEPeriodEdit(QDateEdit):
+class BOEPeriodEdit(WheelBlockedDateEdit):
     """Seletor de período que não altera o valor por rolagem acidental."""
 
     def wheelEvent(self, event) -> None:  # noqa: N802 - Qt API
@@ -134,7 +135,7 @@ class BoePage(QWidget):
         self.start_period.setObjectName("boeStartPeriod")
         self.end_period = self._create_period_edit(QDate.currentDate())
         self.end_period.setObjectName("boeEndPeriod")
-        self.entity_filter = QComboBox()
+        self.entity_filter = WheelBlockedComboBox()
         self.entity_filter.setObjectName("boeEntityFilter")
         self.entity_filter.addItem("Todas", None)
         self.query_button = QPushButton("Consultar")

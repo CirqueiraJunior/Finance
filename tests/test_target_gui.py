@@ -37,7 +37,11 @@ def test_page_has_filters_cards_table_and_empty_state(qtbot):
     assert page.table.columnCount() == 8
     assert page.table.horizontalHeaderItem(7).text() == "Observação"
     assert page.new_button.text() == "Nova Meta"
-    assert page.indicator_filter.count() == 2
+    assert page.indicator_filter.count() == 3
+    assert page.indicator_filter.itemText(0) == "Todas"
+    assert page.indicator_filter.itemData(0) == "TODAS"
+    assert page.indicator_filter.itemText(1) == "Consultas"
+    assert page.indicator_filter.itemText(2) == "Registros"
     assert page.table.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
     assert page.empty_state.isVisibleTo(page)
     assert page.import_file_button.text() == "Selecionar arquivo"

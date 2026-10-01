@@ -1,3 +1,4 @@
+from app.widgets.wheel_guard import WheelBlockedComboBox, WheelBlockedSpinBox
 from datetime import date
 from decimal import Decimal
 
@@ -45,17 +46,17 @@ class BudgetDialog(QDialog):
         self.setWindowTitle("Editar Orçamento" if budget else "Novo Orçamento")
         self.setMinimumWidth(430)
         layout = QFormLayout(self)
-        self.year = QSpinBox()
+        self.year = WheelBlockedSpinBox()
         self.year.setRange(2000, 9999)
         self.year.setValue(budget.periodo_ano if budget else date.today().year)
         self.month = MonthComboBox()
         self.month.set_month(budget.periodo_mes if budget else date.today().month)
-        self.entry_type = QComboBox()
+        self.entry_type = WheelBlockedComboBox()
         self.entry_type.addItem("Receita", CashflowType.REVENUE.value)
         self.entry_type.addItem("Despesa", CashflowType.EXPENSE.value)
         self.entry_type.setEnabled(False)
-        self.category = QComboBox()
-        self.description = QComboBox()
+        self.category = WheelBlockedComboBox()
+        self.description = WheelBlockedComboBox()
         options = [
             option for option in catalog_options
             if option.movement_type in {
@@ -177,7 +178,7 @@ class OrcamentoPage(QWidget):
         description.setObjectName("pageDescription")
 
         filters = QHBoxLayout()
-        self.year_filter = QSpinBox()
+        self.year_filter = WheelBlockedSpinBox()
         self.year_filter.setRange(2000, 9999)
         self.year_filter.setValue(date.today().year)
         self.month_filter = MonthComboBox(include_all=True)

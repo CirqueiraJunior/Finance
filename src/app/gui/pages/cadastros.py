@@ -1,3 +1,4 @@
+from app.widgets.wheel_guard import WheelBlockedComboBox, WheelBlockedSpinBox, WheelBlockedTabWidget
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
@@ -23,11 +24,11 @@ class EntityDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Editar Entidade" if entity else "Nova Entidade")
         form = QFormLayout(self)
-        self.code = QSpinBox()
+        self.code = WheelBlockedSpinBox()
         self.code.setRange(1, 999999)
         self.name = QLineEdit()
         self.official_name = QLineEdit()
-        self.region = QComboBox()
+        self.region = WheelBlockedComboBox()
         for label, value in self.REGIONS:
             self.region.addItem(label, value)
         self.acronym = QLineEdit()
@@ -100,7 +101,7 @@ class CatalogDialog(QDialog):
 
         type_layout.addStretch()
 
-        self.category = QComboBox()
+        self.category = WheelBlockedComboBox()
         self.category.addItem("Selecione a categoria...", None)
 
         self.active = QCheckBox("Ativo")
@@ -221,7 +222,7 @@ class CadastrosPage(QWidget):
         title = QLabel("Cadastros")
         title.setObjectName("pageTitle")
         layout.addWidget(title)
-        self.tabs = QTabWidget()
+        self.tabs = WheelBlockedTabWidget()
         layout.addWidget(self.tabs)
         self.entity_table = QTableWidget(0, 6)
         self.entity_table.setHorizontalHeaderLabels(
