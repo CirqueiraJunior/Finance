@@ -8,6 +8,10 @@
 #ifndef OutputRoot
   #define OutputRoot "..\installer"
 #endif
+#ifndef UpdaterInstaller
+  #error UpdaterInstaller define is required for official Finance builds
+#endif
+#define UpdaterInstallerName ExtractFileName(UpdaterInstaller)
 
 [Setup]
 AppId={{D4265C90-A4A7-4F51-BE50-DDAA3984E5E9}
@@ -35,6 +39,7 @@ UsedUserAreasWarning=no
 [Files]
 Source: "{#BuildRoot}\Finance\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#BuildRoot}\FinanceServer.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#UpdaterInstaller}"; DestName: "{#UpdaterInstallerName}"; Flags: dontcopy
 
 [InstallDelete]
 Type: files; Name: "{userdesktop}\Finance.lnk"
@@ -53,6 +58,37 @@ const
 function ServiceExists(): Boolean;
 begin
   Result := RegKeyExists(HKLM, ServiceRegistryKey);
+end;
+
+function UpdaterInstalled(): Boolean;
+begin
+  Result := FileExists(ExpandConstant(
+    '{autopf}\J.A. Technology\J.A. Updater\J.A. Updater.exe'));
+end;
+
+procedure EnsureUpdaterInstalled();
+var
+  ResultCode: Integer;
+  InstallerPath: String;
+begin
+  if UpdaterInstalled() then
+    exit;
+
+  ExtractTemporaryFile('{#UpdaterInstallerName}');
+  InstallerPath := ExpandConstant('{tmp}\{#UpdaterInstallerName}');
+
+  if not Exec(InstallerPath,
+    '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-', '', SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) then
+    RaiseException('J.A. Updater bootstrap could not be started.');
+
+  if ResultCode <> 0 then
+    RaiseException(Format(
+      'J.A. Updater bootstrap returned exit code %d.', [ResultCode]));
+
+  if not UpdaterInstalled() then
+    RaiseException(
+      'J.A. Updater bootstrap completed without the expected executable.');
 end;
 
 procedure RunServiceCommand(const Parameters: String; const Required: Boolean);
@@ -127,6 +163,7 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
+  EnsureUpdaterInstalled();
   RemovePreviousService();
 end;
 
