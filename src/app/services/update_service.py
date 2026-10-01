@@ -105,6 +105,11 @@ class UpdateService:
                 encoding="utf-8",
                 timeout=self.timeout,
                 check=False,
+                creationflags=getattr(
+                    subprocess,
+                    "CREATE_NO_WINDOW",
+                    0,
+                ),
             )
         except (OSError, subprocess.SubprocessError) as error:
             raise UpdateCheckUnavailableError(

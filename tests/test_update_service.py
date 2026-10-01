@@ -77,6 +77,11 @@ def test_update_service_invokes_external_updater_contract():
     ]
     assert calls[0][1]["check"] is False
     assert calls[0][1]["capture_output"] is True
+    assert calls[0][1]["creationflags"] == getattr(
+        subprocess,
+        "CREATE_NO_WINDOW",
+        0,
+    )
     assert result.status == UpdateStatus.UP_TO_DATE
     assert result.installed_version == "1.0.0"
     assert result.available_version == "1.0.0"

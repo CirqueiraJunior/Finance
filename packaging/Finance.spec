@@ -1,15 +1,22 @@
 ﻿from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files
-
 
 project_root = Path(SPECPATH).parent
 source_root = project_root / "src"
 
+resources_root = source_root / "app" / "resources"
+
 datas = [
     (str(project_root / "assets" / "branding"), "assets/branding"),
+    (
+        str(resources_root / "styles" / "base.qss"),
+        "app/resources/styles",
+    ),
+    (
+        str(resources_root / "icons" / "sidebar"),
+        "app/resources/icons/sidebar",
+    ),
 ]
-datas += collect_data_files("app.resources")
 
 analysis = Analysis(
     [str(source_root / "app" / "main.py")],
