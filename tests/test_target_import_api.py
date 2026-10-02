@@ -5,8 +5,10 @@ from openpyxl import Workbook, load_workbook
 import pytest
 from sqlalchemy import event, func, select
 
+from app.models.association_entry import AssociationEntry
 from app.models.entity import Entity
 from app.models.target_entry import TargetEntry
+from app.repositories.association_repository import AssociationRepository
 from app.repositories.target_repository import TargetRepository
 from finance_server.app_factory import create_app
 from finance_server.config import ServerSettings
@@ -53,6 +55,20 @@ def _workbook_with_both_indicators(path: Path) -> Path:
     actual.append(["REGISTROS REALIZADOS"])
     actual.append(["COD.", "Entidade", "JAN"])
     actual.append([7001, "Inativa", 15])
+    workbook.save(path)
+    return path
+
+
+def _workbook_with_associations(path: Path) -> Path:
+    _workbook(path)
+    workbook = load_workbook(path)
+    associations = workbook.create_sheet("Associações")
+    associations.append([])
+    associations.append([])
+    values = [7501, "Entidade ativa"] + [None] * 48
+    values[2:6] = [5, 10, 1, 100]
+    values[6:10] = [7, 20, 2, 110]
+    associations.append(values)
     workbook.save(path)
     return path
 
@@ -114,6 +130,16 @@ def _seed_targets(app):
         db.add_all([first, second])
         db.commit()
         return first.id, second.id
+
+
+def _seed_association_entity(app):
+    with app.state.session_factory() as db:
+        db.add(Entity(
+            codigo_entidade=7501,
+            nome="Entidade ativa",
+            ativa=True,
+        ))
+        db.commit()
 
 
 def test_administrator_deletes_only_requested_target_and_audits(
@@ -243,6 +269,107 @@ def test_import_supports_queries_and_registrations(target_import_context):
             ("CONSULTAS", 100, 80),
             ("REGISTROS", 20, 15),
         }
+
+
+def test_import_targets_also_imports_associations_from_same_workbook(
+        target_import_context):
+    client, app, tmp_path = target_import_context
+    _seed_association_entity(app)
+    path = _workbook_with_associations(
+        tmp_path / "Meta x Realizado - Oficial 2026.xlsm"
+    )
+
+    response = _upload(
+        client, "/api/v1/targets/import", path, _headers(client, "gestor")
+    )
+
+    assert response.status_code == 201
+    assert response.json()["imported"] == 1
+    with app.state.session_factory() as db:
+        assert db.scalar(select(func.count()).select_from(TargetEntry)) == 1
+        entries = list(db.scalars(
+            select(AssociationEntry).order_by(AssociationEntry.periodo_mes)
+        ))
+        assert [
+            (
+                entry.periodo_mes,
+                entry.valor_cancelamento,
+                entry.valor_captacao,
+                entry.valor_execucao,
+            )
+            for entry in entries
+        ] == [
+            (1, 5, 10, 100),
+            (2, 7, 20, 110),
+        ]
+
+
+def test_reimport_targets_updates_associations_without_duplicates(
+        target_import_context):
+    client, app, tmp_path = target_import_context
+    _seed_association_entity(app)
+    path = _workbook_with_associations(
+        tmp_path / "Meta x Realizado - Oficial 2026.xlsm"
+    )
+    headers = _headers(client)
+
+    first = _upload(client, "/api/v1/targets/import", path, headers)
+    assert first.status_code == 201
+    workbook = load_workbook(path)
+    associations = workbook["Associações"]
+    associations.cell(3, 3, 9)
+    associations.cell(3, 4, 30)
+    associations.cell(3, 6, 120)
+    workbook.save(path)
+
+    validation = _upload(
+        client, "/api/v1/targets/import/validate", path, headers
+    ).json()
+    assert validation["replacements"] == 1
+    second = _upload(client, "/api/v1/targets/import", path, headers)
+
+    assert second.status_code == 201
+    assert second.json()["inserted"] == 0
+    assert second.json()["updated"] == 1
+    with app.state.session_factory() as db:
+        assert db.scalar(
+            select(func.count()).select_from(AssociationEntry)
+        ) == 2
+        january = db.scalar(select(AssociationEntry).where(
+            AssociationEntry.periodo_mes == 1
+        ))
+        assert (
+            january.valor_cancelamento,
+            january.valor_captacao,
+            january.valor_execucao,
+        ) == (9, 30, 120)
+
+
+def test_association_failure_rolls_back_targets_associations_and_audit(
+        target_import_context, monkeypatch):
+    client, app, tmp_path = target_import_context
+    _seed_association_entity(app)
+    path = _workbook_with_associations(
+        tmp_path / "Meta x Realizado - Oficial 2026.xlsm"
+    )
+    original = AssociationRepository.add_all
+
+    def fail_batch(repository, entries):
+        original(repository, entries)
+        raise RuntimeError("falha controlada em associações")
+
+    monkeypatch.setattr(AssociationRepository, "add_all", fail_batch)
+    with pytest.raises(RuntimeError, match="falha controlada em associações"):
+        _upload(client, "/api/v1/targets/import", path, _headers(client))
+
+    with app.state.session_factory() as db:
+        assert db.scalar(select(func.count()).select_from(TargetEntry)) == 0
+        assert db.scalar(
+            select(func.count()).select_from(AssociationEntry)
+        ) == 0
+        assert db.scalar(select(AuditLog).where(
+            AuditLog.action == "TARGETS_IMPORTED"
+        )) is None
 
 
 def test_target_import_revalidates_and_updates_existing(target_import_context):

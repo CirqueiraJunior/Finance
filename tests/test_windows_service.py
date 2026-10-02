@@ -20,6 +20,11 @@ def test_build_service_settings_uses_machine_store(monkeypatch):
         lambda received, password: "postgresql+psycopg://protected"
         if (received, password) == (connection, "Password1") else "unexpected",
     )
+    monkeypatch.setattr(
+        service_main,
+        "get_control_center_identity_trust",
+        lambda: SimpleNamespace(enabled=False, kid="", public_key_b64=""),
+    )
 
     settings = service_main.build_service_settings()
 

@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+import pytest
 from PySide6.QtCharts import QChartView
 
 from app.gui.controllers.dashboard_controller import DashboardController
@@ -72,8 +73,8 @@ def test_dashboard_page_displays_complete_summary(qtbot):
     assert page.boe_entities.text() == "77"
     assert page.boe_queries.text() == "316.988"
     assert page.budget_table.item(0, 1).text() == "R$ 20.200,00"
-    assert page.query_achievement.text() == "90,6805%"
-    assert page.registration_achievement.text() == "104,1968%"
+    assert page.query_achievement.text() == "90,68%"
+    assert page.registration_achievement.text() == "104,20%"
     assert not page.boe_state.isVisible()
     assert not page.target_state.isVisible()
     assert page.finance_chart.chart().title() == "Receitas x Despesas"
@@ -91,6 +92,52 @@ def test_dashboard_page_displays_partial_absence_without_crash(qtbot):
     assert page.boe_state.text() == "Sem dados BOE para o período."
     assert page.target_state.text() == "Sem dados de Meta x Realizado para o período."
     assert page.query_achievement.text() == "—"
+
+
+def test_target_dashboard_requires_and_displays_period_contract_fields(qtbot):
+    page = DashboardPage()
+    qtbot.addWidget(page)
+    data = {
+        "queries": {
+            "target": Decimal("9000000"),
+            "actual": Decimal("8642700"),
+            "achievement_percentage": Decimal("96.03"),
+        },
+        "registrations": {
+            "target": Decimal("2014465.01"),
+            "actual": Decimal("2023653"),
+            "achievement_percentage": Decimal("102.82"),
+        },
+        "total": {
+            "target": Decimal("11014465.01"),
+            "actual": Decimal("10666353"),
+            "achievement_percentage": Decimal("96.84"),
+        },
+        "associations": Decimal("17585.0000"),
+        "association_variation_percentage": Decimal(
+            "-1.29658733722496632240682533"
+        ),
+        "average_ticket": Decimal("606.5597384134205288598237134"),
+        "filters": {"entities": []},
+        "ranking": [],
+        "monthly": [],
+        "indicator": "TODAS",
+    }
+
+    page._show_target_data(data)
+
+    assert page.target_cards["total_target"].text() == "R$ 11.014.465,01"
+    assert page.target_cards["total_actual"].text() == "R$ 10.666.353,00"
+    assert page.target_cards["total_achievement"].text() == "96,84%"
+    assert page.query_achievement.text() == "96,03%"
+    assert page.registration_achievement.text() == "102,82%"
+    assert page.target_cards["association_variation"].text() == "-1,30%"
+    assert page.target_cards["associations"].text() == "17.585"
+    assert page.target_cards["average_ticket"].text() == "R$ 606,56"
+
+    del data["associations"]
+    with pytest.raises(KeyError):
+        page._show_target_data(data)
 
 
 def test_controller_updates_all_blocks_when_filter_changes(qtbot):

@@ -497,14 +497,16 @@ class DashboardPage(QWidget):
                                  self.query_achievement)
         self._show_target_values(registrations, self.registration_target,
                                  self.registration_actual, self.registration_achievement)
-        self.target_cards["total_target"].setText(self.number(total["target"]))
-        self.target_cards["total_actual"].setText(self.number(total["actual"]))
+        self.target_cards["total_target"].setText(self.currency(total["target"]))
+        self.target_cards["total_actual"].setText(self.currency(total["actual"]))
         self.target_cards["total_achievement"].setText(
             self.percentage(total["achievement_percentage"]))
-        self.target_cards["associations"].setText(self.number(data.get("associations", 0)))
+        self.target_cards["associations"].setText(
+            self.integer(int(self.decimal(data["associations"])))
+        )
         self.target_cards["association_variation"].setText(
-            self.percentage(data.get("association_variation_percentage")))
-        self.target_cards["average_ticket"].setText(self.currency(data.get("average_ticket")))
+            self.percentage(data["association_variation_percentage"]))
+        self.target_cards["average_ticket"].setText(self.currency(data["average_ticket"]))
         ranking = data.get("ranking", [])
         top = ranking[0] if ranking else None
         getter = (lambda key, default=None: top.get(key, default)) if isinstance(top, dict) else (
@@ -823,7 +825,7 @@ class DashboardPage(QWidget):
     @staticmethod
     def percentage(value: Decimal | None) -> str:
         return ("—" if value is None else
-                f"{Decimal(str(value)):.4f}%".replace(".", ","))
+                f"{Decimal(str(value)):.2f}%".replace(".", ","))
 
     @staticmethod
     def decimal(value) -> Decimal:

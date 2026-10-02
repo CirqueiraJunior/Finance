@@ -155,16 +155,16 @@ def test_budget_post_maps_api_description_to_domain_descricao(tmp_path):
 def test_dashboard_endpoints_forward_optional_period_filters(tmp_path, monkeypatch):
     captured = {}
 
-    def boe(self, year, month, entity_id=None, start_month=None, end_month=None):
-        captured["boe"] = (year, month, entity_id, start_month, end_month)
+    def boe(self, year, entity_id=None, start_month=None, end_month=None):
+        captured["boe"] = (year, entity_id, start_month, end_month)
         return {"monthly": []}
 
     def targets(
-        self, year, month, entity_id=None, indicator="TODAS",
+        self, year, entity_id=None, indicator="TODAS",
         start_month=None, end_month=None,
     ):
         captured["targets"] = (
-            year, month, entity_id, indicator, start_month, end_month,
+            year, entity_id, indicator, start_month, end_month,
         )
         return {"monthly": []}
 
@@ -175,18 +175,18 @@ def test_dashboard_endpoints_forward_optional_period_filters(tmp_path, monkeypat
         headers = _headers(client)
         assert client.get(
             "/api/v1/dashboard/boe"
-            "?year=2026&month=7&entity_id=1&start_month=2&end_month=7",
+            "?year=2026&entity_id=1&start_month=2&end_month=7",
             headers=headers,
         ).status_code == 200
         assert client.get(
             "/api/v1/dashboard/targets"
-            "?year=2026&month=7&entity_id=1&indicator=CONSULTAS"
+            "?year=2026&entity_id=1&indicator=CONSULTAS"
             "&start_month=3&end_month=6",
             headers=headers,
         ).status_code == 200
 
-    assert captured["boe"] == (2026, 7, 1, 2, 7)
-    assert captured["targets"] == (2026, 7, 1, "CONSULTAS", 3, 6)
+    assert captured["boe"] == (2026, 1, 2, 7)
+    assert captured["targets"] == (2026, 1, "CONSULTAS", 3, 6)
     app.state.engine.dispose()
 
 
@@ -253,7 +253,11 @@ class FakeRemoteAPI:
             indicator = {"target": zero, "actual": zero,
                          "achievement_percentage": None}
             return {"queries": indicator, "registrations": indicator,
-                    "indicator": "TODAS"}
+                    "total": indicator, "indicator": "TODAS",
+                    "associations": zero,
+                    "association_variation_percentage": None,
+                    "average_ticket": None, "monthly": [],
+                    "ranking": [], "filters": {"entities": []}}
         if path.startswith("/api/v1/boe"): return []
         if path == "/api/v1/catalog": return []
         if path == "/api/v1/entities": return []

@@ -50,6 +50,18 @@ class TargetImportData:
 
 
 @dataclass(frozen=True, slots=True)
+class AssociationImportData:
+    line: int
+    code: int
+    year: int
+    month: int
+    cancellation: Decimal
+    capture: Decimal
+    execution: Decimal
+    entity_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class BudgetImportData:
     line: int
     year: int
@@ -63,7 +75,9 @@ class BudgetImportData:
 @dataclass(frozen=True, slots=True)
 class HistoricalParseResult:
     metadata: HistoricalParseMetadata
-    data: tuple[TargetImportData | BudgetImportData, ...] = ()
+    data: tuple[
+        TargetImportData | AssociationImportData | BudgetImportData, ...
+    ] = ()
     warnings: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
     total: Decimal = Decimal("0.0000")
@@ -106,7 +120,10 @@ class HistoricalWorkbookParser:
             if target_name is not None and actual_name is not None:
                 return self._targets(
                     path, sheets, workbook[target_name], workbook[actual_name],
-                    has_association="ASSOCIACOES" in names,
+                    association_sheet=(
+                        workbook[names["ASSOCIACOES"]]
+                        if "ASSOCIACOES" in names else None
+                    ),
                 )
             if "PLANEJ. ORCAMENTARIO" in names:
                 return self._budget(path, sheets, workbook[names["PLANEJ. ORCAMENTARIO"]])
@@ -198,7 +215,7 @@ class HistoricalWorkbookParser:
         )
 
     def _targets(self, path: Path, sheets: tuple[str, ...], target_sheet,
-                 actual_sheet, *, has_association: bool) -> HistoricalParseResult:
+                 actual_sheet, *, association_sheet=None) -> HistoricalParseResult:
         year = self._year_from_name(path) or 2026
         actual_by_key: dict[tuple[str, int, int], object] = {}
         actual_rows, actual_indicators = self._indicator_rows(actual_sheet, {
@@ -211,7 +228,7 @@ class HistoricalWorkbookParser:
                     values[month + 1] if len(values) > month + 1 else None
                 )
 
-        data: list[TargetImportData] = []
+        data: list[TargetImportData | AssociationImportData] = []
         errors: list[str] = []
         target_rows, target_indicators = self._indicator_rows(target_sheet, {
             "META DE CONSULTAS": "CONSULTAS",
@@ -238,12 +255,62 @@ class HistoricalWorkbookParser:
             warnings.append(
                 "A estrutura analisada contém CONSULTAS. REGISTROS só serão importados quando houver aba oficial inequívoca."
             )
-        if has_association:
-            warnings.append(
-                "A planilha também contém Associação; selecione esse tipo no preview para importá-la."
+        if association_sheet is not None:
+            association_data, association_errors = self._associations(
+                association_sheet, year
             )
+            data.extend(association_data)
+            errors.extend(association_errors)
         metadata = HistoricalParseMetadata(path, "META_REALIZADO", year, sheets)
         return HistoricalParseResult(metadata, tuple(data), tuple(warnings), tuple(errors))
+
+    @staticmethod
+    def _associations(sheet, year: int) -> tuple[
+        list[AssociationImportData], list[str]
+    ]:
+        data: list[AssociationImportData] = []
+        errors: list[str] = []
+        rows = sheet.iter_rows(values_only=True)
+        next(rows, None)
+        next(rows, None)
+        for line, values in enumerate(rows, start=3):
+            raw_code = values[0] if values else None
+            try:
+                numeric_code = Decimal(str(raw_code).strip())
+            except (InvalidOperation, AttributeError, ValueError):
+                continue
+            if (
+                not numeric_code.is_finite()
+                or numeric_code != numeric_code.to_integral_value()
+                or int(numeric_code) < 7501
+            ):
+                continue
+            code = int(numeric_code)
+            entity_name = values[1] if len(values) > 1 else None
+            for month in range(1, 13):
+                base = 2 + (month - 1) * 4
+                cancellation = values[base] if len(values) > base else None
+                capture = values[base + 1] if len(values) > base + 1 else None
+                execution = values[base + 3] if len(values) > base + 3 else None
+                if cancellation is None and capture is None and execution is None:
+                    continue
+                try:
+                    data.append(AssociationImportData(
+                        line=line,
+                        code=code,
+                        year=year,
+                        month=month,
+                        cancellation=decimal_value(cancellation or 0),
+                        capture=decimal_value(capture or 0),
+                        execution=decimal_value(execution or 0),
+                        entity_name=(
+                            entity_name.strip()
+                            if isinstance(entity_name, str) else None
+                        ),
+                    ))
+                except ValueError as error:
+                    errors.append(f"Linha {line}, mês {month}: {error}")
+        return data, errors
 
     def _indicator_rows(self, sheet, labels: dict[str, str]):
         physical_rows = list(enumerate(

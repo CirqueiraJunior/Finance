@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -13,6 +15,24 @@ class AssociationRepository(BaseRepository[AssociationEntry]):
         self.session.add(entry)
         self.session.flush()
         return entry
+
+    def add_all(self, entries: Iterable[AssociationEntry]) -> None:
+        self.session.add_all(list(entries))
+
+    def existing_keys(
+        self, years: Iterable[int]
+    ) -> set[tuple[int, int, int]]:
+        scoped_years = tuple(sorted(set(years)))
+        if not scoped_years:
+            return set()
+        rows = self.session.execute(
+            select(
+                AssociationEntry.entity_id,
+                AssociationEntry.periodo_ano,
+                AssociationEntry.periodo_mes,
+            ).where(AssociationEntry.periodo_ano.in_(scoped_years))
+        )
+        return {tuple(row) for row in rows}
 
     def get_by_key(
         self, entity_id: int, year: int, month: int

@@ -335,7 +335,7 @@ class RemoteDashboardService:
                 path += f"&entry_type={filters['entry_type']}"
             result["financial"] = self.api.get(path)
         if "boe" in self.areas:
-            path = f"/api/v1/dashboard/boe?year={year}&month={month}"
+            path = f"/api/v1/dashboard/boe?year={year}"
             if filters.get("boe_start_month"):
                 path += f"&start_month={filters['boe_start_month']}"
             if filters.get("boe_end_month"):
@@ -345,7 +345,7 @@ class RemoteDashboardService:
             result["boe"] = self.api.get(path)
         if "targets" in self.areas:
             indicator = filters.get("indicator", "TODAS")
-            path = (f"/api/v1/dashboard/targets?year={year}&month={month}"
+            path = (f"/api/v1/dashboard/targets?year={year}"
                     f"&indicator={indicator}")
             if filters.get("target_start_month"):
                 path += f"&start_month={filters['target_start_month']}"

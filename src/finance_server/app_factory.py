@@ -1475,7 +1475,8 @@ def create_app(
             with path.open("wb") as destination:
                 copyfileobj(file.file, destination)
             service = TargetImportService(
-                TargetRepository(db), EntityRepository(db)
+                TargetRepository(db), EntityRepository(db),
+                association_repository=AssociationRepository(db),
             )
             return target_import_response(
                 service.validate(path, file_name=file_name)
@@ -1493,7 +1494,8 @@ def create_app(
             with path.open("wb") as destination:
                 copyfileobj(file.file, destination)
             service = TargetImportService(
-                TargetRepository(db), EntityRepository(db)
+                TargetRepository(db), EntityRepository(db),
+                association_repository=AssociationRepository(db),
             )
             try:
                 validation, entries = service.stage_import(
@@ -1680,23 +1682,25 @@ def create_app(
 
     @app.get("/api/v1/dashboard/boe")
     def dashboard_boe(
-        year: int, month: int, entity_id: int | None = None,
+        year: int, month: int | None = None, entity_id: int | None = None,
         start_month: int | None = None, end_month: int | None = None,
         user: User = Depends(require("boe:read")),
         db: Session = Depends(get_db),
     ):
         _, _, boe, budget, targets, ranking_service, flow = domain_services(db)
+        effective_start = start_month if start_month is not None else month
+        effective_end = end_month if end_month is not None else month
         try:
             return jsonable_encoder(
                 DashboardService(flow, boe, budget, targets, ranking_service)
-                .get_boe_dashboard(year, month, entity_id, start_month, end_month)
+                .get_boe_dashboard(year, entity_id, effective_start, effective_end)
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
 
     @app.get("/api/v1/dashboard/targets")
     def dashboard_targets(
-        year: int, month: int, entity_id: int | None = None,
+        year: int, month: int | None = None, entity_id: int | None = None,
         indicator: str = "TODAS", start_month: int | None = None,
         end_month: int | None = None,
         user: User = Depends(require("targets:read")),
@@ -1705,11 +1709,13 @@ def create_app(
         if not has_permission(user, "ranking:read"):
             raise HTTPException(status_code=403, detail="Permissão insuficiente.")
         _, _, boe, budget, targets, ranking_service, flow = domain_services(db)
+        effective_start = start_month if start_month is not None else month
+        effective_end = end_month if end_month is not None else month
         try:
             return jsonable_encoder(
                 DashboardService(flow, boe, budget, targets, ranking_service)
                 .get_targets_dashboard(
-                    year, month, entity_id, indicator, start_month, end_month
+                    year, entity_id, indicator, effective_start, effective_end
                 )
             )
         except ValueError as error:

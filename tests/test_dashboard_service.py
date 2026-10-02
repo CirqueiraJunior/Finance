@@ -2,10 +2,11 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, select
 from app.importers.boe_importer import BOEImporter
 from app.models.boe_entity_total import BOEEntityTotal
 from app.models.boe_import import BOEImport
+from app.models.association_entry import AssociationEntry
 from app.models.entity import Entity
 from app.models.target_entry import TargetEntry
 from app.repositories.boe_repository import BOERepository
@@ -55,7 +56,7 @@ def test_financial_dashboard_reports_missing_base_without_silent_zero(db_session
 def test_boe_dashboard_unit_value_is_safe_without_queries(db_session):
     dashboard, *_ = make_services(db_session)
 
-    result = dashboard.get_boe_dashboard(2026, 1)
+    result = dashboard.get_boe_dashboard(2026, start_month=1, end_month=1)
 
     assert result["queries"] == 0
     assert result["unit_value"] is None
@@ -64,7 +65,9 @@ def test_boe_dashboard_unit_value_is_safe_without_queries(db_session):
 def test_targets_dashboard_todas_and_zero_divisors(db_session):
     dashboard, *_ = make_services(db_session)
 
-    result = dashboard.get_targets_dashboard(2026, 1, indicator="TODAS")
+    result = dashboard.get_targets_dashboard(
+        2026, indicator="TODAS", start_month=1, end_month=1
+    )
 
     assert result["indicator"] == "TODAS"
     assert result["total"]["target"] == 0
@@ -84,8 +87,12 @@ def test_targets_indicator_filter_changes_total_without_breaking_todas(db_sessio
     ])
     db_session.commit()
 
-    queries = dashboard.get_targets_dashboard(2026, 5, indicator="CONSULTAS")
-    all_indicators = dashboard.get_targets_dashboard(2026, 5, indicator="TODAS")
+    queries = dashboard.get_targets_dashboard(
+        2026, indicator="CONSULTAS", start_month=5, end_month=5
+    )
+    all_indicators = dashboard.get_targets_dashboard(
+        2026, indicator="TODAS", start_month=5, end_month=5
+    )
 
     assert queries["total"]["target"] == Decimal("100.0000")
     assert all_indicators["total"]["target"] == Decimal("120.0000")
@@ -128,7 +135,7 @@ def test_financial_dashboard_query_count_is_constant_not_monthly_n_plus_one(db_s
 
 def test_boe_dashboard_contract_never_contains_products(db_session):
     dashboard, *_ = make_services(db_session)
-    payload = dashboard.get_boe_dashboard(2026, 5)
+    payload = dashboard.get_boe_dashboard(2026, start_month=5, end_month=5)
     serialized_keys = {str(key).lower() for key in payload}
     assert "product" not in serialized_keys
     assert "produto" not in serialized_keys
@@ -164,47 +171,144 @@ def _add_period_dashboard_data(db_session):
                 quantidade_consultas=selected_month * index,
                 valor_total=Decimal(selected_month * index * 10),
             ))
-            db_session.add(TargetEntry(
+            for indicator, factor in (("CONSULTAS", 100), ("REGISTROS", 10)):
+                db_session.add(TargetEntry(
+                    entity_id=entity.id,
+                    periodo_ano=2026,
+                    periodo_mes=selected_month,
+                    indicador=indicator,
+                    valor_meta=Decimal(selected_month * index * factor),
+                    valor_realizado=Decimal(selected_month * index * factor * 8 // 10),
+                ))
+            db_session.add(AssociationEntry(
                 entity_id=entity.id,
                 periodo_ano=2026,
                 periodo_mes=selected_month,
-                indicador="CONSULTAS",
-                valor_meta=Decimal(selected_month * index * 100),
-                valor_realizado=Decimal(selected_month * index * 80),
+                valor_captacao=0,
+                valor_execucao=Decimal(selected_month * index * 5),
+                valor_cancelamento=0,
             ))
     db_session.commit()
     return entities
 
 
-def test_boe_dashboard_period_is_optional_inclusive_and_keeps_selected_month(db_session):
+def test_boe_dashboard_period_is_inclusive_and_controls_all_results(db_session):
     dashboard, *_ = make_services(db_session)
     entity = _add_period_dashboard_data(db_session)[0]
 
-    legacy = dashboard.get_boe_dashboard(2026, 7, entity.id)
-    filtered = dashboard.get_boe_dashboard(2026, 7, entity.id, 2, 7)
+    full_year = dashboard.get_boe_dashboard(2026, entity.id)
+    filtered = dashboard.get_boe_dashboard(2026, entity.id, 2, 7)
 
-    assert [row["month"] for row in legacy["monthly"]] == list(range(1, 13))
+    assert [row["month"] for row in full_year["monthly"]] == list(range(1, 13))
     assert [row["month"] for row in filtered["monthly"]] == list(range(2, 8))
     assert filtered["monthly"][0]["queries"] == 2
     assert filtered["monthly"][-1]["queries"] == 7
-    assert filtered["queries"] == legacy["queries"] == 7
-    assert filtered["total_value"] == legacy["total_value"] == Decimal("70.0000")
+    assert filtered["queries"] == full_year["queries"] == 9
+    assert filtered["total_value"] == full_year["total_value"] == Decimal("90.0000")
     assert [row["id"] for row in filtered["entities"]] == [entity.id]
+    assert filtered["entities"][0]["queries"] == 9
 
 
-def test_targets_dashboard_period_is_optional_inclusive_and_keeps_selected_month(db_session):
+def test_targets_dashboard_period_aggregates_all_indicators_and_associations(db_session):
     dashboard, *_ = make_services(db_session)
     entity = _add_period_dashboard_data(db_session)[0]
 
-    legacy = dashboard.get_targets_dashboard(2026, 7, entity.id, "TODAS")
-    filtered = dashboard.get_targets_dashboard(2026, 7, entity.id, "TODAS", 2, 7)
+    full_year = dashboard.get_targets_dashboard(2026, entity.id, "TODAS")
+    filtered = dashboard.get_targets_dashboard(2026, entity.id, "TODAS", 2, 7)
 
-    assert [row["month"] for row in legacy["monthly"]] == list(range(1, 13))
+    assert [row["month"] for row in full_year["monthly"]] == list(range(1, 13))
     assert [row["month"] for row in filtered["monthly"]] == list(range(2, 8))
     assert filtered["monthly"][0]["queries_target"] == Decimal("200.0000")
     assert filtered["monthly"][-1]["queries_target"] == Decimal("700.0000")
-    assert filtered["total"] == legacy["total"]
-    assert filtered["queries"] == legacy["queries"]
+    assert filtered["queries"]["target"] == Decimal("900.0000")
+    assert filtered["registrations"]["target"] == Decimal("90.0000")
+    assert filtered["total"]["target"] == Decimal("990.0000")
+    assert filtered["total"]["actual"] == Decimal("792.0000")
+    assert filtered["total"]["achievement_percentage"] == Decimal("80")
+    assert filtered["total"] == full_year["total"]
+    assert filtered["associations"] == Decimal("35.0000")
+    assert filtered["association_variation_percentage"] == Decimal("250")
+    assert filtered["average_ticket"] == Decimal("22.62857142857142857142857143")
+
+
+def test_targets_dashboard_respects_indicator_and_entity_over_period(db_session):
+    dashboard, *_ = make_services(db_session)
+    entity = _add_period_dashboard_data(db_session)[0]
+
+    queries = dashboard.get_targets_dashboard(2026, entity.id, "CONSULTAS", 2, 7)
+    registrations = dashboard.get_targets_dashboard(2026, entity.id, "REGISTROS", 2, 7)
+    all_indicators = dashboard.get_targets_dashboard(2026, entity.id, "TODAS", 2, 7)
+    all_entities = dashboard.get_targets_dashboard(2026, None, "TODAS", 2, 7)
+
+    assert queries["total"] == {
+        "target": Decimal("900.0000"),
+        "actual": Decimal("720.0000"),
+        "achievement_percentage": Decimal("80"),
+    }
+    assert registrations["total"]["target"] == Decimal("90.0000")
+    assert registrations["total"]["actual"] == Decimal("72.0000")
+    assert all_indicators["total"]["actual"] == Decimal("792.0000")
+    assert all_entities["total"]["actual"] == Decimal("2376.0000")
+
+
+def test_targets_association_zero_boundaries_are_safe(db_session):
+    dashboard, *_ = make_services(db_session)
+    entity = _add_period_dashboard_data(db_session)[0]
+    entries = {
+        row.periodo_mes: row
+        for row in db_session.scalars(select(AssociationEntry).where(
+            AssociationEntry.entity_id == entity.id
+        ))
+    }
+
+    entries[2].valor_execucao = 0
+    db_session.commit()
+    initial_zero = dashboard.get_targets_dashboard(2026, entity.id, "TODAS", 2, 7)
+    assert initial_zero["associations"] == Decimal("35.0000")
+    assert initial_zero["association_variation_percentage"] is None
+    assert initial_zero["average_ticket"] is not None
+
+    entries[7].valor_execucao = 0
+    db_session.commit()
+    final_zero = dashboard.get_targets_dashboard(2026, entity.id, "TODAS", 2, 7)
+    assert final_zero["associations"] == 0
+    assert final_zero["average_ticket"] is None
+
+
+def test_remote_dashboard_uses_global_month_only_for_financial():
+    from app.services.remote_services import RemoteDashboardService
+
+    class API:
+        def __init__(self):
+            self.paths = []
+
+        def get(self, path):
+            self.paths.append(path)
+            return {}
+
+    api = API()
+    service = RemoteDashboardService(api)
+    filters = {
+        "boe_start_month": 2,
+        "boe_end_month": 7,
+        "boe_entity_id": 10,
+        "target_start_month": 3,
+        "target_end_month": 8,
+        "target_entity_id": 20,
+        "indicator": "CONSULTAS",
+    }
+
+    service.get_dashboard_data(2026, 1, **filters)
+    first_paths = tuple(api.paths)
+    api.paths.clear()
+    service.get_dashboard_data(2026, 12, **filters)
+    second_paths = tuple(api.paths)
+
+    assert "month=1" in first_paths[0]
+    assert "month=12" in second_paths[0]
+    assert first_paths[1:] == second_paths[1:]
+    assert all("&month=" not in path and "?month=" not in path
+               for path in first_paths[1:])
 
 
 @pytest.mark.parametrize("start_month,end_month", [(0, 12), (1, 13), (8, 7)])
@@ -216,7 +320,7 @@ def test_dashboard_period_rejects_invalid_limits(
 
     with pytest.raises(ValueError):
         getattr(dashboard, method)(
-            2026, 7, start_month=start_month, end_month=end_month
+            2026, start_month=start_month, end_month=end_month
         )
 
 
@@ -427,12 +531,12 @@ def test_dashboard_data_forwards_period_filters(db_session, monkeypatch):
     dashboard, *_ = make_services(db_session)
     captured = {}
     monkeypatch.setattr(dashboard, "get_financial_dashboard", lambda *a, **k: {})
-    def boe(year, month, entity_id=None, start_month=None, end_month=None):
-        captured["boe"]=(year,month,entity_id,start_month,end_month); return {}
-    def targets(year, month, entity_id=None, indicator="TODAS", start_month=None, end_month=None):
-        captured["targets"]=(year,month,entity_id,indicator,start_month,end_month); return {}
+    def boe(year, entity_id=None, start_month=None, end_month=None):
+        captured["boe"]=(year,entity_id,start_month,end_month); return {}
+    def targets(year, entity_id=None, indicator="TODAS", start_month=None, end_month=None):
+        captured["targets"]=(year,entity_id,indicator,start_month,end_month); return {}
     monkeypatch.setattr(dashboard, "get_boe_dashboard", boe)
     monkeypatch.setattr(dashboard, "get_targets_dashboard", targets)
     dashboard.get_dashboard_data(2026,7,boe_entity_id=10,boe_start_month=2,boe_end_month=7,target_entity_id=20,target_start_month=3,target_end_month=8,indicator="CONSULTAS")
-    assert captured["boe"] == (2026,7,10,2,7)
-    assert captured["targets"] == (2026,7,20,"CONSULTAS",3,8)
+    assert captured["boe"] == (2026,10,2,7)
+    assert captured["targets"] == (2026,20,"CONSULTAS",3,8)
