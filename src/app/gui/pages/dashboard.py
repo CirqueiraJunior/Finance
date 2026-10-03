@@ -10,9 +10,10 @@ from PySide6.QtCharts import (
     QChartView,
     QValueAxis,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEventLoop, Qt
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
+    QApplication,
     QAbstractSpinBox,
     QComboBox,
     QGridLayout,
@@ -136,8 +137,12 @@ class DashboardPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea()
+        self.dashboard_scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         content = QWidget()
         content.setObjectName("contentPage")
         layout = QVBoxLayout(content)
@@ -150,29 +155,19 @@ class DashboardPage(QWidget):
             "Visão consolidada dos módulos homologados, sem novos cálculos de domínio."
         )
         description.setObjectName("pageDescription")
-        filters = QHBoxLayout()
-        self.year_filter = WheelBlockedSpinBox()
-        self.year_filter.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        self.year_filter.setRange(2000, 9999)
-        self.year_filter.setValue(date.today().year)
+        self.year_filter = WheelBlockedComboBox()
+        self.year_filter.setFixedWidth(88)
         self.month_filter = MonthComboBox()
         self.month_filter.setObjectName("dashboardMonthFilter")
         self.month_filter.setMinimumWidth(120)
+        self.month_filter.setMaximumWidth(150)
         self.month_filter.set_month(date.today().month)
-        self.refresh_button = PrimaryButton("Atualizar")
-        filters.addWidget(QLabel("Ano"))
-        filters.addWidget(self.year_filter)
-        filters.addWidget(QLabel("Mês"))
-        filters.addWidget(self.month_filter)
-        filters.addWidget(self.refresh_button)
-        filters.addStretch()
-        global_filter_panel = QWidget()
-        global_filter_panel.setObjectName("dashboardFilterBar")
-        global_filter_panel.setLayout(filters)
+        self.refresh_button = PrimaryButton("Atualizar Dashboard")
+        self.boe_refresh_button = PrimaryButton("Atualizar Dashboard")
+        self.target_refresh_button = PrimaryButton("Atualizar Dashboard")
 
         layout.addWidget(title)
         layout.addWidget(description)
-        layout.addWidget(global_filter_panel)
 
         self.tabs = WheelBlockedTabWidget()
         self.tabs.setObjectName("dashboardTabs")
@@ -194,6 +189,11 @@ class DashboardPage(QWidget):
         layout.addWidget(self.tabs)
 
         finance_filters = QHBoxLayout()
+        finance_filters.addWidget(QLabel("Ano"))
+        finance_filters.addWidget(self.year_filter)
+        finance_filters.addWidget(QLabel("Mês"))
+        finance_filters.addWidget(self.month_filter)
+        finance_filters.addSpacing(18)
         self.finance_category_filter = WheelBlockedComboBox()
         self.finance_category_filter.addItem("Todas as categorias", None)
         for value in ("RECEITA_DIRETA", "RECEITA_INDIRETA", "ADMINISTRATIVO",
@@ -209,6 +209,7 @@ class DashboardPage(QWidget):
         finance_filters.addWidget(QLabel("Tipo"))
         finance_filters.addWidget(self.finance_type_filter)
         finance_filters.addStretch()
+        finance_filters.addWidget(self.refresh_button)
         finance_filter_panel = QWidget()
         finance_filter_panel.setObjectName("dashboardFilterBar")
         finance_filter_panel.setLayout(finance_filters)
@@ -246,20 +247,39 @@ class DashboardPage(QWidget):
             finance_grid.addWidget(card, index // 4, index % 4)
         tab_layouts["financial"].addLayout(finance_grid)
 
-        boe_filters = QHBoxLayout()
+        boe_filters = QVBoxLayout()
+        boe_period_row = QHBoxLayout()
+        boe_entity_row = QHBoxLayout()
+        self.boe_start_year = WheelBlockedComboBox()
+        self.boe_start_year.setFixedWidth(88)
         self.boe_start_month = MonthComboBox()
+        self.boe_start_month.setMinimumWidth(120)
+        self.boe_start_month.setMaximumWidth(150)
         self.boe_start_month.set_month(1)
+        self.boe_end_year = WheelBlockedComboBox()
+        self.boe_end_year.setFixedWidth(88)
         self.boe_end_month = MonthComboBox()
+        self.boe_end_month.setMinimumWidth(120)
+        self.boe_end_month.setMaximumWidth(150)
         self.boe_end_month.set_month(date.today().month)
         self.boe_entity_filter = WheelBlockedComboBox()
         self.boe_entity_filter.addItem("Todas as entidades", None)
-        boe_filters.addWidget(QLabel("Período"))
-        boe_filters.addWidget(self.boe_start_month)
-        boe_filters.addWidget(QLabel("até"))
-        boe_filters.addWidget(self.boe_end_month)
-        boe_filters.addWidget(QLabel("Entidade"))
-        boe_filters.addWidget(self.boe_entity_filter)
-        boe_filters.addStretch()
+        boe_period_row.addWidget(QLabel("Período inicial"))
+        boe_period_row.addWidget(self.boe_start_year)
+        boe_period_row.addWidget(self.boe_start_month)
+        boe_period_row.addSpacing(24)
+        boe_period_row.addWidget(QLabel("Período final"))
+        boe_period_row.addWidget(self.boe_end_year)
+        boe_period_row.addWidget(self.boe_end_month)
+        boe_period_row.addStretch()
+        self.boe_entity_filter.setMinimumWidth(280)
+        self.boe_entity_filter.setMaximumWidth(520)
+        boe_entity_row.addWidget(QLabel("Entidade"))
+        boe_entity_row.addWidget(self.boe_entity_filter)
+        boe_entity_row.addStretch()
+        boe_entity_row.addWidget(self.boe_refresh_button)
+        boe_filters.addLayout(boe_period_row)
+        boe_filters.addLayout(boe_entity_row)
         boe_filter_panel = QWidget()
         boe_filter_panel.setObjectName("dashboardFilterBar")
         boe_filter_panel.setLayout(boe_filters)
@@ -294,26 +314,61 @@ class DashboardPage(QWidget):
         self.budget_table.horizontalHeader().setStretchLastSection(True)
         tab_layouts["financial"].addWidget(self.budget_table)
 
-        target_filters = QHBoxLayout()
+        target_filters = QVBoxLayout()
+        target_period_row = QHBoxLayout()
+        target_secondary_row = QHBoxLayout()
+        self.target_start_year = WheelBlockedComboBox()
+        self.target_start_year.setFixedWidth(88)
         self.target_start_month = MonthComboBox()
+        self.target_start_month.setMinimumWidth(120)
+        self.target_start_month.setMaximumWidth(150)
         self.target_start_month.set_month(1)
+        self.target_end_year = WheelBlockedComboBox()
+        self.target_end_year.setFixedWidth(88)
         self.target_end_month = MonthComboBox()
+        self.target_end_month.setMinimumWidth(120)
+        self.target_end_month.setMaximumWidth(150)
         self.target_end_month.set_month(date.today().month)
+        self.target_region_filter = WheelBlockedComboBox()
+        self.target_region_filter.addItem("Todas", None)
+        for region in ("NORTE", "NOROESTE", "CENTRO", "LESTE", "SUL"):
+            self.target_region_filter.addItem(region.title(), region)
         self.target_entity_filter = WheelBlockedComboBox()
         self.target_entity_filter.addItem("Todas as entidades", None)
         self.target_indicator_filter = WheelBlockedComboBox()
         for label, value in (("Todas", "TODAS"), ("Consultas", "CONSULTAS"),
                              ("Registros", "REGISTROS")):
             self.target_indicator_filter.addItem(label, value)
-        target_filters.addWidget(QLabel("Período"))
-        target_filters.addWidget(self.target_start_month)
-        target_filters.addWidget(QLabel("até"))
-        target_filters.addWidget(self.target_end_month)
-        target_filters.addWidget(QLabel("Entidade"))
-        target_filters.addWidget(self.target_entity_filter)
-        target_filters.addWidget(QLabel("Indicador"))
-        target_filters.addWidget(self.target_indicator_filter)
-        target_filters.addStretch()
+
+        target_period_row.addWidget(QLabel("Período inicial"))
+        target_period_row.addWidget(self.target_start_year)
+        target_period_row.addWidget(self.target_start_month)
+        target_period_row.addSpacing(24)
+        target_period_row.addWidget(QLabel("Período final"))
+        target_period_row.addWidget(self.target_end_year)
+        target_period_row.addWidget(self.target_end_month)
+        target_period_row.addStretch()
+
+        self.target_region_filter.setMinimumWidth(120)
+        self.target_region_filter.setMaximumWidth(160)
+        self.target_entity_filter.setMinimumWidth(280)
+        self.target_entity_filter.setMaximumWidth(520)
+        self.target_indicator_filter.setMinimumWidth(130)
+        self.target_indicator_filter.setMaximumWidth(170)
+
+        target_secondary_row.addWidget(QLabel("Região"))
+        target_secondary_row.addWidget(self.target_region_filter)
+        target_secondary_row.addSpacing(12)
+        target_secondary_row.addWidget(QLabel("Entidade"))
+        target_secondary_row.addWidget(self.target_entity_filter)
+        target_secondary_row.addSpacing(12)
+        target_secondary_row.addWidget(QLabel("Indicador"))
+        target_secondary_row.addWidget(self.target_indicator_filter)
+        target_secondary_row.addStretch()
+        target_secondary_row.addWidget(self.target_refresh_button)
+
+        target_filters.addLayout(target_period_row)
+        target_filters.addLayout(target_secondary_row)
         target_filter_panel = QWidget()
         target_filter_panel.setObjectName("dashboardFilterBar")
         target_filter_panel.setLayout(target_filters)
@@ -387,10 +442,13 @@ class DashboardPage(QWidget):
             if index >= 0:
                 self.tabs.setTabVisible(index, key in areas)
 
-    def dashboard_filters(self) -> tuple[QComboBox, ...]:
+    def dashboard_filters(self) -> tuple[QWidget, ...]:
         return (self.finance_category_filter, self.finance_type_filter,
-                self.boe_start_month, self.boe_end_month, self.boe_entity_filter,
-                self.target_start_month, self.target_end_month, self.target_entity_filter,
+                self.boe_start_year, self.boe_start_month,
+                self.boe_end_year, self.boe_end_month, self.boe_entity_filter,
+                self.target_start_year, self.target_start_month,
+                self.target_end_year, self.target_end_month,
+                self.target_region_filter, self.target_entity_filter,
                 self.target_indicator_filter)
 
     def selected_dashboard_filters(self) -> dict:
@@ -398,13 +456,58 @@ class DashboardPage(QWidget):
             "category": self.finance_category_filter.currentData(),
             "entry_type": self.finance_type_filter.currentData(),
             "boe_entity_id": self.boe_entity_filter.currentData(),
+            "boe_start_year": self.boe_start_year.currentData(),
             "boe_start_month": self.boe_start_month.month(),
+            "boe_end_year": self.boe_end_year.currentData(),
             "boe_end_month": self.boe_end_month.month(),
             "target_entity_id": self.target_entity_filter.currentData(),
+            "target_start_year": self.target_start_year.currentData(),
             "target_start_month": self.target_start_month.month(),
+            "target_end_year": self.target_end_year.currentData(),
             "target_end_month": self.target_end_month.month(),
+            "region": self.target_region_filter.currentData(),
             "indicator": self.target_indicator_filter.currentData() or "TODAS",
         }
+
+    def set_available_years(
+        self,
+        financial_years: list[int],
+        boe_years: list[int],
+        target_years: list[int],
+    ) -> None:
+        self._set_year_options(
+            (self.year_filter, self.year_filter), financial_years
+        )
+        self._set_year_options(
+            (self.boe_start_year, self.boe_end_year), boe_years
+        )
+        self._set_year_options(
+            (self.target_start_year, self.target_end_year), target_years
+        )
+
+    @staticmethod
+    def _set_year_options(
+        widgets: tuple[QComboBox, QComboBox], years: list[int],
+    ) -> None:
+        options = sorted(set(int(year) for year in years))
+        selected = date.today().year if date.today().year in options else (
+            options[-1] if options else None
+        )
+        for widget in dict.fromkeys(widgets):
+            widget.blockSignals(True)
+            widget.clear()
+            for year in options:
+                widget.addItem(str(year), year)
+            if selected is not None:
+                widget.setCurrentIndex(widget.findData(selected))
+            widget.setEnabled(bool(options))
+            widget.blockSignals(False)
+
+    @staticmethod
+    def _yield_gui() -> None:
+        QApplication.processEvents(
+            QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+        )
 
     def show_dashboard_data(self, data: dict) -> None:
         if "financial" in data:
@@ -432,9 +535,11 @@ class DashboardPage(QWidget):
             "Receita x Despesa por mês", categories,
             [("Receita", [row["revenue"] for row in monthly]),
              ("Despesa", [row["expense"] for row in monthly])]))
+        self._yield_gui()
         self.balance_chart.setChart(self._bar_chart(
             "Evolução do Saldo Bancário", categories,
             [("Saldo", [row["bank_balance"] or 0 for row in monthly])]))
+        self._yield_gui()
         self.budget_chart.setChart(self._bar_chart(
             "Orçado x Realizado mensal", categories,
             [("Orçado", [abs(self.decimal(row["budgeted_revenue"]) -
@@ -443,16 +548,20 @@ class DashboardPage(QWidget):
              ("Realizado", [abs(self.decimal(row["actual_revenue"]) -
                                  self.decimal(row["actual_expense"]))
                              for row in monthly])]))
+        self._yield_gui()
         revenue = data.get("revenue_distribution", {})
         expense = data.get("expense_distribution", {})
         self.revenue_distribution_chart.setChart(self._distribution_chart(
             "Distribuição das Receitas", revenue, "Receita"))
+        self._yield_gui()
         self.expense_distribution_chart.setChart(self._distribution_chart(
             "Distribuição das Despesas", expense, "Despesa"))
+        self._yield_gui()
         self.investment_chart.setChart(self._bar_chart(
             "Aplicação x Resgate", categories,
             [("Aplicação", [row["applications"] for row in monthly]),
              ("Resgate", [row["redemptions"] for row in monthly])]))
+        self._yield_gui()
 
     def _show_boe_data(self, data: dict) -> None:
         self._sync_entities(self.boe_entity_filter, data.get("filters", {}).get("entities", []))
@@ -469,20 +578,24 @@ class DashboardPage(QWidget):
             for column, value in enumerate(values):
                 self.boe_table.setItem(row_index, column, QTableWidgetItem(value))
         monthly = data.get("monthly", [])
-        months = [self.month_label(row["month"]) for row in monthly]
+        months = [self.period_label(row["year"], row["month"]) for row in monthly]
         self.boe_value_period_chart.setChart(self._bar_chart(
             "Valor Total por período", months,
             [("Valor", [row["total_value"] for row in monthly])]))
+        self._yield_gui()
         self.boe_queries_period_chart.setChart(self._bar_chart(
             "Consultas por período", months,
             [("Consultas", [row["queries"] for row in monthly])]))
+        self._yield_gui()
         entity_labels = [str(row["code"]) for row in rows] or ["Sem dados"]
         self.boe_value_entity_chart.setChart(self._bar_chart(
             "Valor Total por entidade", entity_labels,
             [("Valor", [row["total_value"] for row in rows] or [0])]))
+        self._yield_gui()
         self.boe_queries_entity_chart.setChart(self._bar_chart(
             "Consultas por entidade", entity_labels,
             [("Consultas", [row["queries"] for row in rows] or [0])]))
+        self._yield_gui()
 
     def _show_target_data(self, data: dict) -> None:
         self._sync_entities(self.target_entity_filter,
@@ -519,7 +632,7 @@ class DashboardPage(QWidget):
         self.target_state.setVisible(not (queries["target"] or queries["actual"] or
                                           registrations["target"] or registrations["actual"]))
         monthly = data.get("monthly", [])
-        months = [self.month_label(row["month"]) for row in monthly]
+        months = [self.period_label(row["year"], row["month"]) for row in monthly]
         indicator = data.get("indicator", "TODAS")
         if indicator == "CONSULTAS":
             target_values = [row["queries_target"] for row in monthly]
@@ -535,16 +648,20 @@ class DashboardPage(QWidget):
         self.target_chart.setChart(self._bar_chart(
             "Meta x Realizado por período", months,
             [("Meta", target_values), ("Realizado", actual_values)]))
+        self._yield_gui()
         percentages = [0 if target == 0 else actual / target * 100
                        for target, actual in zip(target_values, actual_values)]
         self.target_achievement_chart.setChart(self._bar_chart(
             "% Atingimento", months, [("Atingimento %", percentages)]))
+        self._yield_gui()
         self.target_evolution_chart.setChart(self._bar_chart(
             "Evolução mensal", months, [("Realizado", actual_values)]))
+        self._yield_gui()
         ranking_labels = [str(getter("entity_code", ""))] if top is not None else ["Sem dados"]
         ranking_values = [getter("score", 0)] if top is not None else [0]
         self.target_ranking_chart.setChart(self._bar_chart(
             "Ranking / Classificação", ranking_labels, [("Score", ranking_values)]))
+        self._yield_gui()
 
     @staticmethod
     def _sync_entities(combo: QComboBox, entities: list[dict]) -> None:
@@ -642,10 +759,14 @@ class DashboardPage(QWidget):
         return view
 
     def selected_period(self) -> tuple[int, int]:
-        return self.year_filter.value(), self.month_filter.currentData()
+        return self.year_filter.currentData(), self.month_filter.currentData()
 
     def set_period(self, year: int, month: int) -> None:
-        self.year_filter.setValue(year)
+        index = self.year_filter.findData(year)
+        if index < 0:
+            self.year_filter.addItem(str(year), year)
+            index = self.year_filter.findData(year)
+        self.year_filter.setCurrentIndex(index)
         self.month_filter.set_month(month)
 
     def show_summary(self, summary: DashboardSummary) -> None:
@@ -797,6 +918,10 @@ class DashboardPage(QWidget):
         except (TypeError, ValueError):
             return str(value)
         return labels[month - 1] if 1 <= month <= 12 else str(value)
+
+    @classmethod
+    def period_label(cls, year: int, month: int) -> str:
+        return f"{cls.month_label(month)}/{year % 100:02d}"
 
     def set_status(self, message: str, *, error: bool = False) -> None:
         self.status.setText(message)

@@ -15,25 +15,104 @@ class DashboardController(QObject):
         self._refresh_thread: QThread | None = None
         self._refresh_worker: OperationWorker | None = None
         self._refresh_dialog: ProcessingDialog | None = None
-        self._refresh_pending = False
         self._requested_period: tuple[int, int] | None = None
+        self._years_thread: QThread | None = None
+        self._years_worker: OperationWorker | None = None
+        self._years_loaded = False
+        self._refresh_after_years = False
+        self._years_retry_on_finish = False
 
         self.view.refresh_button.clicked.connect(self.refresh)
-        self.view.year_filter.valueChanged.connect(self.refresh)
-        self.view.month_filter.currentIndexChanged.connect(self.refresh)
+        self.view.boe_refresh_button.clicked.connect(self.refresh)
+        self.view.target_refresh_button.clicked.connect(self.refresh)
+        self._start_available_years_load()
 
-        for widget in self.view.dashboard_filters():
-            widget.currentIndexChanged.connect(self.refresh)
+    def _start_available_years_load(self) -> None:
+        if self._years_thread is not None and self._years_thread.isRunning():
+            return
+
+        loader = getattr(self.service, "get_available_years", None)
+        if loader is None:
+            self._years_loaded = True
+            if self._refresh_after_years:
+                self._refresh_after_years = False
+                self.refresh()
+            return
+
+        self._years_thread = QThread(self)
+        self._years_worker = OperationWorker(loader)
+        self._years_worker.moveToThread(self._years_thread)
+
+        self._years_thread.started.connect(self._years_worker.run)
+        self._years_worker.succeeded.connect(self._years_succeeded)
+        self._years_worker.failed.connect(self._years_failed)
+        self._years_worker.finished.connect(self._years_thread.quit)
+        self._years_worker.finished.connect(self._years_worker.deleteLater)
+        self._years_thread.finished.connect(self._years_finished)
+
+        self._years_thread.start()
+
+    @Slot(object)
+    def _years_succeeded(self, years: object) -> None:
+        if not isinstance(years, dict):
+            self.view.set_status(
+                "Falha ao carregar anos disponíveis: resposta inválida.",
+                error=True,
+            )
+            return
+
+        self.view.set_available_years(
+            years.get("financial_years", []),
+            years.get("boe_years", []),
+            years.get("target_years", []),
+        )
+        self._years_loaded = True
+
+    @Slot(object)
+    def _years_failed(self, error: Exception) -> None:
+        self.view.set_status(
+            f"Falha ao carregar anos disponíveis: {error}",
+            error=True,
+        )
+
+    @Slot()
+    def _years_finished(self) -> None:
+        if self._years_thread is not None:
+            self._years_thread.deleteLater()
+        self._years_thread = None
+        self._years_worker = None
+
+        if self._refresh_after_years and self._years_loaded:
+            self._refresh_after_years = False
+            self._years_retry_on_finish = False
+            self.refresh()
+            return
+
+        if (
+            self._refresh_after_years
+            and not self._years_loaded
+            and self._years_retry_on_finish
+        ):
+            self._years_retry_on_finish = False
+            self._start_available_years_load()
 
     def refresh(self) -> None:
         if (
             self._refresh_thread is not None
             and self._refresh_thread.isRunning()
         ):
-            self._refresh_pending = True
             self.view.set_status(
-                "Processando Dashboard... Uma nova atualização será aplicada em seguida."
+                "Processando Dashboard... Aguarde a conclusão da atualização atual."
             )
+            return
+
+        if not self._years_loaded:
+            self._refresh_after_years = True
+            self.view.set_status("Carregando períodos disponíveis...")
+            if self._years_thread is not None and self._years_thread.isRunning():
+                self._years_retry_on_finish = True
+            else:
+                self._start_available_years_load()
             return
 
         year, month = self.view.selected_period()
@@ -41,6 +120,8 @@ class DashboardController(QObject):
 
         self._requested_period = (year, month)
         self.view.refresh_button.setEnabled(False)
+        self.view.boe_refresh_button.setEnabled(False)
+        self.view.target_refresh_button.setEnabled(False)
         self.view.set_status(
             f"Processando Dashboard para {month:02d}/{year}..."
         )
@@ -140,7 +221,5 @@ class DashboardController(QObject):
         self._refresh_thread = None
         self._refresh_worker = None
         self.view.refresh_button.setEnabled(True)
-
-        if self._refresh_pending:
-            self._refresh_pending = False
-            self.refresh()
+        self.view.boe_refresh_button.setEnabled(True)
+        self.view.target_refresh_button.setEnabled(True)

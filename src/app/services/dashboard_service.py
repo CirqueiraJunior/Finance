@@ -100,11 +100,16 @@ class DashboardService:
             "boe": self.get_boe_dashboard(
                 year, filters.get("boe_entity_id"),
                 filters.get("boe_start_month"), filters.get("boe_end_month"),
+                start_year=filters.get("boe_start_year"),
+                end_year=filters.get("boe_end_year"),
             ),
             "targets": self.get_targets_dashboard(
                 year, filters.get("target_entity_id"),
                 filters.get("indicator", "TODAS"),
                 filters.get("target_start_month"), filters.get("target_end_month"),
+                start_year=filters.get("target_start_year"),
+                end_year=filters.get("target_end_year"),
+                region=filters.get("region"),
             ),
         }
 
@@ -267,10 +272,19 @@ class DashboardService:
     def get_boe_dashboard(
         self, year: int, entity_id: int | None = None,
         start_month: int | None = None, end_month: int | None = None,
+        *, start_year: int | None = None, end_year: int | None = None,
     ) -> dict:
-        aggregates = self.analytics.boe_year(year, entity_id)
-        months = self._dashboard_months(start_month, end_month)
-        rows = [row for row in aggregates["rows"] if row.periodo_mes in months]
+        start_year = year if start_year is None else start_year
+        end_year = year if end_year is None else end_year
+        start_month = 1 if start_month is None else start_month
+        end_month = 12 if end_month is None else end_month
+        periods = self._dashboard_periods(
+            start_year, start_month, end_year, end_month
+        )
+        aggregates = self.analytics.boe_period(
+            start_year, start_month, end_year, end_month, entity_id
+        )
+        rows = aggregates["rows"]
         queries = sum((row.queries for row in rows), 0)
         total = sum((row.value for row in rows), ZERO)
         entity_totals: dict[tuple[int, int, str], dict[str, object]] = {}
@@ -283,14 +297,17 @@ class DashboardService:
             item["queries"] += row.queries
             item["total_value"] += row.value
         monthly = []
-        for selected_month in months:
+        for selected_year, selected_month in periods:
             selected_rows = [row for row in aggregates["rows"]
-                             if row.periodo_mes == selected_month]
-            monthly.append({"month": selected_month,
+                             if (row.periodo_ano, row.periodo_mes)
+                             == (selected_year, selected_month)]
+            monthly.append({"year": selected_year, "month": selected_month,
                             "queries": sum((row.queries for row in selected_rows), 0),
                             "total_value": sum((row.value for row in selected_rows), ZERO)})
         return {
-            "year": year, "start_month": months.start, "end_month": months.stop - 1,
+            "year": end_year,
+            "start_year": start_year, "start_month": start_month,
+            "end_year": end_year, "end_month": end_month,
             "unit_value": None if queries == 0 else total / queries,
             "queries": queries, "total_value": total,
             "entity_count": len(entity_totals),
@@ -306,35 +323,54 @@ class DashboardService:
             } for key, value in sorted(entity_totals.items(), key=lambda item: item[0][1])],
         }
 
+    def get_available_years(self) -> dict[str, list[int]]:
+        return self.analytics.available_years()
+
     def get_targets_dashboard(
         self, year: int, entity_id: int | None = None,
         indicator: str = "TODAS",
         start_month: int | None = None, end_month: int | None = None,
+        *, start_year: int | None = None, end_year: int | None = None,
+        region: str | None = None,
     ) -> dict:
         selected = indicator.upper()
         if selected not in {"CONSULTAS", "REGISTROS", "TODAS"}:
             raise ValueError("Indicador inválido.")
-        aggregates = self.analytics.targets_year(year, entity_id)
-        by_key = {(row.periodo_mes, row.indicador): row for row in aggregates["rows"]}
-        months = self._dashboard_months(start_month, end_month)
+        region = region.upper() if region else None
+        if region not in {None, "NORTE", "NOROESTE", "CENTRO", "LESTE", "SUL"}:
+            raise ValueError("Região inválida.")
+        start_year = year if start_year is None else start_year
+        end_year = year if end_year is None else end_year
+        start_month = 1 if start_month is None else start_month
+        end_month = 12 if end_month is None else end_month
+        periods = self._dashboard_periods(
+            start_year, start_month, end_year, end_month
+        )
+        aggregates = self.analytics.targets_period(
+            start_year, start_month, end_year, end_month, entity_id, region
+        )
+        by_key = {
+            (row.periodo_ano, row.periodo_mes, row.indicador): row
+            for row in aggregates["rows"]
+        }
         q_target = sum(
-            (by_key[(month, "CONSULTAS")].target
-             for month in months if (month, "CONSULTAS") in by_key),
+            (by_key[(*period, "CONSULTAS")].target
+             for period in periods if (*period, "CONSULTAS") in by_key),
             ZERO,
         )
         q_actual = sum(
-            (by_key[(month, "CONSULTAS")].actual
-             for month in months if (month, "CONSULTAS") in by_key),
+            (by_key[(*period, "CONSULTAS")].actual
+             for period in periods if (*period, "CONSULTAS") in by_key),
             ZERO,
         )
         r_target = sum(
-            (by_key[(month, "REGISTROS")].target
-             for month in months if (month, "REGISTROS") in by_key),
+            (by_key[(*period, "REGISTROS")].target
+             for period in periods if (*period, "REGISTROS") in by_key),
             ZERO,
         )
         r_actual = sum(
-            (by_key[(month, "REGISTROS")].actual
-             for month in months if (month, "REGISTROS") in by_key),
+            (by_key[(*period, "REGISTROS")].actual
+             for period in periods if (*period, "REGISTROS") in by_key),
             ZERO,
         )
         if selected == "CONSULTAS":
@@ -344,22 +380,27 @@ class DashboardService:
         else:
             meta_total, actual_total = q_target + r_target, q_actual + r_actual
         achievement = None if meta_total == 0 else actual_total / meta_total * Decimal("100")
-        associations = aggregates["associations"].get(months.stop - 1, ZERO)
-        initial_associations = aggregates["associations"].get(months.start, ZERO)
+        associations = aggregates["associations"].get(periods[-1], ZERO)
+        initial_associations = aggregates["associations"].get(periods[0], ZERO)
         variation = (
             None
             if initial_associations == 0
             else associations / initial_associations * Decimal("100") - Decimal("100")
         )
         ticket = None if associations == 0 else actual_total / associations
-        ranking_month = months.stop - 1
+        ranking_month = end_month
         ranking = ([] if self.ranking is None else
-                   self.ranking.quarterly(year, (ranking_month - 1) // 3 + 1))
+                   self.ranking.quarterly(end_year, (ranking_month - 1) // 3 + 1))
+        if region is not None:
+            allowed_ids = {row.id for row in aggregates["entities"]}
+            ranking = [row for row in ranking if row.entity_id in allowed_ids]
         if entity_id is not None:
             ranking = [row for row in ranking if row.entity_id == entity_id]
         return {
-            "year": year, "start_month": months.start,
-            "end_month": months.stop - 1, "indicator": selected,
+            "year": end_year,
+            "start_year": start_year, "start_month": start_month,
+            "end_year": end_year, "end_month": end_month,
+            "indicator": selected, "region": region,
             "filters": {"entities": [{"id": row.id, "code": row.codigo_entidade,
                                         "name": row.nome} for row in aggregates["entities"]]},
             "queries": self._target_values(q_target, q_actual),
@@ -371,16 +412,16 @@ class DashboardService:
             "average_ticket": ticket,
             "ranking": ranking,
             "monthly": [{
-                "month": selected_month,
-                "queries_target": (by_key.get((selected_month, "CONSULTAS")).target
-                                   if by_key.get((selected_month, "CONSULTAS")) else ZERO),
-                "queries_actual": (by_key.get((selected_month, "CONSULTAS")).actual
-                                   if by_key.get((selected_month, "CONSULTAS")) else ZERO),
-                "registrations_target": (by_key.get((selected_month, "REGISTROS")).target
-                                         if by_key.get((selected_month, "REGISTROS")) else ZERO),
-                "registrations_actual": (by_key.get((selected_month, "REGISTROS")).actual
-                                         if by_key.get((selected_month, "REGISTROS")) else ZERO),
-            } for selected_month in months],
+                "year": selected_year, "month": selected_month,
+                "queries_target": (by_key.get((selected_year, selected_month, "CONSULTAS")).target
+                                   if by_key.get((selected_year, selected_month, "CONSULTAS")) else ZERO),
+                "queries_actual": (by_key.get((selected_year, selected_month, "CONSULTAS")).actual
+                                   if by_key.get((selected_year, selected_month, "CONSULTAS")) else ZERO),
+                "registrations_target": (by_key.get((selected_year, selected_month, "REGISTROS")).target
+                                         if by_key.get((selected_year, selected_month, "REGISTROS")) else ZERO),
+                "registrations_actual": (by_key.get((selected_year, selected_month, "REGISTROS")).actual
+                                         if by_key.get((selected_year, selected_month, "REGISTROS")) else ZERO),
+            } for selected_year, selected_month in periods],
         }
 
     @staticmethod
@@ -394,6 +435,24 @@ class DashboardService:
         if start > end:
             raise ValueError("O período inicial não pode ser posterior ao período final.")
         return range(start, end + 1)
+
+    @staticmethod
+    def _dashboard_periods(
+        start_year: int, start_month: int, end_year: int, end_month: int,
+    ) -> tuple[tuple[int, int], ...]:
+        if not 1 <= start_month <= 12 or not 1 <= end_month <= 12:
+            raise ValueError("Os meses do período devem estar entre 1 e 12.")
+        if start_year * 100 + start_month > end_year * 100 + end_month:
+            raise ValueError("O período inicial deve ser anterior ou igual ao período final.")
+        periods = []
+        year, month = start_year, start_month
+        while (year, month) <= (end_year, end_month):
+            periods.append((year, month))
+            if month == 12:
+                year, month = year + 1, 1
+            else:
+                month += 1
+        return tuple(periods)
 
     @staticmethod
     def _target_values(target: Decimal, actual: Decimal) -> dict:

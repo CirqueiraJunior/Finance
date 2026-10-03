@@ -1680,27 +1680,48 @@ def create_app(
             .get_financial_dashboard(year, month, category, entry_type)
         )
 
+    @app.get("/api/v1/dashboard/years")
+    def dashboard_years(
+        user: User = Depends(require("dashboard:read")),
+        db: Session = Depends(get_db),
+    ):
+        _, _, boe, budget, targets, ranking_service, flow = domain_services(db)
+        return DashboardService(
+            flow, boe, budget, targets, ranking_service
+        ).get_available_years()
+
     @app.get("/api/v1/dashboard/boe")
     def dashboard_boe(
-        year: int, month: int | None = None, entity_id: int | None = None,
+        year: int | None = None, month: int | None = None,
+        start_year: int | None = None, end_year: int | None = None,
+        entity_id: int | None = None,
         start_month: int | None = None, end_month: int | None = None,
         user: User = Depends(require("boe:read")),
         db: Session = Depends(get_db),
     ):
         _, _, boe, budget, targets, ranking_service, flow = domain_services(db)
+        effective_start_year = start_year if start_year is not None else year
+        effective_end_year = end_year if end_year is not None else year
         effective_start = start_month if start_month is not None else month
         effective_end = end_month if end_month is not None else month
+        if effective_start_year is None or effective_end_year is None:
+            raise HTTPException(status_code=422, detail="Período inicial e final são obrigatórios.")
         try:
             return jsonable_encoder(
                 DashboardService(flow, boe, budget, targets, ranking_service)
-                .get_boe_dashboard(year, entity_id, effective_start, effective_end)
+                .get_boe_dashboard(
+                    effective_end_year, entity_id, effective_start, effective_end,
+                    start_year=effective_start_year, end_year=effective_end_year,
+                )
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
 
     @app.get("/api/v1/dashboard/targets")
     def dashboard_targets(
-        year: int, month: int | None = None, entity_id: int | None = None,
+        year: int | None = None, month: int | None = None,
+        start_year: int | None = None, end_year: int | None = None,
+        entity_id: int | None = None, region: str | None = None,
         indicator: str = "TODAS", start_month: int | None = None,
         end_month: int | None = None,
         user: User = Depends(require("targets:read")),
@@ -1709,13 +1730,20 @@ def create_app(
         if not has_permission(user, "ranking:read"):
             raise HTTPException(status_code=403, detail="Permissão insuficiente.")
         _, _, boe, budget, targets, ranking_service, flow = domain_services(db)
+        effective_start_year = start_year if start_year is not None else year
+        effective_end_year = end_year if end_year is not None else year
         effective_start = start_month if start_month is not None else month
         effective_end = end_month if end_month is not None else month
+        if effective_start_year is None or effective_end_year is None:
+            raise HTTPException(status_code=422, detail="Período inicial e final são obrigatórios.")
         try:
             return jsonable_encoder(
                 DashboardService(flow, boe, budget, targets, ranking_service)
                 .get_targets_dashboard(
-                    year, entity_id, indicator, effective_start, effective_end
+                    effective_end_year, entity_id, indicator,
+                    effective_start, effective_end,
+                    start_year=effective_start_year, end_year=effective_end_year,
+                    region=region,
                 )
             )
         except ValueError as error:

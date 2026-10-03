@@ -155,16 +155,16 @@ def test_budget_post_maps_api_description_to_domain_descricao(tmp_path):
 def test_dashboard_endpoints_forward_optional_period_filters(tmp_path, monkeypatch):
     captured = {}
 
-    def boe(self, year, entity_id=None, start_month=None, end_month=None):
-        captured["boe"] = (year, entity_id, start_month, end_month)
+    def boe(self, year, entity_id=None, start_month=None, end_month=None, **kwargs):
+        captured["boe"] = (year, entity_id, start_month, end_month, kwargs)
         return {"monthly": []}
 
     def targets(
         self, year, entity_id=None, indicator="TODAS",
-        start_month=None, end_month=None,
+        start_month=None, end_month=None, **kwargs,
     ):
         captured["targets"] = (
-            year, entity_id, indicator, start_month, end_month,
+            year, entity_id, indicator, start_month, end_month, kwargs,
         )
         return {"monthly": []}
 
@@ -175,18 +175,42 @@ def test_dashboard_endpoints_forward_optional_period_filters(tmp_path, monkeypat
         headers = _headers(client)
         assert client.get(
             "/api/v1/dashboard/boe"
-            "?year=2026&entity_id=1&start_month=2&end_month=7",
+            "?start_year=2025&start_month=2&end_year=2026&end_month=7"
+            "&entity_id=1",
             headers=headers,
         ).status_code == 200
         assert client.get(
             "/api/v1/dashboard/targets"
-            "?year=2026&entity_id=1&indicator=CONSULTAS"
-            "&start_month=3&end_month=6",
+            "?start_year=2025&start_month=3&end_year=2026&end_month=6"
+            "&entity_id=1&indicator=CONSULTAS&region=NORTE",
             headers=headers,
         ).status_code == 200
 
-    assert captured["boe"] == (2026, 1, 2, 7)
-    assert captured["targets"] == (2026, 1, "CONSULTAS", 3, 6)
+    assert captured["boe"] == (
+        2026, 1, 2, 7, {"start_year": 2025, "end_year": 2026}
+    )
+    assert captured["targets"] == (
+        2026, 1, "CONSULTAS", 3, 6,
+        {"start_year": 2025, "end_year": 2026, "region": "NORTE"},
+    )
+    app.state.engine.dispose()
+
+
+def test_dashboard_years_endpoint_uses_clean_contract(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        DashboardService, "get_available_years",
+        lambda self: {"boe_years": [2025, 2026], "target_years": [2024, 2026]},
+    )
+    app = _context(tmp_path)
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/dashboard/years", headers=_headers(client)
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "boe_years": [2025, 2026], "target_years": [2024, 2026]
+    }
     app.state.engine.dispose()
 
 
@@ -322,7 +346,8 @@ def test_server_administration_information_is_remote_and_local_actions_stay_bloc
         "Finance", "production", False,
         f"sqlite:///{(tmp_path / 'proibido.db').as_posix()}", "INFO", tmp_path,
     )
-    window = module.MainWindow(settings, api_client=api)
+    api_health = api.health()
+    window = module.MainWindow(settings, api_client=api, api_health=api_health)
     qtbot.addWidget(window)
     page = window.pages["administracao"]
 
@@ -362,7 +387,8 @@ def test_dev_api_enables_historical_import_for_dev_sqlite(qtbot, monkeypatch, tm
         "Finance", "development", False,
         f"sqlite:///{(tmp_path / 'finance_dev.db').as_posix()}", "INFO", tmp_path,
     )
-    window = module.MainWindow(settings, api_client=api)
+    api_health = api.health()
+    window = module.MainWindow(settings, api_client=api, api_health=api_health)
     qtbot.addWidget(window)
     page = window.pages["administracao"]
 

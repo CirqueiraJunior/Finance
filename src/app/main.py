@@ -72,12 +72,13 @@ def main() -> int:
             return 1
 
     api_client = None
+    api_health = None
     authenticated_user = None
 
     if settings.api_url:
         api_client = APIClient(settings.api_url, settings.api_timeout_seconds)
         try:
-            api_client.health()
+            api_health = api_client.health()
         except APIConnectionError as error:
             QMessageBox.critical(None, "Finance indisponível", str(error))
             api_client.close()
@@ -122,6 +123,7 @@ def main() -> int:
                 settings,
                 api_client=api_client,
                 authenticated_user=authenticated_user,
+                api_health=api_health,
             )
             state["window"].showMaximized()
 
