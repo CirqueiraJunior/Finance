@@ -348,7 +348,16 @@ class RemoteDashboardService:
     def get_dashboard_data(self, year, month, **filters):
         result = {}
         if "financial" in self.areas:
-            path = f"/api/v1/dashboard/financial?year={year}&month={month}"
+            start_year = filters.get("financial_start_year", year)
+            start_month = filters.get("financial_start_month", month)
+            end_year = filters.get("financial_end_year", year)
+            end_month = filters.get("financial_end_month", month)
+            path = (
+                "/api/v1/dashboard/financial"
+                f"?year={end_year}&month={end_month}"
+                f"&start_year={start_year}&start_month={start_month}"
+                f"&end_year={end_year}&end_month={end_month}"
+            )
             if filters.get("category"):
                 path += f"&category={filters['category']}"
             if filters.get("entry_type"):

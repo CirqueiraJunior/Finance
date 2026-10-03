@@ -53,6 +53,8 @@ def test_dashboard_page_has_area_filters_complete_cards_and_charts(qtbot):
         "Financeiro", "BOE", "Meta x Realizado"
     ]
     filters = page.selected_dashboard_filters()
+    assert filters["financial_start_year"] == filters["financial_end_year"]
+    assert filters["financial_start_month"] == filters["financial_end_month"]
     assert filters["boe_start_year"] == filters["boe_end_year"]
     assert filters["target_start_year"] == filters["target_end_year"]
     assert page.target_region_filter.itemData(0) is None
@@ -74,16 +76,20 @@ def test_dashboard_available_year_combos_are_sorted_and_use_latest_fallback(qtbo
     )
 
     year_filters = (
-        page.year_filter,
+        page.financial_start_year, page.financial_end_year,
         page.boe_start_year, page.boe_end_year,
         page.target_start_year, page.target_end_year,
     )
     assert all(isinstance(widget, WheelBlockedComboBox) for widget in year_filters)
     assert all(not isinstance(widget, WheelBlockedSpinBox) for widget in year_filters)
-    assert [page.year_filter.itemData(index) for index in range(3)] == [
+    assert [page.financial_start_year.itemData(index) for index in range(3)] == [
         2022, 2023, 2024
     ]
-    assert page.year_filter.currentData() == 2024
+    assert [page.financial_end_year.itemData(index) for index in range(3)] == [
+        2022, 2023, 2024
+    ]
+    assert page.financial_start_year.currentData() == 2024
+    assert page.financial_end_year.currentData() == 2024
     assert [page.boe_start_year.itemData(index) for index in range(2)] == [2021, 2023]
     assert page.boe_start_year.currentData() == 2023
     assert page.boe_end_year.currentData() == 2023
@@ -95,10 +101,14 @@ def test_dashboard_available_year_combos_are_sorted_and_use_latest_fallback(qtbo
         [2025, 2026],
         [2024, 2026],
     )
-    assert [page.year_filter.itemData(index) for index in range(2)] == [
+    assert [page.financial_start_year.itemData(index) for index in range(2)] == [
         2025, 2026
     ]
-    assert page.year_filter.currentData() == 2026
+    assert [page.financial_end_year.itemData(index) for index in range(2)] == [
+        2025, 2026
+    ]
+    assert page.financial_start_year.currentData() == 2026
+    assert page.financial_end_year.currentData() == 2026
     assert [page.boe_start_year.itemData(index) for index in range(2)] == [
         2025, 2026
     ]

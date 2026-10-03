@@ -171,95 +171,184 @@ class DashboardService:
             summary.achievement_percentage,
         )
 
-    def get_financial_dashboard(self, year: int, month: int,
-                                category: str | None = None,
-                                entry_type: str | None = None) -> dict:
+    def get_financial_dashboard(
+        self, year: int, month: int,
+        category: str | None = None,
+        entry_type: str | None = None,
+        *, start_year: int | None = None, start_month: int | None = None,
+        end_year: int | None = None, end_month: int | None = None,
+    ) -> dict:
         category = category or None
         entry_type = entry_type or None
-        aggregates = self.analytics.financial_year(year, category, entry_type)
-        official = (aggregates if not category and not entry_type
-                    else self.analytics.financial_year(year))
+        explicit_period = any(
+            value is not None
+            for value in (start_year, start_month, end_year, end_month)
+        )
+        if explicit_period:
+            start_year = year if start_year is None else start_year
+            end_year = year if end_year is None else end_year
+            start_month = month if start_month is None else start_month
+            end_month = month if end_month is None else end_month
+        else:
+            # Compatibilidade do contrato anterior:
+            # carrega os 12 meses para os gráficos, mas os KPIs continuam
+            # representando somente o mês selecionado.
+            start_year = end_year = year
+            start_month, end_month = 1, 12
+
+        periods = self._dashboard_periods(
+            start_year, start_month, end_year, end_month
+        )
+        metric_periods = periods if explicit_period else ((year, month),)
+
+        aggregates = self.analytics.financial_period(
+            start_year, start_month, end_year, end_month, category, entry_type
+        )
+        official = aggregates if not category and not entry_type else self.analytics.financial_period(
+            start_year, start_month, end_year, end_month
+        )
+
         balance_service = FinancialBalanceService(
             FinancialBalanceRepository(self.financial_flow.cashflow.repository.session),
             self.financial_flow,
         )
-        january = balance_service.position(year, 1)
-        running_opening = january.opening_balance if january else None
+        first_position = balance_service.position(start_year, start_month)
+        running_opening = first_position.opening_balance if first_position else None
+
         monthly = []
-        for selected_month in range(1, 13):
-            cash = aggregates["cash"].get(selected_month)
-            investment = aggregates["investments"].get(selected_month)
-            direct = aggregates["direct"].get(selected_month, ZERO)
+        for selected_year, selected_month in periods:
+            key = (selected_year, selected_month)
+            cash = aggregates["cash"].get(key)
+            investment = aggregates["investments"].get(key)
+            direct = aggregates["direct"].get(key, ZERO)
             indirect = cash.indirect if cash else ZERO
             expense = cash.expense if cash else ZERO
             applications = investment.applications if investment else ZERO
             redemptions = investment.redemptions if investment else ZERO
-            budget = aggregates["budget"][selected_month]
+            budget = aggregates["budget"][key]
 
-            official_cash = official["cash"].get(selected_month)
-            official_investment = official["investments"].get(selected_month)
-            official_direct = official["direct"].get(selected_month)
+            official_cash = official["cash"].get(key)
+            official_investment = official["investments"].get(key)
+            official_direct = official["direct"].get(key)
             if running_opening is None or official_direct is None:
                 opening = bank = None
             else:
                 official_indirect = official_cash.indirect if official_cash else ZERO
                 official_expense = official_cash.expense if official_cash else ZERO
                 official_boe_expense = official_cash.boe_expense if official_cash else ZERO
-                official_applications = (official_investment.applications
-                                         if official_investment else ZERO)
-                official_redemptions = (official_investment.redemptions
-                                        if official_investment else ZERO)
-                movement = (official_indirect + official_redemptions +
-                            official_direct - official_boe_expense -
-                            (official_expense - official_boe_expense) -
-                            official_applications)
+                official_applications = official_investment.applications if official_investment else ZERO
+                official_redemptions = official_investment.redemptions if official_investment else ZERO
+                movement = (
+                    official_indirect + official_redemptions + official_direct
+                    - official_boe_expense - (official_expense - official_boe_expense)
+                    - official_applications
+                )
                 opening, bank = running_opening, running_opening + movement
                 running_opening = bank
+
             monthly.append({
+                "year": selected_year,
                 "month": selected_month,
-                "revenue": direct + indirect, "expense": expense,
-                "opening_balance": opening, "bank_balance": bank,
-                "applications": applications, "redemptions": redemptions,
+                "revenue": direct + indirect,
+                "expense": expense,
+                "opening_balance": opening,
+                "bank_balance": bank,
+                "applications": applications,
+                "redemptions": redemptions,
                 "budgeted_revenue": budget["RECEITA"],
                 "actual_revenue": direct + indirect,
                 "budgeted_expense": budget["DESPESA"],
                 "actual_expense": expense,
             })
-        selected = monthly[month - 1]
-        selected_cash = aggregates["cash"].get(month)
-        selected_direct = aggregates["direct"].get(month, ZERO)
-        selected_indirect = selected_cash.indirect if selected_cash else ZERO
-        selected_expense = selected_cash.expense if selected_cash else ZERO
-        selected_boe_expense = selected_cash.boe_expense if selected_cash else ZERO
-        selected_budget = aggregates["budget"][month]
-        actual_result = selected["actual_revenue"] - selected["actual_expense"]
-        budgeted_result = (selected_budget["RECEITA"] - selected_budget["DESPESA"])
-        variance = actual_result - budgeted_result
-        variance_percentage = (
-            None if budgeted_result == 0
-            else variance / abs(budgeted_result) * Decimal("100")
+
+        by_period = {
+            (row["year"], row["month"]): row
+            for row in monthly
+        }
+        first = monthly[0] if explicit_period else by_period[(year, month)]
+        last = monthly[-1] if explicit_period else by_period[(year, month)]
+
+        direct_total = sum(
+            (aggregates["direct"].get(p, ZERO) for p in metric_periods), ZERO
         )
+        indirect_total = sum(
+            (
+                aggregates["cash"][p].indirect
+                if p in aggregates["cash"] else ZERO
+                for p in metric_periods
+            ),
+            ZERO,
+        )
+        expense_total = sum(
+            (
+                aggregates["cash"][p].expense
+                if p in aggregates["cash"] else ZERO
+                for p in metric_periods
+            ),
+            ZERO,
+        )
+        boe_expense_total = sum(
+            (
+                aggregates["cash"][p].boe_expense
+                if p in aggregates["cash"] else ZERO
+                for p in metric_periods
+            ),
+            ZERO,
+        )
+        applications_total = sum(
+            (
+                aggregates["investments"][p].applications
+                if p in aggregates["investments"] else ZERO
+                for p in metric_periods
+            ),
+            ZERO,
+        )
+        redemptions_total = sum(
+            (
+                aggregates["investments"][p].redemptions
+                if p in aggregates["investments"] else ZERO
+                for p in metric_periods
+            ),
+            ZERO,
+        )
+        budgeted_revenue = sum(
+            (aggregates["budget"][p]["RECEITA"] for p in metric_periods), ZERO
+        )
+        budgeted_expense = sum(
+            (aggregates["budget"][p]["DESPESA"] for p in metric_periods), ZERO
+        )
+        actual_revenue = direct_total + indirect_total
+        actual_expense = expense_total
+        actual_result = actual_revenue - actual_expense
+        budgeted_result = budgeted_revenue - budgeted_expense
+        variance = actual_result - budgeted_result
+        variance_percentage = None if budgeted_result == 0 else variance / abs(budgeted_result) * Decimal("100")
+
         return {
-            "year": year, "month": month,
+            "year": end_year, "month": end_month,
+            "start_year": start_year, "start_month": start_month,
+            "end_year": end_year, "end_month": end_month,
             "filters": {"category": category, "type": entry_type},
-            "balance_available": selected["bank_balance"] is not None,
+            "balance_available": last["bank_balance"] is not None,
             "kpis": {
-                "opening_balance": selected["opening_balance"],
-                "direct_revenue": selected_direct,
-                "indirect_revenue": selected_indirect,
-                "total_revenue": selected_direct + selected_indirect,
-                "net_revenue": selected_direct - selected_boe_expense,
-                "total_expense": selected_expense,
-                "applications": selected["applications"],
-                "redemptions": selected["redemptions"],
-                "bank_balance": selected["bank_balance"],
-                "applied_balance": aggregates["applied"].get(month),
+                "opening_balance": first["opening_balance"],
+                "direct_revenue": direct_total,
+                "indirect_revenue": indirect_total,
+                "total_revenue": actual_revenue,
+                "net_revenue": direct_total - boe_expense_total,
+                "total_expense": expense_total,
+                "applications": applications_total,
+                "redemptions": redemptions_total,
+                "bank_balance": last["bank_balance"],
+                "applied_balance": aggregates["applied"].get(
+                    (end_year, end_month) if explicit_period else (year, month)
+                ),
             },
             "budget": {
-                "budgeted_revenue": selected_budget["RECEITA"],
-                "actual_revenue": selected["actual_revenue"],
-                "budgeted_expense": selected_budget["DESPESA"],
-                "actual_expense": selected["actual_expense"],
+                "budgeted_revenue": budgeted_revenue,
+                "actual_revenue": actual_revenue,
+                "budgeted_expense": budgeted_expense,
+                "actual_expense": actual_expense,
                 "result": actual_result,
                 "variance": variance,
                 "variance_percentage": variance_percentage,
