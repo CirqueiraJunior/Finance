@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0 — Fechamento pré-release — 2026-10-03
+
+- Dashboard Executivo com período unificado no Financeiro, inclusive intervalo multiano.
+- BOE e Meta x Realizado mantidos com filtros multiano já homologados.
+- Parser Meta x Realizado compatível com layouts oficiais 2025 e 2026 por estrutura/semântica.
+- Regras de Premiação específicas por ano: estratégia 2025 preservada e estratégia 2026 mantida.
+- Premiação 2026 documentada conforme Regulamento oficial: R$ 3.000,00, R$ 2.000,00 e R$ 1.000,00.
+- Parser de Orçamento não assume mais 2026 silenciosamente quando o ano não é identificável.
+- Compatibilidade futura de Orçamento validada com arquivo 2027.
+- Build, instalador, módulo `.japackage` e tag `v1.0.0` permanecem pendentes até o fechamento integral da pré-release.
+- Suíte completa final da Sprint: 672 testes aprovados, 28 warnings conhecidos.
+- Testes focados do parser após remoção do fallback de Orçamento: 14 aprovados.
+
 ## 1.0.0 ? Release Final ? 2026-09-28
 
 - Homologa??o final da interface e padroniza??o visual global.

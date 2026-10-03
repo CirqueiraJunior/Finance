@@ -1,117 +1,82 @@
-﻿# Finance — Release 1.0.0
+# Finance — Release 1.0.0
 
 ## Status
 
-**HOMOLOGADA — código-fonte e ambiente central.**
+**PRÉ-RELEASE — fechamento técnico em andamento.**
 
-Versão: `1.0.0`
-Tag Git: `v1.0.0`
-Commit homologado: `b22ac48d4e7a6cd1d17f2948cceccb8dce34eb70`
-Schema central: `20260927_26`
+Versão planejada: `1.0.0`
+Branch oficial: `main`
+Tag Git: **ainda não criada nesta homologação final**
+Instalador oficial: **ainda não gerado nesta homologação final**
 
-## Escopo
+A versão 1.0.0 só será considerada publicada depois da validação final do código,
+build dos artefatos oficiais, homologação dos binários e criação da tag Git.
 
-Release desktop com oito páginas navegáveis, domínios financeiros e
-operacionais, BOE homologado, Ranking e Premiação trimestral, relatórios/CSV,
-Cadastros, Administração, recuperação de acesso, atualização manual e
-operação multiusuário por API central.
+## Escopo consolidado
 
-## Garantias
+- Aplicação desktop Finance.
+- API central FastAPI.
+- PostgreSQL central como fonte oficial em produção.
+- RBAC, administração, auditoria e recuperação de acesso.
+- Fluxo de Caixa, Orçamento, Investimentos e saldos.
+- BOE.
+- Meta x Realizado.
+- Ranking e Premiação com estratégia anual 2025/2026.
+- Dashboard Executivo com períodos multiano.
+- Relatórios e CSV.
+- Importações históricas controladas com preview.
 
-- `Decimal` nos valores; 7500 nunca é Entidade.
-- Preview obrigatório e botão bloqueado quando há erro.
-- Backup automático antes de importação e rollback integral.
-- BOE reutiliza parser homologado; orçamento não recebe mapeamento arbitrário.
-- `.env`, bancos, backups, exports locais, planilhas e logs não são versionados.
-- Versão pública vem de `app.core.version.__version__`.
-- A aba Ranking representa operacionalmente a Premiação da Campanha Acelera
-  Goiás; o Regulamento prevalece e classifica atingimento `>= 100%`.
-- Premiações não geram despesas automáticas no Fluxo de Caixa.
-- O desempate operacional aplica Score, maior atingimento, maior Captação e
-  menor número de Cancelamentos; igualdade nos quatro critérios é empate técnico.
+## Regras e garantias
+
+- `Decimal` nos valores financeiros.
+- Entidade 7500 não participa dos cálculos operacionais de Meta x Realizado.
+- Importações críticas exigem preview e validação antes da persistência.
+- PostgreSQL central é a fonte oficial em produção.
 - O desktop não contém credenciais PostgreSQL.
-- PostgreSQL central é a fonte oficial de dados em produção.
+- Premiações não geram despesas automáticas no Fluxo de Caixa.
+- Ranking/Premiação 2026 usa atingimento mínimo `>= 100%`.
+- Desempate 2026: Score, maior atingimento, maior Captação e menor número de Cancelamentos.
+- Empate técnico somente na igualdade dos quatro critérios.
+- Valores documentados da Premiação 2026:
+  - 1º lugar: R$ 3.000,00
+  - 2º lugar: R$ 2.000,00
+  - 3º lugar: R$ 1.000,00
+- Estratégia de Premiação 2025 permanece independente da estratégia 2026.
+- O parser de Orçamento não atribui mais 2026 quando o ano não puder ser identificado.
+- Arquivos futuros podem ser aceitos quando mantêm estrutura suportada e trazem ano identificável;
+  mudanças de layout exigem nova validação com arquivo oficial real.
 
-## Homologação técnica
+## Validação automatizada
 
-- [x] PostgreSQL central provisionado e operacional
-- [x] Migrations aplicadas até `20260922_24`
-- [x] `alembic current` = `20260927_26 (head)`
-- [x] `alembic check` sem operações pendentes
-- [x] API conectada ao PostgreSQL central
-- [x] `/health` = `status: ok`
-- [x] Ambiente da API = `SERVER`
-- [x] Setup inicial concluído
-- [x] Administrador existente
-- [x] Importação histórica desabilitada no ambiente SERVER
-- [x] RBAC homologado
-- [x] Fluxo de Caixa homologado
-- [x] Financeiro homologado
-- [x] BOE homologado
-- [x] Orçado x Realizado homologado
-- [x] Metas homologadas
-- [x] Ranking e Premiação homologados
-- [x] Cadastros homologados
-- [x] Relatórios homologados
-- [x] Administração homologada
-- [x] Recuperação de acesso homologada
-- [x] Verificação manual de atualização homologada
-- [x] Nenhum SQLite local é fonte oficial em produção
-- [x] Backup PostgreSQL pré-migração criado e validado
-- [x] Configuração de produção sem secrets no Git
-- [x] Suíte automatizada: 564 testes aprovados, 0 falhas
+- Suíte completa final desta Sprint: **672 testes aprovados, 28 warnings conhecidos**.
+- Testes focados do parser: **14 testes aprovados**.
+- `git diff --check`: sem erro após correção de whitespace e encoding.
 
-## Backup de segurança da migração central
+## Artefatos oficiais planejados
 
-Arquivo externo ao repositório:
+A arquitetura de release da versão 1.0.0 prevê dois artefatos:
 
-`Finance_Central_PreMigration23_20260922_172220.dump`
+- `Finance_Setup_1.0.0.exe`
+- `Finance_Module_1.0.0.japackage`
 
-Formato PostgreSQL custom validado com `pg_restore --list`.
+Nenhum dos dois deve ser tratado como artefato final antes da homologação desta
+pré-release.
 
-SHA-256:
+## Checklist de fechamento
 
-`9FD2787611E8A93CBA3DFC826B2B172E633478CCCA29BCA2698C9064C4E5EF2F`
-
-## Distribuição
-
-O empacotamento do aplicativo desktop não integra o escopo técnico fechado
-desta release.
-
-Backlog:
-
-`DIST-001 — Definir e implementar empacotamento/distribuição desktop do
-Finance para Windows, incluindo executável, instalador, atualização e
-assinatura.`
-
-Até a implementação do `DIST-001`, não há instalador oficial da versão 1.0.0.
-
-
-## Instalador homologado
-
-Artefato:
-
-`Finance_Setup_1.0.0.exe`
-
-SHA-256:
-
-`567717D25EF151A68F530DE615F9D228B7B6FC92031D4356528A6E2C2FCDEDFA`
-
-Valida??o final em produ??o local:
-
-- Servi?o `JATechnologyFinanceServer` em execu??o autom?tica.
-- API oficial dispon?vel na porta `8000`.
-- `/health` com `status: ok`.
-- Vers?o reportada pela API: `1.0.0`.
-- Ambiente: `SERVER`.
-- Banco oficial: PostgreSQL central.
-- Importa??o hist?rica desabilitada em produ??o.
-- Cliente instalado homologado visual e funcionalmente.
+- [x] Dashboard multiano consolidado.
+- [x] Meta x Realizado 2025/2026 validado.
+- [x] Estratégias de Premiação 2025/2026 separadas.
+- [x] Valores da Premiação 2026 documentados.
+- [x] Fallback silencioso de Orçamento para 2026 removido.
+- [x] Compatibilidade de Orçamento 2027 coberta por teste.
+- [x] Suíte completa final.
+- [ ] Revisão de release readiness.
+- [ ] Build dos dois artefatos.
+- [ ] Homologação do instalador e do `.japackage`.
+- [ ] Tag `v1.0.0`.
 
 ## Rastreabilidade
 
-Branch: `main`
-Tag: `v1.0.0`
-Commit: `b22ac48d4e7a6cd1d17f2948cceccb8dce34eb70`
-
-O tag remoto `v1.0.0` foi validado apontando para o mesmo commit homologado.
+A rastreabilidade final (commit, hashes SHA-256 e tag) será preenchida somente
+após o build e a homologação dos artefatos oficiais.

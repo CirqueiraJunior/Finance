@@ -492,7 +492,12 @@ class HistoricalWorkbookParser:
         return years.pop(), None
 
     def _budget(self, path: Path, sheets: tuple[str, ...], sheet) -> HistoricalParseResult:
-        year = self._year_from_name(path) or 2026
+        year = self._year_from_name(path)
+        if year is None:
+            return self._unknown(
+                path, sheets,
+                "Ano do Orçamento não identificado no nome do arquivo."
+            )
         data: list[BudgetImportData] = []
         warnings: list[str] = []
         errors: list[str] = []
