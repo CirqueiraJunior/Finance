@@ -215,6 +215,30 @@ def test_budget_parser_keeps_only_current_operational_categories(tmp_path):
     assert result.total == Decimal("375.0000")
 
 
+def test_budget_parser_accepts_future_year_from_filename(tmp_path):
+    path = tmp_path / "Projeção Orçamentária 2027.xlsx"
+    _budget_workbook(path)
+
+    result = HistoricalWorkbookParser().parse(path)
+
+    assert result.can_import
+    assert result.metadata.detected_type == "ORCAMENTO"
+    assert result.metadata.year == 2027
+    assert all(row.year == 2027 for row in result.data)
+
+
+def test_budget_parser_reports_missing_year_without_silent_2026_fallback(tmp_path):
+    path = tmp_path / "Projeção Orçamentária.xlsx"
+    _budget_workbook(path)
+
+    result = HistoricalWorkbookParser().parse(path)
+
+    assert not result.can_import
+    assert result.metadata.detected_type == "DESCONHECIDO"
+    assert result.metadata.year is None
+    assert "Ano do Orçamento não identificado" in result.errors[0]
+
+
 def test_local_service_consumes_parser_adapter_and_accepts_inactive_entity(
         db_session, tmp_path):
     path = tmp_path / "Meta x Realizado 2026.xlsx"
