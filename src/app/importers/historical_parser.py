@@ -17,6 +17,11 @@ def normalized(value: object) -> str:
     )
 
 
+def semantic(value: object) -> str:
+    """Normaliza rótulos de layout sem tornar valores de negócio permissivos."""
+    return re.sub(r"[^A-Z0-9]+", "", normalized(value))
+
+
 def decimal_value(value: object) -> Decimal:
     if isinstance(value, float):
         value = str(value)
@@ -100,6 +105,14 @@ class HistoricalWorkbookParser:
         "JAN", "FEV", "MAR", "ABR", "MAI", "JUN",
         "JUL", "AGO", "SET", "OUT", "NOV", "DEZ",
     )
+    MONTH_ALIASES = {
+        "JAN": 1, "JANEIRO": 1, "FEV": 2, "FEVEREIRO": 2,
+        "MAR": 3, "MARCO": 3, "ABR": 4, "ABRIL": 4,
+        "MAI": 5, "MAIO": 5, "JUN": 6, "JUNHO": 6,
+        "JUL": 7, "JULHO": 7, "AGO": 8, "AGOSTO": 8,
+        "SET": 9, "SETEMBRO": 9, "OUT": 10, "OUTUBRO": 10,
+        "NOV": 11, "NOVEMBRO": 11, "DEZ": 12, "DEZEMBRO": 12,
+    }
 
     def parse(self, file_path: str | Path) -> HistoricalParseResult:
         path = Path(file_path)
@@ -115,16 +128,42 @@ class HistoricalWorkbookParser:
                 return self._structural_targets(
                     path, sheets, sheet, header_line, columns
                 )
-            target_name = self._sheet_name(names, "META")
-            actual_name = self._sheet_name(names, "FATURAMENTO")
+            target_name, target_error = self._section_sheet(
+                workbook, {"METADECONSULTAS", "METADEREGISTROS"},
+                preferred=("META",),
+            )
+            actual_name, actual_error = self._section_sheet(
+                workbook,
+                {"CONSULTASREALIZADAS", "REGISTROSREALIZADOS"},
+                preferred=("FATURAMENTO", "DESEMPENHO"),
+            )
+            structurally_identified = target_name is not None and actual_name is not None
+            # Compatibilidade com arquivos 2026 antigos que não trazem os
+            # marcadores das duas seções, mas usam nomes oficiais inequívocos.
+            target_name = target_name or self._sheet_name(names, "META")
+            actual_name = actual_name or self._sheet_name(names, "FATURAMENTO")
             if target_name is not None and actual_name is not None:
+                year, year_error = self._workbook_year(path, workbook)
+                if year_error:
+                    return self._unknown(path, sheets, year_error)
+                association_name, association_layout, association_error = (
+                    self._association_sheet(workbook)
+                )
+                if association_error:
+                    return self._unknown(path, sheets, association_error)
+                if (association_name is None and not structurally_identified
+                        and "ASSOCIACOES" in names):
+                    association_name = names["ASSOCIACOES"]
                 return self._targets(
                     path, sheets, workbook[target_name], workbook[actual_name],
+                    year=year,
                     association_sheet=(
-                        workbook[names["ASSOCIACOES"]]
-                        if "ASSOCIACOES" in names else None
+                        workbook[association_name] if association_name else None
                     ),
+                    association_layout=association_layout,
                 )
+            if target_error or actual_error:
+                return self._unknown(path, sheets, target_error or actual_error)
             if "PLANEJ. ORCAMENTARIO" in names:
                 return self._budget(path, sheets, workbook[names["PLANEJ. ORCAMENTARIO"]])
             return self._unknown(path, sheets, "Estrutura operacional não reconhecida.")
@@ -215,18 +254,16 @@ class HistoricalWorkbookParser:
         )
 
     def _targets(self, path: Path, sheets: tuple[str, ...], target_sheet,
-                 actual_sheet, *, association_sheet=None) -> HistoricalParseResult:
-        year = self._year_from_name(path) or 2026
+                 actual_sheet, *, year: int, association_sheet=None,
+                 association_layout=None) -> HistoricalParseResult:
         actual_by_key: dict[tuple[str, int, int], object] = {}
         actual_rows, actual_indicators = self._indicator_rows(actual_sheet, {
             "CONSULTAS REALIZADAS": "CONSULTAS",
             "REGISTROS REALIZADOS": "REGISTROS",
         })
-        for indicator, _line, code, values in actual_rows:
-            for month in range(1, 13):
-                actual_by_key[(indicator, code, month)] = (
-                    values[month + 1] if len(values) > month + 1 else None
-                )
+        for indicator, _line, code, _entity_name, monthly in actual_rows:
+            for month, value in monthly.items():
+                actual_by_key[(indicator, code, month)] = value
 
         data: list[TargetImportData | AssociationImportData] = []
         errors: list[str] = []
@@ -234,10 +271,8 @@ class HistoricalWorkbookParser:
             "META DE CONSULTAS": "CONSULTAS",
             "META DE REGISTROS": "REGISTROS",
         })
-        for indicator, line, code, values in target_rows:
-            entity_name = values[1] if len(values) > 1 else None
-            for month in range(1, 13):
-                target = values[month + 1] if len(values) > month + 1 else None
+        for indicator, line, code, entity_name, monthly in target_rows:
+            for month, target in monthly.items():
                 actual = actual_by_key.get((indicator, code, month))
                 if target is None and actual is None:
                     continue
@@ -257,7 +292,7 @@ class HistoricalWorkbookParser:
             )
         if association_sheet is not None:
             association_data, association_errors = self._associations(
-                association_sheet, year
+                association_sheet, year, association_layout
             )
             data.extend(association_data)
             errors.extend(association_errors)
@@ -265,15 +300,20 @@ class HistoricalWorkbookParser:
         return HistoricalParseResult(metadata, tuple(data), tuple(warnings), tuple(errors))
 
     @staticmethod
-    def _associations(sheet, year: int) -> tuple[
+    def _associations(sheet, year: int, layout=None) -> tuple[
         list[AssociationImportData], list[str]
     ]:
         data: list[AssociationImportData] = []
         errors: list[str] = []
-        rows = sheet.iter_rows(values_only=True)
-        next(rows, None)
-        next(rows, None)
-        for line, values in enumerate(rows, start=3):
+        rows = sheet.iter_rows(
+            min_row=(layout[0] if layout else 3), values_only=True
+        )
+        month_columns = layout[1] if layout else {
+            month: (2 + (month - 1) * 4, 3 + (month - 1) * 4,
+                    5 + (month - 1) * 4)
+            for month in range(1, 13)
+        }
+        for line, values in enumerate(rows, start=(layout[0] if layout else 3)):
             raw_code = values[0] if values else None
             try:
                 numeric_code = Decimal(str(raw_code).strip())
@@ -287,11 +327,10 @@ class HistoricalWorkbookParser:
                 continue
             code = int(numeric_code)
             entity_name = values[1] if len(values) > 1 else None
-            for month in range(1, 13):
-                base = 2 + (month - 1) * 4
-                cancellation = values[base] if len(values) > base else None
-                capture = values[base + 1] if len(values) > base + 1 else None
-                execution = values[base + 3] if len(values) > base + 3 else None
+            for month, (cancel_index, capture_index, execution_index) in month_columns.items():
+                cancellation = values[cancel_index] if len(values) > cancel_index else None
+                capture = values[capture_index] if len(values) > capture_index else None
+                execution = values[execution_index] if len(values) > execution_index else None
                 if cancellation is None and capture is None and execution is None:
                     continue
                 try:
@@ -316,28 +355,141 @@ class HistoricalWorkbookParser:
         physical_rows = list(enumerate(
             sheet.iter_rows(min_row=1, values_only=True), start=1
         ))
+        semantic_labels = {semantic(label): value for label, value in labels.items()}
         has_sections = any(
-            normalized(values[0] if values else None) in labels
+            semantic(values[0] if values else None) in semantic_labels
             for _, values in physical_rows
         )
         active_indicator = None if has_sections else "CONSULTAS"
+        columns = None
         indicators: set[str] = set()
         rows = []
         for line, values in physical_rows:
             first = values[0] if values else None
-            section = labels.get(normalized(first))
+            section = semantic_labels.get(semantic(first))
             if section is not None:
                 active_indicator = section
                 indicators.add(section)
+                columns = None
                 continue
-            code = self._entity_code(first)
-            entity_name = values[1] if len(values) > 1 else None
+            header_columns = self._target_header_columns(values)
+            if header_columns is not None:
+                columns = header_columns
+                continue
+            effective = columns or {
+                "code": 0, "entity": 1,
+                "months": {month: month + 1 for month in range(1, 13)},
+            }
+            code_index = effective["code"]
+            code = self._entity_code(
+                values[code_index] if len(values) > code_index else None
+            )
+            entity_index = effective["entity"]
+            entity_name = values[entity_index] if len(values) > entity_index else None
             if (active_indicator is None or code is None
                     or not isinstance(entity_name, str) or not entity_name.strip()):
                 continue
             indicators.add(active_indicator)
-            rows.append((active_indicator, line, code, values))
+            monthly = {
+                month: values[index] if len(values) > index else None
+                for month, index in effective["months"].items()
+            }
+            rows.append((active_indicator, line, code, entity_name, monthly))
         return rows, indicators
+
+    def _target_header_columns(self, values):
+        tokens = {semantic(value): index for index, value in enumerate(values) if value is not None}
+        code = next((tokens[item] for item in ("COD", "CODIGO") if item in tokens), None)
+        entity = next((tokens[item] for item in ("ENTIDADE", "ENTIDADES") if item in tokens), None)
+        months = {
+            month: index for token, index in tokens.items()
+            if (month := self.MONTH_ALIASES.get(token)) is not None
+        }
+        if code is None or entity is None or not months:
+            return None
+        return {"code": code, "entity": entity, "months": months}
+
+    @staticmethod
+    def _section_sheet(workbook, required: set[str], *, preferred: tuple[str, ...]):
+        matches = []
+        for sheet in workbook.worksheets:
+            found = {
+                semantic(values[0] if values else None)
+                for values in sheet.iter_rows(min_row=1, max_row=250, values_only=True)
+            }
+            if required.issubset(found):
+                matches.append(sheet.title)
+        if len(matches) == 1:
+            return matches[0], None
+        if len(matches) > 1:
+            preferred_matches = [
+                name for wanted in preferred for name in matches
+                if semantic(name) == semantic(wanted)
+            ]
+            if len(preferred_matches) == 1:
+                return preferred_matches[0], None
+            return None, "Estrutura ambígua entre as abas: " + ", ".join(matches) + "."
+        return None, None
+
+    def _association_sheet(self, workbook):
+        matches = []
+        for sheet in workbook.worksheets:
+            rows = list(sheet.iter_rows(min_row=1, max_row=10, values_only=True))
+            for month_row_index in range(len(rows) - 1):
+                month_row = rows[month_row_index]
+                subheaders = rows[month_row_index + 1]
+                month_columns = {}
+                for index, value in enumerate(month_row):
+                    month = self.MONTH_ALIASES.get(semantic(value))
+                    if month is None:
+                        continue
+                    group = {
+                        semantic(subheaders[column]): column
+                        for column in range(index, min(index + 4, len(subheaders)))
+                        if subheaders[column] is not None
+                    }
+                    required = {"CANC", "CAPTACAO", "SUSPENSO", "TOTALASSC"}
+                    if required.issubset(group):
+                        month_columns[month] = (
+                            group["CANC"], group["CAPTACAO"], group["TOTALASSC"]
+                        )
+                if set(month_columns) == set(range(1, 13)):
+                    matches.append((sheet.title, (month_row_index + 3, month_columns)))
+                    break
+        if len(matches) == 1:
+            name, layout = matches[0]
+            return name, layout, None
+        if len(matches) > 1:
+            return None, None, (
+                "Mais de uma aba corresponde ao layout de associações: "
+                + ", ".join(name for name, _ in matches) + "."
+            )
+        return None, None, None
+
+    def _workbook_year(self, path: Path, workbook):
+        evidence: list[tuple[str, int]] = []
+        file_year = self._year_from_name(path)
+        if file_year is not None:
+            evidence.append(("nome do arquivo", file_year))
+        for sheet in workbook.worksheets:
+            for values in sheet.iter_rows(min_row=1, max_row=25, max_col=20, values_only=True):
+                for value in values:
+                    match = re.search(r"META\s*X\s*REALIZADO\s*(20\d{2})", normalized(value))
+                    if match:
+                        evidence.append((f"conteúdo da aba {sheet.title}", int(match.group(1))))
+        parent_years = {
+            int(match.group(1))
+            for parent in list(path.parents)[:5]
+            if (match := re.search(r"\b(20\d{2})\b", parent.name))
+        }
+        evidence.extend(("diretório pai", year) for year in sorted(parent_years))
+        years = {year for _, year in evidence}
+        if len(years) > 1:
+            details = ", ".join(f"{source}={year}" for source, year in evidence)
+            return None, f"Anos conflitantes identificados: {details}."
+        if not years:
+            return None, "Ano das Metas não identificado no nome, conteúdo ou diretório do arquivo."
+        return years.pop(), None
 
     def _budget(self, path: Path, sheets: tuple[str, ...], sheet) -> HistoricalParseResult:
         year = self._year_from_name(path) or 2026

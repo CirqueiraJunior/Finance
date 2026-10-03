@@ -458,19 +458,42 @@ class MetasPage(QWidget):
             situation = "Classificada" if row.classified else "Desclassificada"
             if row.technical_tie:
                 situation += " — empate técnico"
-            values = [row.position or "-", row.entity_code, row.entity_name,
+            if row.strategy_year == 2025:
+                position = " / ".join(
+                    f"{result.label}: {result.position}º"
+                    for result in row.category_results
+                ) or "-"
+                billing_points = capture_points = cancellation_points = score = "-"
+            else:
+                position = row.position or "-"
+                billing_points = row.billing_points
+                capture_points = row.capture_points
+                cancellation_points = row.cancellation_points
+                score = row.score
+            values = [position, row.entity_code, row.entity_name,
                       self.number(row.target_total), self.number(row.actual_total),
                       self.percentage(row.achievement), self.number(row.captures),
-                      self.number(row.cancellations), row.billing_points,
-                      row.capture_points, row.cancellation_points, row.score,
+                      self.number(row.cancellations), billing_points,
+                      capture_points, cancellation_points, score,
                       situation, self.currency(row.award) if row.award is not None else "-"]
             for column, value in enumerate(values):
                 self.ranking_table.setItem(row_index, column, QTableWidgetItem(str(value)))
-        winners = [row for row in rows if row.award is not None]
-        self.champions.setText("\n".join(
-            f"{row.position}º lugar — {row.entity_name} — {self.currency(row.award)}"
-            for row in winners
-        ) or "Nenhum campeão definido para o período.")
+        if rows and rows[0].strategy_year == 2025:
+            champion_lines = [
+                f"{result.label} — {row.entity_name} — {self.currency(result.award)}"
+                for row in rows
+                for result in row.category_results
+                if result.award is not None
+            ]
+        else:
+            champion_lines = [
+                f"{row.position}º lugar — {row.entity_name} — {self.currency(row.award)}"
+                for row in rows if row.award is not None
+            ]
+        self.champions.setText(
+            "\n".join(champion_lines)
+            or "Nenhum campeão definido para o período."
+        )
         self.annual_table.setRowCount(len(annual))
         for index, row in enumerate(annual):
             values = [row.entity_code, row.entity_name,
@@ -479,15 +502,30 @@ class MetasPage(QWidget):
             for column, value in enumerate(values):
                 self.annual_table.setItem(index, column, QTableWidgetItem(str(value)))
         detail = next((row for row in rows if row.entity_id == selected), None)
-        self.entity_detail.setText(
-            "Selecione uma Entidade para consultar sua visão detalhada." if detail is None else
-            f"Consultas: Meta {self.number(detail.meta_queries)} | Realizado {self.number(detail.actual_queries)}  •  "
-            f"Registros: Meta {self.number(detail.meta_registrations)} | Realizado {self.number(detail.actual_registrations)}  •  "
-            f"Total: {self.number(detail.target_total)} / {self.number(detail.actual_total)}  •  "
-            f"Atingimento: {self.percentage(detail.achievement)}  •  Captações: {self.number(detail.captures)}  •  "
-            f"Cancelamentos: {self.number(detail.cancellations)}  •  Pontos: {detail.billing_points}+{detail.capture_points}+{detail.cancellation_points}={detail.score}  •  "
-            f"Posição: {detail.position or '-'}  •  Premiação: {self.currency(detail.award) if detail.award else '-'}"
-        )
+        if detail is None:
+            detail_text = "Selecione uma Entidade para consultar sua visão detalhada."
+        elif detail.strategy_year == 2025:
+            rankings = " | ".join(
+                f"{result.label}: {result.position}º"
+                for result in detail.category_results
+            ) or "Sem classificação"
+            detail_text = (
+                f"Total: {self.number(detail.target_total)} / {self.number(detail.actual_total)}  •  "
+                f"Atingimento: {self.percentage(detail.achievement)}  •  "
+                f"Crescimento de associados: {self.percentage(detail.association_growth_percentage)}  •  "
+                f"Ticket médio: {self.currency(detail.average_ticket) if detail.average_ticket is not None else '-'}  •  "
+                f"{rankings}  •  Premiação: {self.currency(detail.award) if detail.award else '-'}"
+            )
+        else:
+            detail_text = (
+                f"Consultas: Meta {self.number(detail.meta_queries)} | Realizado {self.number(detail.actual_queries)}  •  "
+                f"Registros: Meta {self.number(detail.meta_registrations)} | Realizado {self.number(detail.actual_registrations)}  •  "
+                f"Total: {self.number(detail.target_total)} / {self.number(detail.actual_total)}  •  "
+                f"Atingimento: {self.percentage(detail.achievement)}  •  Captações: {self.number(detail.captures)}  •  "
+                f"Cancelamentos: {self.number(detail.cancellations)}  •  Pontos: {detail.billing_points}+{detail.capture_points}+{detail.cancellation_points}={detail.score}  •  "
+                f"Posição: {detail.position or '-'}  •  Premiação: {self.currency(detail.award) if detail.award else '-'}"
+            )
+        self.entity_detail.setText(detail_text)
         self.ranking_table.resizeColumnsToContents()
 
     @staticmethod

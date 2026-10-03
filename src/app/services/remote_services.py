@@ -16,7 +16,9 @@ from app.services.dashboard_service import (
     FinancialDashboardSummary, IndicatorDashboardSummary, TargetDashboardSummary,
 )
 from app.services.financial_flow_service import FinancialFlowSummary, FinancialMovement
-from app.services.ranking_service import AnnualRankingEntry, RankingEntry
+from app.services.ranking_service import (
+    AnnualRankingEntry, RankingCategoryResult, RankingEntry,
+)
 from app.services.report_service import AnnualReport, MonthlyReportRow
 from app.services.site_csv_service import CSVExportResult, CSVValidationResult
 from app.services.target_service import TargetComparison, TargetSummary, TargetVsActual
@@ -311,11 +313,27 @@ class RemoteRankingService:
     def __init__(self, api): self.api = api
     def _data(self, year, quarter): return self.api.get(f"/api/v1/ranking?year={year}&quarter={quarter}")
     def quarterly(self, year, quarter):
-        return [RankingEntry(x["entity_id"], x["entity_code"], x["entity_name"], *(_decimal(x[k]) for k in (
-            "meta_queries", "actual_queries", "meta_registrations", "actual_registrations", "captures", "cancellations")),
-            _decimal(x["achievement"]) if x["achievement"] is not None else None, x["billing_points"], x["capture_points"],
-            x["cancellation_points"], x["score"], x["classified"], x.get("position"), x["technical_tie"],
-            _decimal(x["award"]) if x.get("award") is not None else None) for x in self._data(year, quarter)["quarterly"]]
+        return [RankingEntry(
+            x["entity_id"], x["entity_code"], x["entity_name"],
+            *(_decimal(x[k]) for k in (
+                "meta_queries", "actual_queries", "meta_registrations",
+                "actual_registrations", "captures", "cancellations",
+            )),
+            _decimal(x["achievement"]) if x["achievement"] is not None else None,
+            x["billing_points"], x["capture_points"], x["cancellation_points"],
+            x["score"], x["classified"], x.get("position"), x["technical_tie"],
+            _decimal(x["award"]) if x.get("award") is not None else None,
+            x.get("strategy_year", 2026),
+            _decimal(x["association_growth_percentage"])
+            if x.get("association_growth_percentage") is not None else None,
+            _decimal(x["average_ticket"])
+            if x.get("average_ticket") is not None else None,
+            tuple(RankingCategoryResult(
+                item["category"], item["label"], _decimal(item["metric"]),
+                item["position"],
+                _decimal(item["award"]) if item.get("award") is not None else None,
+            ) for item in x.get("category_results", ())),
+        ) for x in self._data(year, quarter)["quarterly"]]
     def annual(self, year):
         return [AnnualRankingEntry(x["entity_id"], x["entity_code"], x["entity_name"], tuple(x["positions"]),
             x["classified_quarters"], x["award_count"], _decimal(x["award_total"])) for x in self._data(year, 1)["annual"]]
