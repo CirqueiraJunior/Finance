@@ -1,12 +1,13 @@
 from decimal import Decimal
 import inspect
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 import app.importers.historical_parser as parser_module
 from app.importers.historical_importer import HistoricalWorkbookImporter
 from app.importers.historical_parser import (
-    BudgetImportData, HistoricalWorkbookParser, TargetImportData,
+    AssociationImportData, BudgetImportData, HistoricalWorkbookParser,
+    TargetImportData,
 )
 from app.models.entity import Entity
 from app.repositories.entity_repository import EntityRepository
@@ -51,6 +52,55 @@ def _budget_workbook(path) -> None:
         ("Saldo", 999),
     ):
         sheet.append([None, label, value, None])
+    workbook.save(path)
+
+
+def _official_multiyear_workbook(
+    path, *, actual_sheet="Faturamento", association_sheet="Associações",
+    association_header_row=1, internal_year=None, capture_header="CAPTAÇÃO",
+) -> None:
+    workbook = Workbook()
+    target = workbook.active
+    target.title = "Planejamento oficial"
+    target.append(["META DE CONSULTAS"])
+    target.append(["COD.", "ENTIDADES", "JAN", "FEV"])
+    target.append([7501, "Goiânia", 100, 110])
+    target.append(["META DE REGISTROS"])
+    target.append(["COD", "ENTIDADE", "JAN", "FEV"])
+    target.append([7501, "Goiânia", 20, 25])
+
+    actual = workbook.create_sheet(actual_sheet)
+    actual.append(["CONSULTAS REALIZADAS"])
+    actual.append(["COD", "ENTIDADE", "JAN", "FEV"])
+    actual.append([7501, "Goiânia", 80, 90])
+    actual.append(["REGISTROS REALIZADOS"])
+    actual.append(["COD.", "ENTIDADES", "JAN", "FEV"])
+    actual.append([7501, "Goiânia", 15, 18])
+
+    associations = workbook.create_sheet(association_sheet)
+    for _ in range(association_header_row - 1):
+        associations.append([])
+    month_names = (
+        "JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO",
+        "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO",
+    )
+    month_row = ["COD", "ENTIDADES"] + [None] * 48
+    subheader_row = [None, None] + [None] * 48
+    for month, name in enumerate(month_names):
+        base = 2 + month * 4
+        month_row[base] = name
+        subheader_row[base:base + 4] = [
+            "CANC.", capture_header, "SUSPENSO", "TOTAL ASSC"
+        ]
+    associations.append(month_row)
+    associations.append(subheader_row)
+    values = [7501, "Goiânia"] + [None] * 48
+    values[2:6] = [5, 10, 1, 100]
+    associations.append(values)
+
+    if internal_year is not None:
+        title = workbook.create_sheet("Visão Entidade")
+        title["B2"] = f"META X REALIZADO {internal_year}"
     workbook.save(path)
 
 
@@ -228,3 +278,80 @@ def test_target_parser_separates_official_query_and_registration_sections(tmp_pa
     ]
     assert all(row.code != 1 for row in result.data)
     assert not any("REGISTROS só serão importados" in item for item in result.warnings)
+
+
+def test_parser_supports_official_2025_layout_by_structure_and_internal_year(tmp_path):
+    path = tmp_path / "Meta x Realizado - Oficial.xlsm"
+    _official_multiyear_workbook(
+        path, actual_sheet="Desempenho", association_sheet="Mov. SPC",
+        association_header_row=2, internal_year=2025,
+    )
+
+    result = HistoricalWorkbookParser().parse(path)
+
+    assert result.can_import
+    assert result.metadata.year == 2025
+    assert {(row.indicator, row.month) for row in result.data if isinstance(row, TargetImportData)} == {
+        ("CONSULTAS", 1), ("CONSULTAS", 2),
+        ("REGISTROS", 1), ("REGISTROS", 2),
+    }
+    association = next(row for row in result.data if isinstance(row, AssociationImportData))
+    assert (association.line, association.month, association.capture) == (
+        4, 1, Decimal("10.0000")
+    )
+
+
+def test_parser_preserves_official_2026_layout_and_unaccented_headers(tmp_path):
+    path = tmp_path / "Meta x Realizado - Oficial 2026.xlsm"
+    _official_multiyear_workbook(path, capture_header="CAPTACAO")
+
+    result = HistoricalWorkbookParser().parse(path)
+
+    assert result.can_import
+    assert result.metadata.year == 2026
+    association = next(row for row in result.data if isinstance(row, AssociationImportData))
+    assert (association.line, association.month, association.execution) == (
+        3, 1, Decimal("100.0000")
+    )
+
+
+def test_parser_rejects_2025_summary_associations_without_raw_signature(tmp_path):
+    path = tmp_path / "Meta x Realizado 2025.xlsx"
+    _official_multiyear_workbook(path, actual_sheet="Desempenho")
+    # Replace only the raw association layout with the known summary shape.
+    source = load_workbook(path)
+    sheet = source["Associações"]
+    source.remove(sheet)
+    summary = source.create_sheet("Associações")
+    summary.append(["ASSOCIADOS", "TRIMESTRE"])
+    summary.append(["COD.", "ENTIDADE", "SITUAÇÃO 2024", "JAN", "CAP.", "EXC."])
+    summary.append([7501, "Goiânia", 90, 100, 10, 5])
+    source.save(path)
+    source.close()
+
+    result = HistoricalWorkbookParser().parse(path)
+
+    assert result.can_import
+    assert not any(isinstance(row, AssociationImportData) for row in result.data)
+
+
+def test_parser_reports_conflicting_year_evidence(tmp_path):
+    path = tmp_path / "Meta x Realizado 2026.xlsx"
+    _official_multiyear_workbook(path, internal_year=2025)
+
+    result = HistoricalWorkbookParser().parse(path)
+
+    assert not result.can_import
+    assert "conflitantes" in result.errors[0]
+    assert "2025" in result.errors[0] and "2026" in result.errors[0]
+
+
+def test_parser_reports_missing_year_without_silent_2026_fallback(tmp_path):
+    path = tmp_path / "Meta x Realizado - Oficial.xlsx"
+    _official_multiyear_workbook(path)
+
+    result = HistoricalWorkbookParser().parse(path)
+
+    assert not result.can_import
+    assert result.metadata.year is None
+    assert "Ano das Metas não identificado" in result.errors[0]
