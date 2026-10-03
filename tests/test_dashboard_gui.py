@@ -1,7 +1,9 @@
 from decimal import Decimal
+from threading import Event
 
 import pytest
 from PySide6.QtCharts import QChartView
+from PySide6.QtCore import Qt
 
 from app.gui.controllers.dashboard_controller import DashboardController
 from app.gui.pages.dashboard import DashboardChartView, DashboardPage
@@ -50,6 +52,167 @@ def test_dashboard_page_has_area_filters_complete_cards_and_charts(qtbot):
     assert [page.tabs.tabText(index) for index in range(page.tabs.count())] == [
         "Financeiro", "BOE", "Meta x Realizado"
     ]
+    filters = page.selected_dashboard_filters()
+    assert filters["boe_start_year"] == filters["boe_end_year"]
+    assert filters["target_start_year"] == filters["target_end_year"]
+    assert page.target_region_filter.itemData(0) is None
+    assert [page.target_region_filter.itemData(index) for index in range(1, 6)] == [
+        "NORTE", "NOROESTE", "CENTRO", "LESTE", "SUL"
+    ]
+    assert page.refresh_button.text() == "Atualizar Dashboard"
+
+
+def test_dashboard_available_year_combos_are_sorted_and_use_latest_fallback(qtbot):
+    from app.widgets.wheel_guard import WheelBlockedComboBox, WheelBlockedSpinBox
+
+    page = DashboardPage()
+    qtbot.addWidget(page)
+    page.set_available_years(
+        [2022, 2024, 2023],
+        [2023, 2021],
+        [2022, 2024, 2023],
+    )
+
+    year_filters = (
+        page.year_filter,
+        page.boe_start_year, page.boe_end_year,
+        page.target_start_year, page.target_end_year,
+    )
+    assert all(isinstance(widget, WheelBlockedComboBox) for widget in year_filters)
+    assert all(not isinstance(widget, WheelBlockedSpinBox) for widget in year_filters)
+    assert [page.year_filter.itemData(index) for index in range(3)] == [
+        2022, 2023, 2024
+    ]
+    assert page.year_filter.currentData() == 2024
+    assert [page.boe_start_year.itemData(index) for index in range(2)] == [2021, 2023]
+    assert page.boe_start_year.currentData() == 2023
+    assert page.boe_end_year.currentData() == 2023
+    assert page.target_start_year.currentData() == 2024
+    assert page.target_end_year.currentData() == 2024
+
+    page.set_available_years(
+        [2025, 2026],
+        [2025, 2026],
+        [2024, 2026],
+    )
+    assert [page.year_filter.itemData(index) for index in range(2)] == [
+        2025, 2026
+    ]
+    assert page.year_filter.currentData() == 2026
+    assert [page.boe_start_year.itemData(index) for index in range(2)] == [
+        2025, 2026
+    ]
+    assert page.boe_start_year.currentData() == 2026
+    assert page.boe_end_year.currentData() == 2026
+    assert page.target_start_year.currentData() == 2026
+    assert page.target_end_year.currentData() == 2026
+
+
+def test_dashboard_filter_layout_uses_two_rows_without_horizontal_scroll(qtbot):
+    page = DashboardPage()
+    qtbot.addWidget(page)
+
+    assert page.dashboard_scroll.horizontalScrollBarPolicy() == (
+        Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    )
+    assert page.boe_start_year.parentWidget().layout().count() == 2
+    assert page.target_start_year.parentWidget().layout().count() == 2
+    assert page.boe_entity_filter.maximumWidth() == 520
+    assert page.target_entity_filter.maximumWidth() == 520
+
+
+def test_dashboard_filter_changes_wait_for_explicit_update_button(qtbot):
+    page = DashboardPage()
+    qtbot.addWidget(page)
+
+    class ServiceStub:
+        def __init__(self):
+            self.calls = []
+
+        def get_available_years(self):
+            return {"financial_years": [2025, 2026], "boe_years": [2025, 2026], "target_years": [2025, 2026]}
+
+        def get_dashboard_data(self, year, month, **filters):
+            self.calls.append((year, month, filters))
+            return {}
+
+    service = ServiceStub()
+    controller = DashboardController(page, service)
+    page.year_filter.setCurrentIndex(page.year_filter.findData(2025))
+    page.month_filter.set_month(2)
+    page.boe_start_year.setCurrentIndex(0)
+    page.boe_end_month.set_month(7)
+    page.target_region_filter.setCurrentIndex(1)
+    page.target_indicator_filter.setCurrentIndex(1)
+    assert service.calls == []
+
+    qtbot.mouseClick(page.refresh_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(
+        lambda: len(service.calls) == 1 and controller._refresh_thread is None,
+        timeout=5000,
+    )
+    assert len(service.calls) == 1
+
+
+def test_dashboard_retries_year_loading_after_transient_bootstrap_failure(qtbot):
+    page = DashboardPage()
+    qtbot.addWidget(page)
+
+    class ServiceStub:
+        def __init__(self):
+            self.year_calls = 0
+            self.dashboard_calls = []
+
+        def get_available_years(self):
+            self.year_calls += 1
+            if self.year_calls == 1:
+                raise RuntimeError("indispon\u00edvel")
+            return {"financial_years": [2025, 2026], "boe_years": [2025, 2026], "target_years": [2026]}
+
+        def get_dashboard_data(self, year, month, **filters):
+            self.dashboard_calls.append(filters)
+            return {}
+
+    service = ServiceStub()
+    controller = DashboardController(page, service)
+    assert page.boe_start_year.count() == 0
+
+    controller.refresh()
+    qtbot.waitUntil(
+        lambda: (
+            service.year_calls == 2
+            and len(service.dashboard_calls) == 1
+            and controller._years_thread is None
+            and controller._refresh_thread is None
+        ),
+        timeout=5000,
+    )
+    assert service.year_calls == 2
+    assert page.boe_start_year.currentData() == 2026
+    assert page.target_start_year.currentData() == 2026
+    assert service.dashboard_calls[0]["boe_start_year"] == 2026
+
+
+def test_dashboard_concurrent_refresh_is_ignored_and_button_is_restored(qtbot):
+    page = DashboardPage()
+    qtbot.addWidget(page)
+    started = Event()
+    release = Event()
+
+    class SlowService:
+        def get_dashboard_data(self, year, month, **filters):
+            started.set()
+            release.wait(timeout=5)
+            return {}
+
+    controller = DashboardController(page, SlowService())
+    controller.refresh()
+    qtbot.waitUntil(started.is_set, timeout=5000)
+    assert not page.refresh_button.isEnabled()
+    controller.refresh()
+    release.set()
+    qtbot.waitUntil(lambda: controller._refresh_thread is None, timeout=5000)
+    assert page.refresh_button.isEnabled()
 
 
 def test_dashboard_hides_unauthorized_internal_areas(qtbot):
@@ -78,7 +241,7 @@ def test_dashboard_page_displays_complete_summary(qtbot):
     assert not page.boe_state.isVisible()
     assert not page.target_state.isVisible()
     assert page.finance_chart.chart().title() == "Receitas x Despesas"
-    assert page.budget_chart.chart().title() == "Orçado x Realizado"
+    assert page.budget_chart.chart().title() == "Or\u00e7ado x Realizado"
     assert page.target_chart.chart().title() == "Atingimento das Metas"
 
 
@@ -90,8 +253,8 @@ def test_dashboard_page_displays_partial_absence_without_crash(qtbot):
 
     assert page.boe_entities.text() == "0"
     assert page.boe_state.text() == "Sem dados BOE para o período."
-    assert page.target_state.text() == "Sem dados de Meta x Realizado para o período."
-    assert page.query_achievement.text() == "—"
+    assert page.target_state.text() == "Sem dados de Meta x Realizado para o per\u00edodo."
+    assert page.query_achievement.text() == "\u2014"
 
 
 def test_target_dashboard_requires_and_displays_period_contract_fields(qtbot):
@@ -175,7 +338,7 @@ def test_dashboard_month_selector_and_distribution_percentages(qtbot):
     page=DashboardPage(); qtbot.addWidget(page)
     assert page.month_filter.objectName() == "dashboardMonthFilter"
     assert page.month_filter.minimumWidth() >= 120
-    chart=page._distribution_chart("Distribuição", {"A": Decimal("25"), "B": Decimal("75")}, "Receita")
+    chart=page._distribution_chart("Distribui\u00e7\u00e3o", {"A": Decimal("25"), "B": Decimal("75")}, "Receita")
     axis=next(axis for axis in chart.axes() if hasattr(axis, "categories"))
     assert axis.categories() == ["A (25,0%)", "B (75,0%)"]
 
@@ -212,7 +375,7 @@ def test_budget_monthly_chart_uses_absolute_result_for_visual_comparison(qtbot):
     qtbot.addWidget(page)
     budgeted = abs(page.decimal("10000") - page.decimal("25000"))
     actual = abs(page.decimal("12000") - page.decimal("20000"))
-    chart = page._bar_chart("Orçado x Realizado mensal", ["1"], [("Orçado", [budgeted]), ("Realizado", [actual])])
+    chart = page._bar_chart("Or\u00e7ado x Realizado mensal", ["1"], [("Or\u00e7ado", [budgeted]), ("Realizado", [actual])])
     values = chart._dashboard_labels["series_values"]
     assert values == [[15000.0], [8000.0]]
     assert all(value >= 0 for series in values for value in series)
@@ -225,15 +388,16 @@ def test_dashboard_month_labels_use_portuguese_abbreviations(qtbot):
         "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
         "Jul", "Ago", "Set", "Out", "Nov", "Dez",
     ]
+    assert page.period_label(2025, 12) == "Dez/25"
 
 
 def test_dashboard_bar_charts_show_values_and_year_has_no_arrows(qtbot):
-    from PySide6.QtWidgets import QAbstractSpinBox
+    from PySide6.QtWidgets import QComboBox
 
     page = DashboardPage()
     qtbot.addWidget(page)
 
-    assert page.year_filter.buttonSymbols() == QAbstractSpinBox.ButtonSymbols.NoButtons
+    assert isinstance(page.year_filter, QComboBox)
 
     chart = page._bar_chart(
         "Teste", ["Jan", "Fev"], [("Receita", [10, 20])]

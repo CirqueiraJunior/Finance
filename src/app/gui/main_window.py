@@ -1,6 +1,7 @@
-from PySide6.QtCore import QThread, Slot
+from PySide6.QtCore import QEventLoop, QThread, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QInputDialog, QLineEdit, QMessageBox,
     QHBoxLayout,
     QMainWindow,
@@ -84,8 +85,14 @@ from app.services.remote_services import (
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, settings: Settings, *, api_client: APIClient | None = None,
-                 authenticated_user: AuthenticatedUser | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        api_client: APIClient | None = None,
+        authenticated_user: AuthenticatedUser | None = None,
+        api_health: dict | None = None,
+    ) -> None:
         super().__init__()
         self.setObjectName("mainWindow")
         apply_window_icon(self)
@@ -93,11 +100,22 @@ class MainWindow(QMainWindow):
         self.resize(1200, 760)
         self.setMinimumSize(900, 600)
 
+        def _startup_yield() -> None:
+            QApplication.processEvents(
+                QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+            )
+
+        _startup_yield()
         boe_page = BoePage()
+        _startup_yield()
         financeiro_page = FinanceiroPage()
+        _startup_yield()
         orcamento_page = OrcamentoPage()
+        _startup_yield()
         metas_page = MetasPage()
+        _startup_yield()
         dashboard_page = DashboardPage()
+        _startup_yield()
         initial_role = authenticated_user.perfil if authenticated_user else "ADMINISTRADOR"
         self._authenticated_role = initial_role
         dashboard_areas = (
@@ -105,8 +123,11 @@ class MainWindow(QMainWindow):
         )
         dashboard_page.set_allowed_areas(dashboard_areas)
         relatorios_page = RelatoriosPage()
+        _startup_yield()
         cadastros_page = CadastrosPage()
+        _startup_yield()
         administracao_page = AdministracaoPage()
+        _startup_yield()
         self._update_service = UpdateService()
         self._update_thread: QThread | None = None
         self._update_worker: OperationWorker | None = None
@@ -121,7 +142,7 @@ class MainWindow(QMainWindow):
 
         self._boe_session = None
         self._historical_import_service = None
-        self._api_health = api_client.health() if api_client is not None else None
+        self._api_health = api_health if api_client is not None else None
         if api_client is not None:
             cashflow_service = RemoteCashflowService(api_client)
             investment_service = RemoteInvestmentService(api_client)
@@ -131,30 +152,37 @@ class MainWindow(QMainWindow):
             catalog_service = RemoteCatalogService(api_client)
             target_service = RemoteTargetService(api_client)
             self._boe_controller = BOEController(boe_page, boe_service)
+            _startup_yield()
             self._cashflow_controller = CashflowController(
                 financeiro_page, cashflow_service, investment_service,
                 financial_flow=financial_flow,
                 catalog_service=catalog_service,
                 import_service=cashflow_service,
             )
+            _startup_yield()
             self._budget_controller = BudgetController(
                 orcamento_page, budget_service, catalog_service)
+            _startup_yield()
             self._target_controller = TargetController(
                 metas_page, target_service, RemoteRankingService(api_client))
+            _startup_yield()
             self._remote_dashboard_service = RemoteDashboardService(
                 api_client, dashboard_areas
             )
             self._dashboard_controller = DashboardController(
                 dashboard_page, self._remote_dashboard_service)
+            _startup_yield()
             self._cashflow_controller.import_completed.connect(
                 self._dashboard_controller.refresh
             )
             self._report_controller = ReportController(
                 relatorios_page, RemoteReportService(api_client), RemoteCSVService(api_client))
+            _startup_yield()
             self._registration_controller = RemoteRegistrationController(
                 cadastros_page, api_client,
                 allowed_areas=allowed_registration_areas(initial_role),
             )
+            _startup_yield()
             administracao_page.logs_button.setEnabled(False)
             administracao_page.backup_button.setEnabled(False)
             historical_enabled = bool(
@@ -311,6 +339,7 @@ class MainWindow(QMainWindow):
         connection = "Servidor conectado" if api_client else "Modo local de desenvolvimento"
         status.showMessage(f"Ambiente: {settings.app_env} | {connection} | Pronto")
         self.setStatusBar(status)
+        _startup_yield()
 
         if authenticated_user is not None:
             self._apply_desktop_permissions(initial_role)

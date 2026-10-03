@@ -325,6 +325,8 @@ class RemoteDashboardService:
     def __init__(self, api, areas=None):
         self.api = api
         self.areas = set(areas or {"financial", "boe", "targets"})
+    def get_available_years(self):
+        return self.api.get("/api/v1/dashboard/years")
     def get_dashboard_data(self, year, month, **filters):
         result = {}
         if "financial" in self.areas:
@@ -335,22 +337,32 @@ class RemoteDashboardService:
                 path += f"&entry_type={filters['entry_type']}"
             result["financial"] = self.api.get(path)
         if "boe" in self.areas:
-            path = f"/api/v1/dashboard/boe?year={year}"
-            if filters.get("boe_start_month"):
-                path += f"&start_month={filters['boe_start_month']}"
-            if filters.get("boe_end_month"):
-                path += f"&end_month={filters['boe_end_month']}"
+            start_year = filters.get("boe_start_year", year)
+            start_month = filters.get("boe_start_month", month)
+            end_year = filters.get("boe_end_year", year)
+            end_month = filters.get("boe_end_month", month)
+            path = (
+                "/api/v1/dashboard/boe"
+                f"?start_year={start_year}&start_month={start_month}"
+                f"&end_year={end_year}&end_month={end_month}"
+            )
             if filters.get("boe_entity_id"):
                 path += f"&entity_id={filters['boe_entity_id']}"
             result["boe"] = self.api.get(path)
         if "targets" in self.areas:
             indicator = filters.get("indicator", "TODAS")
-            path = (f"/api/v1/dashboard/targets?year={year}"
-                    f"&indicator={indicator}")
-            if filters.get("target_start_month"):
-                path += f"&start_month={filters['target_start_month']}"
-            if filters.get("target_end_month"):
-                path += f"&end_month={filters['target_end_month']}"
+            start_year = filters.get("target_start_year", year)
+            start_month = filters.get("target_start_month", month)
+            end_year = filters.get("target_end_year", year)
+            end_month = filters.get("target_end_month", month)
+            path = (
+                "/api/v1/dashboard/targets"
+                f"?start_year={start_year}&start_month={start_month}"
+                f"&end_year={end_year}&end_month={end_month}"
+                f"&indicator={indicator}"
+            )
+            if filters.get("region"):
+                path += f"&region={filters['region']}"
             if filters.get("target_entity_id"):
                 path += f"&entity_id={filters['target_entity_id']}"
             result["targets"] = self.api.get(path)
