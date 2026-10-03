@@ -68,9 +68,18 @@ class DashboardRepository:
             "target_years": target_years,
         }
 
-    def financial_year(self, year: int, category: str | None = None,
-                       entry_type: str | None = None) -> dict:
+    def financial_period(
+        self, start_year: int, start_month: int,
+        end_year: int, end_month: int,
+        category: str | None = None,
+        entry_type: str | None = None,
+    ) -> dict:
+        start_key = start_year * 100 + start_month
+        end_key = end_year * 100 + end_month
+
+        cash_period = CashflowEntry.periodo_ano * 100 + CashflowEntry.periodo_mes
         cash = select(
+            CashflowEntry.periodo_ano,
             CashflowEntry.periodo_mes,
             func.sum(case((CashflowEntry.categoria == "RECEITA_INDIRETA",
                            CashflowEntry.valor), else_=0)).label("indirect"),
@@ -79,104 +88,164 @@ class DashboardRepository:
             func.sum(case(((CashflowEntry.tipo == "DESPESA") & CashflowEntry.boe,
                            CashflowEntry.valor), else_=0)).label("boe_expense"),
         ).where(
-            CashflowEntry.periodo_ano == year,
+            cash_period.between(start_key, end_key),
             CashflowEntry.categoria != "RECEITA_DIRETA",
         )
         if category:
             cash = cash.where(CashflowEntry.categoria == category)
         if entry_type:
             cash = cash.where(CashflowEntry.tipo == entry_type)
-        cash = cash.group_by(CashflowEntry.periodo_mes)
-        cash_rows = {row.periodo_mes: row for row in self.session.execute(cash)}
+        cash_rows = {
+            (row.periodo_ano, row.periodo_mes): row
+            for row in self.session.execute(
+                cash.group_by(CashflowEntry.periodo_ano, CashflowEntry.periodo_mes)
+            )
+        }
 
+        investment_period = InvestmentMovement.periodo_ano * 100 + InvestmentMovement.periodo_mes
         investments = select(
+            InvestmentMovement.periodo_ano,
             InvestmentMovement.periodo_mes,
             func.sum(case((InvestmentMovement.tipo == "APLICACAO",
                            InvestmentMovement.valor), else_=0)).label("applications"),
             func.sum(case((InvestmentMovement.tipo == "RESGATE",
                            InvestmentMovement.valor), else_=0)).label("redemptions"),
-        ).where(InvestmentMovement.periodo_ano == year).group_by(
-            InvestmentMovement.periodo_mes
+        ).where(
+            investment_period.between(start_key, end_key)
+        ).group_by(
+            InvestmentMovement.periodo_ano, InvestmentMovement.periodo_mes
         )
-        investment_rows = {row.periodo_mes: row for row in self.session.execute(investments)}
+        investment_rows = {
+            (row.periodo_ano, row.periodo_mes): row
+            for row in self.session.execute(investments)
+        }
 
+        budget_period = BudgetEntry.periodo_ano * 100 + BudgetEntry.periodo_mes
         budget = select(
-            BudgetEntry.periodo_mes, BudgetEntry.tipo,
+            BudgetEntry.periodo_ano, BudgetEntry.periodo_mes, BudgetEntry.tipo,
             func.sum(BudgetEntry.valor_orcado).label("value"),
-        ).where(BudgetEntry.periodo_ano == year)
+        ).where(budget_period.between(start_key, end_key))
         if category:
             budget = budget.where(BudgetEntry.categoria == category)
         if entry_type:
             budget = budget.where(BudgetEntry.tipo == entry_type)
         budget_rows = defaultdict(lambda: {"RECEITA": ZERO, "DESPESA": ZERO})
-        for row in self.session.execute(budget.group_by(BudgetEntry.periodo_mes,
-                                                        BudgetEntry.tipo)):
-            budget_rows[row.periodo_mes][row.tipo] = row.value
+        for row in self.session.execute(
+            budget.group_by(
+                BudgetEntry.periodo_ano, BudgetEntry.periodo_mes, BudgetEntry.tipo
+            )
+        ):
+            budget_rows[(row.periodo_ano, row.periodo_mes)][row.tipo] = row.value
 
-        source = select(BOEImport.periodo_ano, BOEImport.periodo_mes,
-                        BOEImport.valor_total).where(
+        if start_month == 1:
+            source_start_year, source_start_month = start_year - 1, 12
+        else:
+            source_start_year, source_start_month = start_year, start_month - 1
+        if end_month == 1:
+            source_end_year, source_end_month = end_year - 1, 12
+        else:
+            source_end_year, source_end_month = end_year, end_month - 1
+
+        source_period = BOEImport.periodo_ano * 100 + BOEImport.periodo_mes
+        source = select(
+            BOEImport.periodo_ano, BOEImport.periodo_mes, BOEImport.valor_total
+        ).where(
             BOEImport.status == "imported",
-            ((BOEImport.periodo_ano == year) |
-             ((BOEImport.periodo_ano == year - 1) & (BOEImport.periodo_mes == 12))),
+            source_period.between(
+                source_start_year * 100 + source_start_month,
+                source_end_year * 100 + source_end_month,
+            ),
         )
+
         direct = {}
         if category in (None, "RECEITA_DIRETA") and entry_type in (None, "RECEITA"):
             for row in self.session.execute(source):
-                competence = 1 if row.periodo_mes == 12 else row.periodo_mes + 1
-                competence_year = (
-                    row.periodo_ano + 1
-                    if row.periodo_mes == 12
-                    else row.periodo_ano
+                competence_year = row.periodo_ano + (1 if row.periodo_mes == 12 else 0)
+                competence_month = 1 if row.periodo_mes == 12 else row.periodo_mes + 1
+                competence_key = competence_year * 100 + competence_month
+                if start_key <= competence_key <= end_key:
+                    direct[(competence_year, competence_month)] = row.valor_total
+
+            historical_period = CashflowEntry.periodo_ano * 100 + CashflowEntry.periodo_mes
+            historical_query = (
+                select(
+                    CashflowEntry.periodo_ano,
+                    CashflowEntry.periodo_mes,
+                    func.sum(CashflowEntry.valor).label("value"),
                 )
-                if competence_year == year:
-                    direct[competence] = row.valor_total
-
-            if year <= 2026:
-                historical_query = (
-                    select(
-                        CashflowEntry.periodo_mes,
-                        func.sum(CashflowEntry.valor).label("value"),
-                    )
-                    .where(
-                        CashflowEntry.periodo_ano == year,
-                        CashflowEntry.categoria == "RECEITA_DIRETA",
-                        CashflowEntry.origem == "MANUAL",
-                    )
-                    .group_by(CashflowEntry.periodo_mes)
+                .where(
+                    historical_period.between(start_key, end_key),
+                    historical_period <= 202601,
+                    CashflowEntry.categoria == "RECEITA_DIRETA",
+                    CashflowEntry.origem == "MANUAL",
+                )
+                .group_by(CashflowEntry.periodo_ano, CashflowEntry.periodo_mes)
+            )
+            for historical_row in self.session.execute(historical_query):
+                direct.setdefault(
+                    (historical_row.periodo_ano, historical_row.periodo_mes),
+                    historical_row.value,
                 )
 
-                for historical_row in self.session.execute(historical_query):
-                    if (year, historical_row.periodo_mes) > (2026, 1):
-                        continue
-                    direct.setdefault(
-                        historical_row.periodo_mes,
-                        historical_row.value,
-                    )
-
+        applied_period = FinancialBalanceEntry.year * 100 + FinancialBalanceEntry.month
         applied = {
-            row.month: row.value for row in self.session.execute(select(
-                FinancialBalanceEntry.month, FinancialBalanceEntry.value
-            ).where(FinancialBalanceEntry.year == year,
-                    FinancialBalanceEntry.balance_type == "SALDO_APLICADO"))
+            (row.year, row.month): row.value
+            for row in self.session.execute(
+                select(
+                    FinancialBalanceEntry.year,
+                    FinancialBalanceEntry.month,
+                    FinancialBalanceEntry.value,
+                ).where(
+                    applied_period.between(start_key, end_key),
+                    FinancialBalanceEntry.balance_type == "SALDO_APLICADO",
+                )
+            )
         }
+
         distributions = {"revenue": defaultdict(Decimal), "expense": defaultdict(Decimal)}
         distribution_query = select(
             CashflowEntry.tipo, CashflowEntry.categoria,
             func.sum(CashflowEntry.valor).label("value"),
-        ).where(CashflowEntry.periodo_ano == year,
-                CashflowEntry.categoria != "RECEITA_DIRETA")
+        ).where(
+            cash_period.between(start_key, end_key),
+            CashflowEntry.categoria != "RECEITA_DIRETA",
+        )
         if category:
             distribution_query = distribution_query.where(CashflowEntry.categoria == category)
         if entry_type:
             distribution_query = distribution_query.where(CashflowEntry.tipo == entry_type)
-        for row in self.session.execute(distribution_query.group_by(
-                CashflowEntry.tipo, CashflowEntry.categoria)):
+        for row in self.session.execute(
+            distribution_query.group_by(CashflowEntry.tipo, CashflowEntry.categoria)
+        ):
             distributions["revenue" if row.tipo == "RECEITA" else "expense"][row.categoria] += row.value
         if direct:
             distributions["revenue"]["RECEITA_DIRETA"] = sum(direct.values(), ZERO)
-        return {"cash": cash_rows, "investments": investment_rows,
-                "budget": budget_rows, "direct": direct, "applied": applied,
-                "distributions": distributions}
+
+        return {
+            "cash": cash_rows,
+            "investments": investment_rows,
+            "budget": budget_rows,
+            "direct": direct,
+            "applied": applied,
+            "distributions": distributions,
+        }
+
+    def financial_year(
+        self, year: int, category: str | None = None,
+        entry_type: str | None = None,
+    ) -> dict:
+        period = self.financial_period(year, 1, year, 12, category, entry_type)
+        return {
+            "cash": {m: v for (y, m), v in period["cash"].items() if y == year},
+            "investments": {m: v for (y, m), v in period["investments"].items() if y == year},
+            "budget": defaultdict(
+                lambda: {"RECEITA": ZERO, "DESPESA": ZERO},
+                {m: v for (y, m), v in period["budget"].items() if y == year},
+            ),
+            "direct": {m: v for (y, m), v in period["direct"].items() if y == year},
+            "applied": {m: v for (y, m), v in period["applied"].items() if y == year},
+            "distributions": period["distributions"],
+        }
 
     def boe_period(
         self, start_year: int, start_month: int,

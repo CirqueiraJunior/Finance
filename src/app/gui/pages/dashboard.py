@@ -155,13 +155,25 @@ class DashboardPage(QWidget):
             "Visão consolidada dos módulos homologados, sem novos cálculos de domínio."
         )
         description.setObjectName("pageDescription")
-        self.year_filter = WheelBlockedComboBox()
-        self.year_filter.setFixedWidth(88)
-        self.month_filter = MonthComboBox()
-        self.month_filter.setObjectName("dashboardMonthFilter")
-        self.month_filter.setMinimumWidth(120)
-        self.month_filter.setMaximumWidth(150)
-        self.month_filter.set_month(date.today().month)
+        self.financial_start_year = WheelBlockedComboBox()
+        self.financial_start_year.setFixedWidth(88)
+        self.financial_start_month = MonthComboBox()
+        self.financial_start_month.setObjectName("dashboardFinancialStartMonthFilter")
+        self.financial_start_month.setMinimumWidth(120)
+        self.financial_start_month.setMaximumWidth(150)
+        self.financial_start_month.set_month(date.today().month)
+
+        self.financial_end_year = WheelBlockedComboBox()
+        self.financial_end_year.setFixedWidth(88)
+        self.financial_end_month = MonthComboBox()
+        self.financial_end_month.setObjectName("dashboardMonthFilter")
+        self.financial_end_month.setMinimumWidth(120)
+        self.financial_end_month.setMaximumWidth(150)
+        self.financial_end_month.set_month(date.today().month)
+
+        # Compatibilidade com o contrato anterior da página/controlador/testes.
+        self.year_filter = self.financial_end_year
+        self.month_filter = self.financial_end_month
         self.refresh_button = PrimaryButton("Atualizar Dashboard")
         self.boe_refresh_button = PrimaryButton("Atualizar Dashboard")
         self.target_refresh_button = PrimaryButton("Atualizar Dashboard")
@@ -189,10 +201,13 @@ class DashboardPage(QWidget):
         layout.addWidget(self.tabs)
 
         finance_filters = QHBoxLayout()
-        finance_filters.addWidget(QLabel("Ano"))
-        finance_filters.addWidget(self.year_filter)
-        finance_filters.addWidget(QLabel("Mês"))
-        finance_filters.addWidget(self.month_filter)
+        finance_filters.addWidget(QLabel("De"))
+        finance_filters.addWidget(self.financial_start_year)
+        finance_filters.addWidget(self.financial_start_month)
+        finance_filters.addSpacing(8)
+        finance_filters.addWidget(QLabel("Até"))
+        finance_filters.addWidget(self.financial_end_year)
+        finance_filters.addWidget(self.financial_end_month)
         finance_filters.addSpacing(18)
         self.finance_category_filter = WheelBlockedComboBox()
         self.finance_category_filter.addItem("Todas as categorias", None)
@@ -455,6 +470,10 @@ class DashboardPage(QWidget):
         return {
             "category": self.finance_category_filter.currentData(),
             "entry_type": self.finance_type_filter.currentData(),
+            "financial_start_year": self.financial_start_year.currentData(),
+            "financial_start_month": self.financial_start_month.month(),
+            "financial_end_year": self.financial_end_year.currentData(),
+            "financial_end_month": self.financial_end_month.month(),
             "boe_entity_id": self.boe_entity_filter.currentData(),
             "boe_start_year": self.boe_start_year.currentData(),
             "boe_start_month": self.boe_start_month.month(),
@@ -476,7 +495,8 @@ class DashboardPage(QWidget):
         target_years: list[int],
     ) -> None:
         self._set_year_options(
-            (self.year_filter, self.year_filter), financial_years
+            (self.financial_start_year, self.financial_end_year),
+            financial_years,
         )
         self._set_year_options(
             (self.boe_start_year, self.boe_end_year), boe_years
@@ -762,12 +782,14 @@ class DashboardPage(QWidget):
         return self.year_filter.currentData(), self.month_filter.currentData()
 
     def set_period(self, year: int, month: int) -> None:
-        index = self.year_filter.findData(year)
-        if index < 0:
-            self.year_filter.addItem(str(year), year)
-            index = self.year_filter.findData(year)
-        self.year_filter.setCurrentIndex(index)
-        self.month_filter.set_month(month)
+        for widget in (self.financial_start_year, self.financial_end_year):
+            index = widget.findData(year)
+            if index < 0:
+                widget.addItem(str(year), year)
+                index = widget.findData(year)
+            widget.setCurrentIndex(index)
+        self.financial_start_month.set_month(month)
+        self.financial_end_month.set_month(month)
 
     def show_summary(self, summary: DashboardSummary) -> None:
         financial = summary.financial

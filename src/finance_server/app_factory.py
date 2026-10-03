@@ -1667,7 +1667,10 @@ def create_app(
 
     @app.get("/api/v1/dashboard/financial")
     def dashboard_financial(
-        year: int, month: int, category: str | None = None,
+        year: int, month: int,
+        start_year: int | None = None, start_month: int | None = None,
+        end_year: int | None = None, end_month: int | None = None,
+        category: str | None = None,
         entry_type: str | None = None,
         user: User = Depends(require("cashflow:read")),
         db: Session = Depends(get_db),
@@ -1677,7 +1680,11 @@ def create_app(
         _, _, boe, budget, targets, ranking_service, flow = domain_services(db)
         return jsonable_encoder(
             DashboardService(flow, boe, budget, targets, ranking_service)
-            .get_financial_dashboard(year, month, category, entry_type)
+            .get_financial_dashboard(
+                year, month, category, entry_type,
+                start_year=start_year, start_month=start_month,
+                end_year=end_year, end_month=end_month,
+            )
         )
 
     @app.get("/api/v1/dashboard/years")

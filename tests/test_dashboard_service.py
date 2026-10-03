@@ -20,6 +20,7 @@ from app.services.boe_service import BOEService
 from app.services.budget_service import BudgetService
 from app.services.cashflow_service import CashflowService
 from app.services.dashboard_service import DashboardService
+from app.models.financial_balance_entry import FinancialBalanceEntry
 from app.services.financial_flow_service import FinancialFlowService
 from app.services.investment_service import InvestmentService
 from app.services.target_service import TargetService
@@ -276,7 +277,7 @@ def test_targets_association_zero_boundaries_are_safe(db_session):
     assert final_zero["average_ticket"] is None
 
 
-def test_remote_dashboard_uses_global_month_only_for_financial():
+def test_remote_dashboard_serializes_explicit_periods_for_all_areas():
     from app.services.remote_services import RemoteDashboardService
 
     class API:
@@ -290,6 +291,10 @@ def test_remote_dashboard_uses_global_month_only_for_financial():
     api = API()
     service = RemoteDashboardService(api)
     filters = {
+        "financial_start_year": 2025,
+        "financial_start_month": 12,
+        "financial_end_year": 2026,
+        "financial_end_month": 1,
         "boe_start_year": 2025,
         "boe_start_month": 2,
         "boe_end_year": 2026,
@@ -305,19 +310,15 @@ def test_remote_dashboard_uses_global_month_only_for_financial():
     }
 
     service.get_dashboard_data(2026, 1, **filters)
-    first_paths = tuple(api.paths)
-    api.paths.clear()
-    service.get_dashboard_data(2026, 12, **filters)
-    second_paths = tuple(api.paths)
+    paths = tuple(api.paths)
 
-    assert "month=1" in first_paths[0]
-    assert "month=12" in second_paths[0]
-    assert first_paths[1:] == second_paths[1:]
-    assert all("&month=" not in path and "?month=" not in path
-               for path in first_paths[1:])
-    assert "start_year=2025" in first_paths[1]
-    assert "end_year=2026" in first_paths[1]
-    assert "region=NORTE" in first_paths[2]
+    assert "start_year=2025" in paths[0]
+    assert "start_month=12" in paths[0]
+    assert "end_year=2026" in paths[0]
+    assert "end_month=1" in paths[0]
+    assert "start_year=2025" in paths[1]
+    assert "end_year=2026" in paths[1]
+    assert "region=NORTE" in paths[2]
 
 
 def test_remote_dashboard_loads_available_years_from_dedicated_endpoint():
@@ -394,6 +395,96 @@ def _add_multiyear_dashboard_data(db_session):
             ))
     db_session.commit()
     return north_a, north_b, south
+
+
+def test_financial_dashboard_cross_year_aggregates_period_and_uses_boundary_balances(
+    db_session,
+):
+    dashboard, cashflow, _, _, budget, _ = make_services(db_session)
+
+    db_session.add_all([
+        FinancialBalanceEntry(
+            year=2025, month=12, balance_type="SALDO_INICIAL",
+            value=Decimal("1000.0000"), description="Saldo Inicial",
+        ),
+        FinancialBalanceEntry(
+            year=2026, month=1, balance_type="SALDO_APLICADO",
+            value=Decimal("900.0000"), description="Saldo Aplicado",
+        ),
+        BOEImport(
+            periodo_ano=2025, periodo_mes=11,
+            nome_arquivo="BOE-2025-11.xlsx",
+            caminho_origem="C:/fonte/BOE-2025-11.xlsx",
+            hash_arquivo="fin202511".ljust(64, "0"),
+            quantidade_entidades=1, quantidade_inconsistencias=0,
+            valor_total=Decimal("100.0000"), status="imported",
+        ),
+        BOEImport(
+            periodo_ano=2025, periodo_mes=12,
+            nome_arquivo="BOE-2025-12.xlsx",
+            caminho_origem="C:/fonte/BOE-2025-12.xlsx",
+            hash_arquivo="fin202512".ljust(64, "0"),
+            quantidade_entidades=1, quantidade_inconsistencias=0,
+            valor_total=Decimal("200.0000"), status="imported",
+        ),
+    ])
+    db_session.commit()
+
+    cashflow.create_indirect_revenue(
+        year=2025, month=12, entry_date=date(2025, 12, 10),
+        description="Receita 2025", value="10.0000", boe=False,
+    )
+    cashflow.create_expense(
+        year=2025, month=12, entry_date=date(2025, 12, 11),
+        description="Despesa 2025", category="ADMINISTRATIVO",
+        value="3.0000",
+    )
+    cashflow.create_indirect_revenue(
+        year=2026, month=1, entry_date=date(2026, 1, 10),
+        description="Receita 2026", value="20.0000", boe=False,
+    )
+    cashflow.create_expense(
+        year=2026, month=1, entry_date=date(2026, 1, 11),
+        description="Despesa 2026", category="ADMINISTRATIVO",
+        value="4.0000",
+    )
+    budget.create_budget(
+        year=2025, month=12, entry_type="RECEITA",
+        category="RECEITA_INDIRETA", budgeted_value="100.0000",
+    )
+    budget.create_budget(
+        year=2025, month=12, entry_type="DESPESA",
+        category="ADMINISTRATIVO", budgeted_value="10.0000",
+    )
+    budget.create_budget(
+        year=2026, month=1, entry_type="RECEITA",
+        category="RECEITA_INDIRETA", budgeted_value="200.0000",
+    )
+    budget.create_budget(
+        year=2026, month=1, entry_type="DESPESA",
+        category="ADMINISTRATIVO", budgeted_value="20.0000",
+    )
+
+    result = dashboard.get_financial_dashboard(
+        2026, 1,
+        start_year=2025, start_month=12,
+        end_year=2026, end_month=1,
+    )
+
+    assert [(row["year"], row["month"]) for row in result["monthly"]] == [
+        (2025, 12), (2026, 1)
+    ]
+    assert result["kpis"]["opening_balance"] == Decimal("1000.0000")
+    assert result["kpis"]["direct_revenue"] == Decimal("300.0000")
+    assert result["kpis"]["indirect_revenue"] == Decimal("30.0000")
+    assert result["kpis"]["total_revenue"] == Decimal("330.0000")
+    assert result["kpis"]["total_expense"] == Decimal("7.0000")
+    assert result["kpis"]["bank_balance"] == Decimal("1323.0000")
+    assert result["kpis"]["applied_balance"] == Decimal("900.0000")
+    assert result["budget"]["budgeted_revenue"] == Decimal("300.0000")
+    assert result["budget"]["budgeted_expense"] == Decimal("30.0000")
+    assert result["budget"]["actual_revenue"] == Decimal("330.0000")
+    assert result["budget"]["actual_expense"] == Decimal("7.0000")
 
 
 def test_boe_dashboard_cross_year_uses_composite_period_and_serializes_year(db_session):
