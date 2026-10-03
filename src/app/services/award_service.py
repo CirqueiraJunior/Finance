@@ -11,6 +11,11 @@ class AwardService:
         2: Decimal("2000.00"),
         3: Decimal("1000.00"),
     }
+    AWARDS_2025 = {
+        "FATURAMENTO": Decimal("1000.00"),
+        "ASSOCIADOS": Decimal("2500.00"),
+        "TICKET_MEDIO": Decimal("5000.00"),
+    }
 
     @classmethod
     def value_for_position(
@@ -23,3 +28,7 @@ class AwardService:
             2: parameters.second_place_award,
             3: parameters.third_place_award,
         }.get(position)
+
+    @classmethod
+    def value_for_2025_category(cls, category: str, position: int) -> Decimal | None:
+        return cls.AWARDS_2025.get(category) if position == 1 else None
