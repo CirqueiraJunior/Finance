@@ -1,6 +1,6 @@
 from weakref import ref
 
-from PySide6.QtCore import QObject, QThread, Slot
+from PySide6.QtCore import QObject, QThread, QTimer, Slot
 from shiboken6 import isValid
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -102,7 +102,10 @@ class DashboardController(QObject):
             self._years_retry_on_finish = False
             pending_areas = self._pending_refresh_areas
             self._pending_refresh_areas = None
-            self.refresh(pending_areas)
+            QTimer.singleShot(
+                0,
+                lambda areas=pending_areas: self.refresh(areas),
+            )
             return
 
         if (
@@ -111,7 +114,10 @@ class DashboardController(QObject):
             and self._years_retry_on_finish
         ):
             self._years_retry_on_finish = False
-            self._start_available_years_load()
+            QTimer.singleShot(
+                0,
+                self._start_available_years_load,
+            )
 
     def refresh(self, areas: set[str] | None = None) -> None:
         if self._refresh_active:
