@@ -135,7 +135,7 @@ def main() -> int:
             if dashboard_controller is not None:
                 QTimer.singleShot(
                     250,
-                    dashboard_controller.refresh,
+                    lambda: dashboard_controller.refresh({"financial"}),
                 )
         finally:
             loading.accept()

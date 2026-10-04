@@ -233,6 +233,45 @@ def test_targets_dashboard_period_aggregates_all_indicators_and_associations(db_
     assert filtered["average_ticket"] == Decimal("22.62857142857142857142857143")
 
 
+def test_targets_dashboard_carries_positions_and_ranking_to_requested_future_month(
+    db_session,
+):
+    dashboard, *_ = make_services(db_session)
+    entity = _add_period_dashboard_data(db_session)[0]
+
+    class Ranking:
+        def __init__(self):
+            self.called = None
+
+        def quarterly(self, year, quarter):
+            self.called = (year, quarter)
+            return []
+
+    dashboard.ranking = Ranking()
+
+    result = dashboard.get_targets_dashboard(
+        2026,
+        entity.id,
+        "TODAS",
+        2,
+        10,
+    )
+
+    assert result["associations"] == Decimal("35.0000")
+    assert result["average_ticket"] == Decimal(
+        "22.62857142857142857142857143"
+    )
+    assert result["association_variation_percentage"] == Decimal("250")
+    assert result["data_available_through"] == {
+        "year": 2026,
+        "month": 7,
+    }
+    assert dashboard.ranking.called == (2026, 3)
+    assert result["monthly"][-1]["month"] == 10
+    assert result["monthly"][-1]["queries_actual"] == Decimal("0.0000")
+    assert result["monthly"][-1]["registrations_actual"] == Decimal("0.0000")
+
+
 def test_targets_dashboard_respects_indicator_and_entity_over_period(db_session):
     dashboard, *_ = make_services(db_session)
     entity = _add_period_dashboard_data(db_session)[0]
@@ -468,12 +507,18 @@ def test_financial_dashboard_cross_year_aggregates_period_and_uses_boundary_bala
     result = dashboard.get_financial_dashboard(
         2026, 1,
         start_year=2025, start_month=12,
-        end_year=2026, end_month=1,
+        end_year=2026, end_month=3,
     )
 
     assert [(row["year"], row["month"]) for row in result["monthly"]] == [
-        (2025, 12), (2026, 1)
+        (2025, 12), (2026, 1), (2026, 2), (2026, 3)
     ]
+    assert result["monthly"][-1]["revenue"] == Decimal("0.0000")
+    assert result["monthly"][-1]["expense"] == Decimal("0.0000")
+    assert result["monthly"][-1]["applications"] == Decimal("0.0000")
+    assert result["monthly"][-1]["redemptions"] == Decimal("0.0000")
+    assert result["monthly"][-1]["bank_balance"] == Decimal("1323.0000")
+    assert result["data_available_through"] == {"year": 2026, "month": 1}
     assert result["kpis"]["opening_balance"] == Decimal("1000.0000")
     assert result["kpis"]["direct_revenue"] == Decimal("300.0000")
     assert result["kpis"]["indirect_revenue"] == Decimal("30.0000")

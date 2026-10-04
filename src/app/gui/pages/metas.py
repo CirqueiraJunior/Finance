@@ -14,6 +14,7 @@ from app.models.target_entry import TargetEntry, TargetIndicator
 from app.services.target_service import TargetVsActual
 from app.services.ranking_service import AnnualRankingEntry, RankingEntry
 from app.widgets import BrazilianDecimalEdit, MonthComboBox
+from app.widgets.year_combo import populate_year_combo
 
 
 class EntityMultiSelectCombo(WheelBlockedComboBox):
@@ -184,9 +185,8 @@ class MetasPage(QWidget):
         description.setObjectName("pageDescription")
 
         filters = QHBoxLayout()
-        self.year_filter = WheelBlockedSpinBox()
-        self.year_filter.setRange(2000, 9999)
-        self.year_filter.setValue(date.today().year)
+        self.year_filter = WheelBlockedComboBox()
+        self.year_filter.setEnabled(False)
         self.month_filter = MonthComboBox()
         self.month_filter.set_month(date.today().month)
         self.indicator_filter = WheelBlockedComboBox()
@@ -195,6 +195,7 @@ class MetasPage(QWidget):
         self.indicator_filter.addItem("Registros", TargetIndicator.REGISTRATIONS.value)
         self.entity_filter = EntityMultiSelectCombo()
         self.filter_button = QPushButton("Aplicar filtro")
+        self.filter_button.setEnabled(False)
         self.filter_button.setProperty("buttonRole", "toolbar")
         self.new_button = QPushButton("Nova Meta")
         self.new_button.setProperty("buttonRole", "primary")
@@ -282,13 +283,13 @@ class MetasPage(QWidget):
         self.ranking_tab = QWidget()
         ranking_layout = QVBoxLayout(self.ranking_tab)
         ranking_filters = QHBoxLayout()
-        self.ranking_year = WheelBlockedSpinBox()
-        self.ranking_year.setRange(2000, 9999)
-        self.ranking_year.setValue(date.today().year)
+        self.ranking_year = WheelBlockedComboBox()
+        self.ranking_year.setEnabled(False)
         self.ranking_quarter = WheelBlockedComboBox()
         for quarter in range(1, 5):
             self.ranking_quarter.addItem(f"{quarter}º Trimestre", quarter)
         self.ranking_refresh = QPushButton("Atualizar ranking")
+        self.ranking_refresh.setEnabled(False)
         self.ranking_refresh.setProperty("buttonRole", "info")
         self.ranking_entity = WheelBlockedComboBox()
         self.ranking_entity.addItem("Todas as Entidades", None)
@@ -403,9 +404,19 @@ class MetasPage(QWidget):
 
     def selected_filters(self) -> tuple[int, int, str, tuple[int, ...] | None]:
         return (
-            self.year_filter.value(), self.month_filter.currentData(),
+            self.year_filter.currentData(), self.month_filter.currentData(),
             self.indicator_filter.currentData(), self.entity_filter.selected_ids(),
         )
+
+    def set_available_years(
+        self, target_years: list[int], ranking_years: list[int]
+    ) -> None:
+        target = populate_year_combo(self.year_filter, target_years)
+        ranking = populate_year_combo(self.ranking_year, ranking_years)
+        self.filter_button.setEnabled(target is not None)
+        self.ranking_refresh.setEnabled(ranking is not None)
+        if target is None:
+            self.set_status("Nenhum ano de Metas ou Associação disponível.", error=True)
 
     def show_result(self, result: TargetVsActual) -> None:
         self.table.setRowCount(len(result.comparisons))

@@ -1068,6 +1068,14 @@ def create_app(
             "position": position,
         })
 
+    @app.get("/api/v1/financial-flow/years")
+    def financial_flow_years(
+        user: User = Depends(require("cashflow:read")),
+        db: Session = Depends(get_db),
+    ):
+        *_, flow = domain_services(db)
+        return {"years": flow.available_years()}
+
     def financial_import_response(validation):
         return jsonable_encoder({
             "file_name": validation.file_name,
@@ -1271,6 +1279,13 @@ def create_app(
         items = service.list_by_year(year) if month is None else service.list_by_period(year, month)
         return jsonable_encoder({"items": items, "comparison": service.get_budget_vs_actual(year, month)})
 
+    @app.get("/api/v1/budgets/years")
+    def budget_years(
+        user: User = Depends(require("budget:read")),
+        db: Session = Depends(get_db),
+    ):
+        return {"years": domain_services(db)[3].available_years()}
+
     @app.post("/api/v1/budgets", response_model=BudgetResponse, status_code=201)
     def create_budget(payload: BudgetCreate, user: User = Depends(require("budget:write")),
                       db: Session = Depends(get_db)):
@@ -1443,6 +1458,13 @@ def create_app(
         return jsonable_encoder({"entities": service.list_entities(),
                                  "comparison": service.get_target_vs_actual(year, month, indicator, entity_id)})
 
+    @app.get("/api/v1/targets/years")
+    def target_years(
+        user: User = Depends(require("targets:read")),
+        db: Session = Depends(get_db),
+    ):
+        return {"years": domain_services(db)[4].available_years()}
+
     def target_import_response(validation):
         return jsonable_encoder({
             "metadata": {
@@ -1603,6 +1625,26 @@ def create_app(
         except RankingParametersNotConfiguredError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
 
+    @app.get("/api/v1/ranking/years")
+    def ranking_years(
+        user: User = Depends(require("ranking:read")),
+        db: Session = Depends(get_db),
+    ):
+        return {"years": domain_services(db)[5].available_years()}
+
+    @app.get("/api/v1/ranking/parameters")
+    def ranking_parameter_years(
+        user: User = Depends(require_administrator),
+        db: Session = Depends(get_db),
+    ):
+        configured = RankingParameterRepository(db).available_years()
+        configurations = [{"year": 2025, "strategy": "legacy_2025", "editable": False}]
+        configurations.extend(
+            {"year": year, "strategy": "parameterized", "editable": True}
+            for year in configured if year != 2025
+        )
+        return {"configurations": configurations}
+
     @app.get(
         "/api/v1/ranking/parameters/{year}",
         response_model=RankingParameterResponse,
@@ -1761,6 +1803,14 @@ def create_app(
                       db: Session = Depends(get_db)):
         _, _, boe, budget, _, _, flow = domain_services(db)
         return jsonable_encoder(ReportService(flow, boe, budget).get_annual_report(year))
+
+    @app.get("/api/v1/reports/years")
+    def report_years(
+        user: User = Depends(require("reports:read")),
+        db: Session = Depends(get_db),
+    ):
+        _, _, boe, budget, _, _, flow = domain_services(db)
+        return {"years": ReportService(flow, boe, budget).available_years()}
 
     @app.get("/api/v1/reports/csv-validation")
     def csv_validation(year: int, user: User = Depends(require("reports:read")),

@@ -33,6 +33,12 @@ class InvestmentRepository(BaseRepository[InvestmentMovement]):
         )
         return list(self.session.scalars(statement))
 
+    def available_years(self) -> list[int]:
+        return list(self.session.scalars(
+            select(InvestmentMovement.periodo_ano)
+            .distinct().order_by(InvestmentMovement.periodo_ano)
+        ))
+
     def list_until_date(self, end_date: date) -> list[InvestmentMovement]:
         statement = (
             select(InvestmentMovement)

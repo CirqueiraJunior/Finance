@@ -14,6 +14,7 @@ from app.models.cashflow_entry import EXPENSE_CATEGORIES, CashflowCategory, Cash
 from app.services.budget_service import BudgetVsActual, REVENUE_CATEGORIES
 from app.services.cashflow_catalog_service import CashflowCatalogOption
 from app.widgets import BRLCurrencyEdit, MonthComboBox
+from app.widgets.year_combo import populate_year_combo, select_year
 
 
 class BudgetImportProgressDialog(QDialog):
@@ -178,11 +179,11 @@ class OrcamentoPage(QWidget):
         description.setObjectName("pageDescription")
 
         filters = QHBoxLayout()
-        self.year_filter = WheelBlockedSpinBox()
-        self.year_filter.setRange(2000, 9999)
-        self.year_filter.setValue(date.today().year)
+        self.year_filter = WheelBlockedComboBox()
+        self.year_filter.setEnabled(False)
         self.month_filter = MonthComboBox(include_all=True)
         self.filter_button = QPushButton("Aplicar filtro")
+        self.filter_button.setEnabled(False)
         self.filter_button.setProperty("buttonRole", "toolbar")
         self.new_button = QPushButton("Novo Orçamento")
         self.new_button.setProperty("buttonRole", "primary")
@@ -330,11 +331,17 @@ class OrcamentoPage(QWidget):
 
     def selected_period(self) -> tuple[int, int | None]:
         month = self.month_filter.currentData()
-        return self.year_filter.value(), month or None
+        return self.year_filter.currentData(), month or None
 
     def set_period(self, year: int, month: int | None) -> None:
-        self.year_filter.setValue(year)
+        select_year(self.year_filter, year)
         self.month_filter.set_month(month)
+
+    def set_available_years(self, years: list[int]) -> None:
+        selected = populate_year_combo(self.year_filter, years)
+        self.filter_button.setEnabled(selected is not None)
+        if selected is None:
+            self.set_status("Nenhum ano de orçamento disponível.", error=True)
 
     def show_result(
         self, result: BudgetVsActual, budgets: list[BudgetEntry]

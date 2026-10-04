@@ -174,6 +174,9 @@ class APIClient:
             "GET", f"/api/v1/ranking/parameters/{year}", _allow_not_found=True
         )
 
+    def get_ranking_parameter_configurations(self) -> list[dict[str, Any]]:
+        return self.get("/api/v1/ranking/parameters")["configurations"]
+
     def save_ranking_parameters(
         self, year: int, payload: dict[str, Any]
     ) -> dict[str, Any]:

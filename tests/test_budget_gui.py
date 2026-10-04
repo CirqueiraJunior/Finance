@@ -80,6 +80,7 @@ def test_controller_filters_and_displays_cards(qtbot, db_session):
     page = OrcamentoPage()
     qtbot.addWidget(page)
     controller = BudgetController(page, service)
+    page.set_available_years([2026])
     page.set_period(2026, 7)
     controller.refresh()
     assert page.table.rowCount() == 1
@@ -92,6 +93,7 @@ def test_controller_creates_budget(qtbot, db_session, monkeypatch):
     page = OrcamentoPage()
     qtbot.addWidget(page)
     controller = BudgetController(page, service)
+    page.set_available_years([2026])
     page.set_period(2026, 7)
 
     class FakeDialog:
@@ -228,6 +230,9 @@ class _RemoteBudgetImportService:
         self.worker_thread = None
         self.refresh_calls = 0
         self.validated_path = None
+
+    def available_years(self):
+        return [2026]
 
     def validate_import(self, path):
         self.validated_path = path

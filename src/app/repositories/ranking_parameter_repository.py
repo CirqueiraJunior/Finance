@@ -13,3 +13,8 @@ class RankingParameterRepository(BaseRepository[RankingParameter]):
         return self.session.scalar(
             select(RankingParameter).where(RankingParameter.year == year)
         )
+
+    def available_years(self) -> list[int]:
+        return list(self.session.scalars(
+            select(RankingParameter.year).order_by(RankingParameter.year)
+        ))

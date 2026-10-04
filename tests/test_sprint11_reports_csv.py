@@ -153,6 +153,9 @@ def test_report_gui_and_controller_use_only_year(qtbot, tmp_path):
             self.years.append(year)
             return AnnualReport(year, ())
 
+        def available_years(self):
+            return [2026]
+
     class Exports:
         class Repository:
             class Session:
@@ -184,7 +187,7 @@ def test_report_gui_and_controller_use_only_year(qtbot, tmp_path):
     exports = Exports()
     ReportController(page, reports, exports)
     reports.years.clear()
-    page.year_filter.setValue(2026)
+    page.year_filter.setCurrentIndex(page.year_filter.findData(2026))
 
     assert not hasattr(page, "month_filter")
     assert not hasattr(page, "selected_month")

@@ -11,6 +11,7 @@ from app.gui.pages.orcamento import (
     BudgetDialog, BudgetImportProgressDialog, OrcamentoPage,
 )
 from app.services.budget_service import BudgetService
+from app.widgets.year_combo import AvailableYearsLoader
 
 
 class BudgetImportWorker(QObject):
@@ -65,6 +66,15 @@ class BudgetController(QObject):
             hasattr(service, "validate_import")
             and hasattr(service, "import_file")
         )
+        self._years_loader = AvailableYearsLoader(
+            self,
+            self.service.available_years,
+            self.view.set_available_years,
+            lambda error: self.view.set_status(
+                f"Falha ao carregar anos disponíveis: {error}", error=True
+            ),
+        )
+        self._years_loader.load(remote=self._is_remote())
 
         # A carga inicial da MainWindow já possui ProcessingDialog próprio.
         # Evita abrir um segundo diálogo "Orçamento" durante o pós-login.
@@ -353,7 +363,8 @@ class BudgetController(QObject):
             )
 
             year, month = self.view.selected_period()
-            dialog.year.setValue(year)
+            if year is not None:
+                dialog.year.setValue(year)
 
             if month is not None:
                 dialog.month.set_month(month)

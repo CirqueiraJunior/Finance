@@ -10,6 +10,7 @@ from app.services.administration_service import SystemInformation
 from app.core.gui_rbac import ROLE_LABELS, role_label
 from app.core.version import __version__
 from finance_server.security import validate_password
+from app.widgets.year_combo import populate_year_combo, select_year
 
 
 USER_ROLES = (
@@ -142,13 +143,13 @@ class RankingParametersWidget(QFrame):
 
         top = QHBoxLayout()
         top.addWidget(QLabel("Ano"))
-        self.year = WheelBlockedSpinBox()
-        self.year.setRange(2000, 9999)
-        self.year.setValue(2026)
+        self.year = WheelBlockedComboBox()
+        self.year.setEnabled(False)
         self.year.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.year.installEventFilter(self)
         top.addWidget(self.year)
-        top.addWidget(QLabel("Classificação mínima (%)"))
+        self.minimum_label = QLabel("Classificação mínima (%)")
+        top.addWidget(self.minimum_label)
         self.fields: dict[str, QDoubleSpinBox | QSpinBox] = {}
         minimum = self._decimal_spin(4)
         self.fields["minimum_achievement_percent"] = minimum
@@ -163,7 +164,8 @@ class RankingParametersWidget(QFrame):
         top.addWidget(self.status, 1)
         box.addLayout(top)
 
-        grid = QGridLayout()
+        self.parameter_form = QWidget()
+        grid = QGridLayout(self.parameter_form)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(2)
@@ -209,7 +211,15 @@ class RankingParametersWidget(QFrame):
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(4, 1)
         grid.setColumnStretch(9, 1)
-        box.addLayout(grid)
+        box.addWidget(self.parameter_form)
+        self.legacy_strategy = QLabel(
+            "Estratégia 2025: classificações independentes de Faturamento, "
+            "Associados e Ticket Médio, com premiação própria por categoria."
+        )
+        self.legacy_strategy.setWordWrap(True)
+        self.legacy_strategy.setVisible(False)
+        box.addWidget(self.legacy_strategy)
+        self._configurations: dict[int, dict] = {}
 
     def eventFilter(self, watched, event):
         if (
@@ -249,21 +259,56 @@ class RankingParametersWidget(QFrame):
 
     def show_parameters(self, values: dict | None) -> None:
         if values is None:
-            for field in self.fields.values():
-                field.setValue(0)
-            self.status.setText(f"Nova configuração para {self.year.value()}.")
+            self.set_status("Configuração indisponível para o ano selecionado.", error=True)
             return
-        self.year.setValue(int(values["year"]))
+        select_year(self.year, int(values["year"]))
+        self._show_parameterized(True)
         for name, field in self.fields.items():
             value = int(values[name]) if isinstance(field, QSpinBox) else float(values[name])
             field.setValue(value)
-        self.set_status(f"Configuração de {self.year.value()} carregada.")
+        self.set_status(f"Configuração de {self.year.currentData()} carregada.")
+
+    def set_configurations(self, configurations: list[dict]) -> None:
+        self._configurations = {
+            int(item["year"]): dict(item) for item in configurations
+        }
+        year = populate_year_combo(self.year, self._configurations)
+        self.load_button.setEnabled(year is not None)
+        self.show_selected_strategy()
+
+    def selected_year(self) -> int | None:
+        return self.year.currentData()
+
+    def selected_configuration(self) -> dict | None:
+        return self._configurations.get(self.selected_year())
+
+    def show_selected_strategy(self) -> None:
+        configuration = self.selected_configuration()
+        if configuration is None:
+            self._show_parameterized(False)
+            self.set_status("Nenhuma configuração de Ranking disponível.", error=True)
+            return
+        editable = bool(configuration.get("editable"))
+        self._show_parameterized(editable)
+        if not editable:
+            self.set_status("Estratégia legada de 2025 — somente leitura.")
+
+    def _show_parameterized(self, editable: bool) -> None:
+        self.minimum_label.setVisible(editable)
+        self.fields["minimum_achievement_percent"].setVisible(editable)
+        self.parameter_form.setVisible(editable)
+        self.save_button.setVisible(editable)
+        self.save_button.setEnabled(editable)
+        self.legacy_strategy.setVisible(not editable)
 
     def set_status(self, message: str, *, error: bool = False) -> None:
         self.status.setText(message)
         self.status.setStyleSheet("color: #b91c1c;" if error else "color: #166534;")
 
     def payload(self) -> dict:
+        configuration = self.selected_configuration()
+        if not configuration or not configuration.get("editable"):
+            raise ValueError("A estratégia selecionada é somente leitura.")
         billing = [self.fields[f"billing_level_{level}_min"].value() for level in (1, 2, 3)]
         acquisition = [
             self.fields[f"acquisition_level_{level}_min"].value() for level in (1, 2, 3)

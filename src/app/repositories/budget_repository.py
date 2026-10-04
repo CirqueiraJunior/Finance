@@ -39,6 +39,12 @@ class BudgetRepository(BaseRepository[BudgetEntry]):
     def add_all(self, budgets: Iterable[BudgetEntry]) -> None:
         self.session.add_all(list(budgets))
 
+    def available_years(self) -> list[int]:
+        return list(self.session.scalars(
+            select(BudgetEntry.periodo_ano)
+            .distinct().order_by(BudgetEntry.periodo_ano)
+        ))
+
     def existing_keys(
         self, years: Iterable[int]
     ) -> set[tuple[int, int, str, str]]:

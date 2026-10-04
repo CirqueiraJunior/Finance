@@ -99,11 +99,11 @@ begin
     SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin
     if Required then
-      RaiseException('NÃ£o foi possÃ­vel executar a configuraÃ§Ã£o do serviÃ§o Finance.');
+      RaiseException('Não foi possível executar a configuração do serviço Finance.');
     exit;
   end;
   if Required and (ResultCode <> 0) then
-    RaiseException(Format('O serviÃ§o Finance retornou o cÃ³digo %d.', [ResultCode]));
+    RaiseException(Format('O serviço Finance retornou o código %d.', [ResultCode]));
 end;
 
 procedure RemovePreviousService();
@@ -127,7 +127,7 @@ begin
     Sleep(250);
   end;
 
-  RaiseException('A instalaÃ§Ã£o anterior do serviÃ§o Finance nÃ£o pÃ´de ser removida.');
+  RaiseException('A instalação anterior do serviço Finance não pôde ser removida.');
 end;
 
 function HealthIsReady(): Boolean;
@@ -157,7 +157,7 @@ begin
     Sleep(1000);
   end;
   RaiseException(
-    'O serviÃ§o Finance foi iniciado, mas a API local nÃ£o respondeu ao diagnÃ³stico.');
+    'O serviço Finance foi iniciado, mas a API local não respondeu ao diagnóstico.');
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -182,7 +182,7 @@ begin
     if not Exec(ExpandConstant('{app}\Finance.exe'), '--configure-service', '',
       SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
       RaiseException(
-        'A configuraÃ§Ã£o segura do servidor foi cancelada ou nÃ£o pÃ´de ser salva.');
+        'A configuração segura do servidor foi cancelada ou não pôde ser salva.');
   end;
 
   RunServiceCommand('--startup auto install', True);

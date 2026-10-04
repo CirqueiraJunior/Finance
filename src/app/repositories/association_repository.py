@@ -56,3 +56,9 @@ class AssociationRepository(BaseRepository[AssociationEntry]):
             )
         )
         return list(self.session.scalars(statement))
+
+    def available_years(self) -> list[int]:
+        return list(self.session.scalars(
+            select(AssociationEntry.periodo_ano)
+            .distinct().order_by(AssociationEntry.periodo_ano)
+        ))

@@ -92,6 +92,15 @@ class RankingService:
             )
         return value
 
+    def available_years(self) -> list[int]:
+        data_years = set(self.targets.available_years()) | set(
+            self.associations.available_years()
+        )
+        parameter_years = (
+            set(self.parameters.available_years()) if self.parameters is not None else {2026}
+        )
+        return sorted(data_years & ({2025} | parameter_years))
+
     @staticmethod
     def billing_points(
         achievement: Decimal | None, parameters: RankingParameter | None = None,

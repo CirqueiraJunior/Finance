@@ -15,6 +15,7 @@ from app.models.investment_movement import InvestmentMovementType
 from app.services.cashflow_catalog_service import CashflowCatalogOption
 from app.services.financial_flow_service import FinancialFlowSummary, FinancialMovement
 from app.widgets import BRLCurrencyEdit, MonthComboBox
+from app.widgets.year_combo import populate_year_combo, select_year
 
 
 MonetaryLineEdit = BRLCurrencyEdit
@@ -382,12 +383,12 @@ class FinanceiroPage(QWidget):
         description = QLabel("Receitas, despesas, aplicações e resgates no mesmo fluxo financeiro.")
         description.setObjectName("pageDescription")
         filters = QHBoxLayout()
-        self.year_filter = WheelBlockedSpinBox()
-        self.year_filter.setRange(2000, 9999)
-        self.year_filter.setValue(date.today().year)
+        self.year_filter = WheelBlockedComboBox()
+        self.year_filter.setEnabled(False)
         self.month_filter = MonthComboBox()
         self.month_filter.set_month(date.today().month)
         self.filter_button = QPushButton("Aplicar filtro")
+        self.filter_button.setEnabled(False)
         self.filter_button.setProperty("buttonRole", "toolbar")
         self.new_entry_button = QPushButton("Novo Lançamento")
         self.new_entry_button.setProperty("buttonRole", "primary")
@@ -547,11 +548,17 @@ class FinanceiroPage(QWidget):
         self.entries_table.resizeColumnsToContents()
 
     def selected_period(self) -> tuple[int, int]:
-        return self.year_filter.value(), self.month_filter.month()
+        return self.year_filter.currentData(), self.month_filter.month()
 
     def set_period(self, year: int, month: int) -> None:
-        self.year_filter.setValue(year)
+        select_year(self.year_filter, year)
         self.month_filter.set_month(month)
+
+    def set_available_years(self, years: list[int]) -> None:
+        selected = populate_year_combo(self.year_filter, years)
+        self.filter_button.setEnabled(selected is not None)
+        if selected is None:
+            self.set_status("Nenhum ano financeiro disponível.", error=True)
 
     def set_status(self, message: str, *, error: bool = False) -> None:
         self.operation_status.setText(message)

@@ -91,9 +91,10 @@ def test_controller_displays_meta_actual_cards_and_zero_target(qtbot, db_session
     )
     page = MetasPage()
     qtbot.addWidget(page)
-    page.year_filter.setValue(2026)
+    page.set_available_years([2026], [2026])
     page.month_filter.setCurrentIndex(6)
     controller = TargetController(page, service)
+    page.set_available_years([2026], [2026])
     controller.refresh()
 
     assert page.table.rowCount() == 1
@@ -109,9 +110,10 @@ def test_controller_creates_and_edits_target(qtbot, db_session, monkeypatch):
     service, entity = make_context(db_session)
     page = MetasPage()
     qtbot.addWidget(page)
-    page.year_filter.setValue(2026)
+    page.set_available_years([2026], [2026])
     page.month_filter.setCurrentIndex(6)
     controller = TargetController(page, service)
+    page.set_available_years([2026], [2026])
 
     class Field:
         def setValue(self, _value):
@@ -179,6 +181,9 @@ class _RemoteImportService:
         self.worker_thread = None
         self.refresh_calls = 0
 
+    def available_years(self):
+        return [2026]
+
     def validate_import(self, _path):
         return {"can_import": True}
 
@@ -205,6 +210,9 @@ class _RemoteImportService:
 class _Ranking:
     def __init__(self):
         self.calls = 0
+
+    def available_years(self):
+        return [2026]
 
     def quarterly(self, *_args):
         self.calls += 1

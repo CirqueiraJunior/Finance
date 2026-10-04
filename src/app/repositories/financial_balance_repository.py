@@ -39,3 +39,9 @@ class FinancialBalanceRepository:
         self.session.add(entry)
         self.session.flush()
         return entry
+
+    def available_years(self) -> list[int]:
+        return list(self.session.scalars(
+            select(FinancialBalanceEntry.year)
+            .distinct().order_by(FinancialBalanceEntry.year)
+        ))

@@ -13,6 +13,7 @@ from app.gui.pages.metas import (
 )
 from app.services.target_service import TargetService
 from app.services.ranking_service import RankingService
+from app.widgets.year_combo import AvailableYearsLoader
 
 
 class TargetImportWorker(QObject):
@@ -63,6 +64,21 @@ class TargetController(QObject):
         self.view.set_import_available(
             hasattr(service, "validate_import") and hasattr(service, "import_file")
         )
+        self._years_loader = AvailableYearsLoader(
+            self,
+            lambda: {
+                "targets": self.service.available_years(),
+                "ranking": self.ranking.available_years() if self.ranking else [],
+            },
+            self._years_loaded,
+            lambda error: self.view.set_status(
+                f"Falha ao carregar anos disponíveis: {error}", error=True
+            ),
+        )
+        self._years_loader.load(remote=self._has_remote_api(self.service))
+
+    def _years_loaded(self, values: dict) -> None:
+        self.view.set_available_years(values["targets"], values["ranking"])
         self._initial_load()
 
     def _rollback_local(self, service=None) -> None:
@@ -217,7 +233,7 @@ class TargetController(QObject):
 
         if self.ranking is not None:
             try:
-                year = self.view.ranking_year.value()
+                year = self.view.ranking_year.currentData()
                 quarter = self.view.ranking_quarter.currentData()
                 rows = self.ranking.quarterly(year, quarter)
                 annual = self.ranking.annual(year)
@@ -296,7 +312,7 @@ class TargetController(QObject):
 
         selected_file = self.import_file_path
         filters = self.view.selected_filters()
-        ranking_year = self.view.ranking_year.value()
+        ranking_year = self.view.ranking_year.currentData()
         ranking_quarter = self.view.ranking_quarter.currentData()
 
         self.view.confirm_import_button.setEnabled(False)
@@ -385,7 +401,7 @@ class TargetController(QObject):
         if self.ranking is None:
             return
 
-        year = self.view.ranking_year.value()
+        year = self.view.ranking_year.currentData()
         quarter = self.view.ranking_quarter.currentData()
 
         def operation():

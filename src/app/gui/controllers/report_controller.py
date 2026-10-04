@@ -7,6 +7,7 @@ from app.gui.processing import OperationWorker, ProcessingDialog
 from app.services.report_service import ReportService
 from app.services.site_csv_service import SiteCSVService
 from app.api_client import APIClient
+from app.widgets.year_combo import AvailableYearsLoader
 
 
 class ReportController(QObject):
@@ -32,7 +33,20 @@ class ReportController(QObject):
         self.view.validate_button.clicked.connect(self.validate_csv)
         self.view.export_button.clicked.connect(self.export_csv)
 
-        self.refresh()
+        self._years_loader = AvailableYearsLoader(
+            self,
+            self.report_service.available_years,
+            self._years_loaded,
+            lambda error: self.view.set_status(
+                f"Falha ao carregar anos disponíveis: {error}", error=True
+            ),
+        )
+        self._years_loader.load(remote=self._is_remote(self.report_service))
+
+    def _years_loaded(self, years) -> None:
+        self.view.set_available_years(years)
+        if years:
+            self.refresh()
 
     @staticmethod
     def _is_remote(service) -> bool:

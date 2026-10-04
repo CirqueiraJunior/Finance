@@ -186,6 +186,7 @@ def test_cashflow_new_entry_button_opens_dialog_on_real_mouse_click(
         CashflowService(CashflowRepository(db_session)),
         InvestmentService(InvestmentRepository(db_session)),
     )
+    page.set_available_years([2026])
     page.set_period(2026, 7)
     page.show()
 

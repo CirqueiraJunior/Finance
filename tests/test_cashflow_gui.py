@@ -60,6 +60,7 @@ def test_financeiro_layout_orders_filters_kpis_table_and_import(qtbot):
     assert page.entries_table.sizePolicy().verticalPolicy() == (
         QSizePolicy.Policy.Preferred
     )
+    page.set_available_years([2026])
     page.set_period(2026, 1)
     assert page.selected_period() == (2026, 1)
     assert page.new_entry_button.text() == "Novo Lançamento"

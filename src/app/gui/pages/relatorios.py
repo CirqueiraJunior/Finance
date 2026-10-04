@@ -1,4 +1,4 @@
-from app.widgets.wheel_guard import WheelBlockedSpinBox
+from app.widgets.wheel_guard import WheelBlockedComboBox
 from datetime import date
 from pathlib import Path
 
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.services.report_service import AnnualReport
+from app.widgets.year_combo import populate_year_combo
 
 
 class RelatoriosPage(QWidget):
@@ -34,10 +35,10 @@ class RelatoriosPage(QWidget):
         description.setObjectName("pageDescription")
 
         filters = QHBoxLayout()
-        self.year_filter = WheelBlockedSpinBox()
-        self.year_filter.setRange(2000, 9999)
-        self.year_filter.setValue(date.today().year)
+        self.year_filter = WheelBlockedComboBox()
+        self.year_filter.setEnabled(False)
         self.refresh_button = QPushButton("Atualizar relatório")
+        self.refresh_button.setEnabled(False)
         self.refresh_button.setProperty("buttonRole", "info")
         self.refresh_button.setObjectName("primaryButton")
         filters.addWidget(QLabel("Ano"))
@@ -92,7 +93,15 @@ class RelatoriosPage(QWidget):
         self._destination: Path | None = None
 
     def selected_year(self) -> int:
-        return self.year_filter.value()
+        return self.year_filter.currentData()
+
+    def set_available_years(self, years: list[int]) -> None:
+        selected = populate_year_combo(self.year_filter, years)
+        self.refresh_button.setEnabled(selected is not None)
+        self.validate_button.setEnabled(selected is not None)
+        self.export_button.setEnabled(selected is not None)
+        if selected is None:
+            self.set_status("Nenhum ano disponível para relatórios.", error=True)
 
     def choose_destination(self) -> None:
         selected = QFileDialog.getExistingDirectory(self, "Pasta de exportação")

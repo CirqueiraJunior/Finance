@@ -113,6 +113,7 @@ class RemoteFinancialFlowService:
     def __init__(self, api): self.api = api
 
     def _data(self, year, month): return self.api.get(f"/api/v1/financial-flow?year={year}&month={month}")
+    def available_years(self): return self.api.get("/api/v1/financial-flow/years")["years"]
 
     def list_by_period(self, year, month):
         return [FinancialMovement(date.fromisoformat(row["movement_date"]), row["movement_type"],
@@ -216,6 +217,7 @@ class RemoteBudgetService:
     def _data(self, year, month=None):
         suffix = f"?year={year}" + ("" if month is None else f"&month={month}")
         return self.api.get("/api/v1/budgets" + suffix)
+    def available_years(self): return self.api.get("/api/v1/budgets/years")["years"]
     def list_by_period(self, year, month): return [_entry(x) for x in self._data(year, month)["items"]]
     def list_by_year(self, year): return [_entry(x) for x in self._data(year)["items"]]
     def get_budget(self, budget_id): return _entry(self.api.get(f"/api/v1/budgets/{budget_id}"))
@@ -251,6 +253,7 @@ class RemoteBudgetService:
 class RemoteTargetService:
     repository = _Repository()
     def __init__(self, api): self.api = api; self._entities = []
+    def available_years(self): return self.api.get("/api/v1/targets/years")["years"]
     def _data(self, year, month, indicator, entity_id=None):
         path = f"/api/v1/targets?year={year}&month={month}&indicator={indicator}"
         if entity_id is not None:
@@ -312,6 +315,7 @@ class RemoteTargetService:
 class RemoteRankingService:
     def __init__(self, api): self.api = api
     def _data(self, year, quarter): return self.api.get(f"/api/v1/ranking?year={year}&quarter={quarter}")
+    def available_years(self): return self.api.get("/api/v1/ranking/years")["years"]
     def quarterly(self, year, quarter):
         return [RankingEntry(
             x["entity_id"], x["entity_code"], x["entity_name"],
@@ -345,9 +349,10 @@ class RemoteDashboardService:
         self.areas = set(areas or {"financial", "boe", "targets"})
     def get_available_years(self):
         return self.api.get("/api/v1/dashboard/years")
-    def get_dashboard_data(self, year, month, **filters):
+    def get_dashboard_data(self, year, month, areas=None, **filters):
         result = {}
-        if "financial" in self.areas:
+        requested_areas = self.areas if areas is None else set(areas)
+        if "financial" in requested_areas:
             start_year = filters.get("financial_start_year", year)
             start_month = filters.get("financial_start_month", month)
             end_year = filters.get("financial_end_year", year)
@@ -363,7 +368,7 @@ class RemoteDashboardService:
             if filters.get("entry_type"):
                 path += f"&entry_type={filters['entry_type']}"
             result["financial"] = self.api.get(path)
-        if "boe" in self.areas:
+        if "boe" in requested_areas:
             start_year = filters.get("boe_start_year", year)
             start_month = filters.get("boe_start_month", month)
             end_year = filters.get("boe_end_year", year)
@@ -376,7 +381,7 @@ class RemoteDashboardService:
             if filters.get("boe_entity_id"):
                 path += f"&entity_id={filters['boe_entity_id']}"
             result["boe"] = self.api.get(path)
-        if "targets" in self.areas:
+        if "targets" in requested_areas:
             indicator = filters.get("indicator", "TODAS")
             start_year = filters.get("target_start_year", year)
             start_month = filters.get("target_start_month", month)
@@ -438,6 +443,7 @@ class RemoteDashboardService:
 
 class RemoteReportService:
     def __init__(self, api): self.api = api
+    def available_years(self): return self.api.get("/api/v1/reports/years")["years"]
     def get_annual_report(self, year):
         d = self.api.get(f"/api/v1/reports/annual?year={year}")
         return AnnualReport(d["year"], tuple(MonthlyReportRow(x["month"], *(_decimal(x[k]) for k in (

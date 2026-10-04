@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.models.investment_movement import InvestmentMovementType
+from app.repositories.financial_balance_repository import FinancialBalanceRepository
 from app.services.cashflow_service import CashflowService
 from app.services.investment_service import InvestmentService
 
@@ -89,6 +90,14 @@ class FinancialFlowService:
             investments.applied_balance,
             operational.boe_expense,
         )
+
+    def available_years(self) -> list[int]:
+        session = self.cashflow.repository.session
+        return sorted(set(
+            self.cashflow.repository.available_years()
+            + self.investments.repository.available_years()
+            + FinancialBalanceRepository(session).available_years()
+        ))
 
     def create_application(self, **values):
         return self.investments.create_application(**values)

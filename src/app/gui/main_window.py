@@ -94,6 +94,7 @@ class MainWindow(QMainWindow):
         api_health: dict | None = None,
     ) -> None:
         super().__init__()
+        self._api_client = api_client
         self.setObjectName("mainWindow")
         apply_window_icon(self)
         self.setWindowTitle(settings.app_name)
@@ -173,7 +174,7 @@ class MainWindow(QMainWindow):
                 dashboard_page, self._remote_dashboard_service)
             _startup_yield()
             self._cashflow_controller.import_completed.connect(
-                self._dashboard_controller.refresh
+                lambda: self._dashboard_controller.refresh({"financial"})
             )
             self._report_controller = ReportController(
                 relatorios_page, RemoteReportService(api_client), RemoteCSVService(api_client))
@@ -238,7 +239,7 @@ class MainWindow(QMainWindow):
             self._dashboard_controller = DashboardController(
                 dashboard_page, DashboardService(financial_flow, boe_service, budget_service, target_service))
             self._cashflow_controller.import_completed.connect(
-                self._dashboard_controller.refresh
+                lambda: self._dashboard_controller.refresh({"financial"})
             )
             self._report_controller = ReportController(
                 relatorios_page, ReportService(financial_flow, boe_service, budget_service),
@@ -287,6 +288,11 @@ class MainWindow(QMainWindow):
             administracao_page.ranking_parameters_widget.save_button.clicked.connect(
                 lambda: self._save_ranking_parameters(administracao_page)
             )
+            administracao_page.ranking_parameters_widget.year.currentIndexChanged.connect(
+                lambda _index: self._load_ranking_parameters(administracao_page)
+            )
+            if initial_role == "ADMINISTRADOR":
+                self._load_ranking_parameter_configurations(administracao_page)
         else:
             administracao_page.set_user_management_enabled(False)
 
@@ -311,7 +317,6 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        self._api_client = api_client
         self.header = AppHeader(
             user_name=authenticated_user.nome if authenticated_user else "",
             user_role=role_label(authenticated_user.perfil) if authenticated_user else "",
@@ -545,7 +550,7 @@ class MainWindow(QMainWindow):
         def succeeded(health) -> None:
             page.set_status(
                 f"API online | versao {health['version']} | "
-                f"{health.get('database', 'banco nao informado')}"
+                f"{health.get('database', 'banco não informado')}"
             )
 
         def failed(error: Exception) -> None:
@@ -633,13 +638,13 @@ class MainWindow(QMainWindow):
 
         def failed(error: Exception) -> None:
             page.set_status(
-                f"Falha ao consultar informacoes: {error}",
+                f"Falha ao consultar informações: {error}",
                 error=True,
             )
 
         self._run_admin_operation(
             page,
-            title="Atualizando Informacoes",
+            title="Atualizando Informações",
             operation=self._api_client.health,
             succeeded=succeeded,
             failed=failed,
@@ -936,20 +941,27 @@ class MainWindow(QMainWindow):
 
     def _load_ranking_parameters(self, page: AdministracaoPage) -> None:
         widget = page.ranking_parameters_widget
-        year = widget.year.value()
+        configuration = widget.selected_configuration()
+        year = widget.selected_year()
+        if configuration is None or year is None:
+            widget.show_selected_strategy()
+            return
+        if not configuration.get("editable"):
+            widget.show_selected_strategy()
+            return
 
         def succeeded(values) -> None:
             widget.show_parameters(values)
 
         def failed(error: Exception) -> None:
             widget.set_status(
-                f"Nao foi possivel carregar: {error}",
+                f"Não foi possível carregar: {error}",
                 error=True,
             )
 
         self._run_admin_operation(
             page,
-            title="Parametros do Ranking",
+            title="Parâmetros do Ranking",
             operation=lambda: self._api_client.get_ranking_parameters(
                 year
             ),
@@ -964,32 +976,57 @@ class MainWindow(QMainWindow):
             payload = widget.payload()
         except ValueError as error:
             widget.set_status(
-                f"Nao foi possivel salvar: {error}",
+                f"Não foi possível salvar: {error}",
                 error=True,
             )
             return
 
-        year = widget.year.value()
+        year = widget.selected_year()
+        if year is None:
+            widget.set_status("Nenhuma configuração de Ranking disponível.", error=True)
+            return
 
         def succeeded(values) -> None:
             widget.show_parameters(values)
             widget.set_status(
-                f"Parametros do Ranking de {year} salvos com sucesso."
+                f"Parâmetros do Ranking de {year} salvos com sucesso."
             )
 
         def failed(error: Exception) -> None:
             widget.set_status(
-                f"Nao foi possivel salvar: {error}",
+                f"Não foi possível salvar: {error}",
                 error=True,
             )
 
         self._run_admin_operation(
             page,
-            title="Salvando Parametros do Ranking",
+            title="Salvando Parâmetros do Ranking",
             operation=lambda: self._api_client.save_ranking_parameters(
                 year,
                 payload,
             ),
+            succeeded=succeeded,
+            failed=failed,
+        )
+
+    def _load_ranking_parameter_configurations(
+        self, page: AdministracaoPage
+    ) -> None:
+        widget = page.ranking_parameters_widget
+
+        def succeeded(values) -> None:
+            widget.set_configurations(values)
+            self._load_ranking_parameters(page)
+
+        def failed(error: Exception) -> None:
+            widget.set_status(
+                f"Não foi possível carregar os anos: {error}", error=True
+            )
+
+        self._run_admin_operation(
+            page,
+            title="Parâmetros do Ranking",
+            operation=self._api_client.get_ranking_parameter_configurations,
             succeeded=succeeded,
             failed=failed,
         )

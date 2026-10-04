@@ -301,6 +301,20 @@ class FakeRemoteAPI:
             keys = ("total_revenue", "total_expense", "operational_result", "applications", "redemptions", "cash_movement", "applied_balance", "boe_value", "budgeted_result")
             return {"year": 2026, "rows": [{"month": month, **{k: zero for k in keys}} for month in range(1, 13)]}
         raise AssertionError(path)
+    def get_ranking_parameter_configurations(self):
+        return [
+            {
+                "year": 2025,
+                "strategy": "legacy_2025",
+                "editable": False,
+            },
+            {
+                "year": 2026,
+                "strategy": "parameterized",
+                "editable": True,
+            },
+        ]
+
     def logout(self): pass
     def close(self): pass
 

@@ -78,6 +78,12 @@ class TargetRepository(BaseRepository[TargetEntry]):
             select(TargetEntry).where(TargetEntry.periodo_ano == year)
         )
 
+    def available_years(self) -> list[int]:
+        return list(self.session.scalars(
+            select(TargetEntry.periodo_ano)
+            .distinct().order_by(TargetEntry.periodo_ano)
+        ))
+
     @staticmethod
     def _ordered(statement):
         return statement.order_by(

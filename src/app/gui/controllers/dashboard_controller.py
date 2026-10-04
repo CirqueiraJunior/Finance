@@ -21,10 +21,17 @@ class DashboardController(QObject):
         self._years_loaded = False
         self._refresh_after_years = False
         self._years_retry_on_finish = False
+        self._pending_refresh_areas: set[str] | None = None
 
-        self.view.refresh_button.clicked.connect(self.refresh)
-        self.view.boe_refresh_button.clicked.connect(self.refresh)
-        self.view.target_refresh_button.clicked.connect(self.refresh)
+        self.view.refresh_button.clicked.connect(
+            lambda _checked=False: self.refresh({"financial"})
+        )
+        self.view.boe_refresh_button.clicked.connect(
+            lambda _checked=False: self.refresh({"boe"})
+        )
+        self.view.target_refresh_button.clicked.connect(
+            lambda _checked=False: self.refresh({"targets"})
+        )
         self._start_available_years_load()
 
     def _start_available_years_load(self) -> None:
@@ -36,7 +43,9 @@ class DashboardController(QObject):
             self._years_loaded = True
             if self._refresh_after_years:
                 self._refresh_after_years = False
-                self.refresh()
+                pending_areas = self._pending_refresh_areas
+                self._pending_refresh_areas = None
+                self.refresh(pending_areas)
             return
 
         self._years_thread = QThread(self)
@@ -85,7 +94,9 @@ class DashboardController(QObject):
         if self._refresh_after_years and self._years_loaded:
             self._refresh_after_years = False
             self._years_retry_on_finish = False
-            self.refresh()
+            pending_areas = self._pending_refresh_areas
+            self._pending_refresh_areas = None
+            self.refresh(pending_areas)
             return
 
         if (
@@ -96,7 +107,7 @@ class DashboardController(QObject):
             self._years_retry_on_finish = False
             self._start_available_years_load()
 
-    def refresh(self) -> None:
+    def refresh(self, areas: set[str] | None = None) -> None:
         if (
             self._refresh_thread is not None
             and self._refresh_thread.isRunning()
@@ -108,6 +119,7 @@ class DashboardController(QObject):
 
         if not self._years_loaded:
             self._refresh_after_years = True
+            self._pending_refresh_areas = areas
             self.view.set_status("Carregando períodos disponíveis...")
             if self._years_thread is not None and self._years_thread.isRunning():
                 self._years_retry_on_finish = True
@@ -147,7 +159,8 @@ class DashboardController(QObject):
                     self.service.get_dashboard_data(
                         year,
                         month,
-                        **filters,
+                        areas=areas,
+                          **filters,
                     ),
                 )
 

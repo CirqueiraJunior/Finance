@@ -229,6 +229,10 @@ class DashboardPage(QWidget):
         finance_filter_panel.setObjectName("dashboardFilterBar")
         finance_filter_panel.setLayout(finance_filters)
         tab_layouts["financial"].addWidget(finance_filter_panel)
+        self.financial_data_availability = QLabel()
+        self.financial_data_availability.setObjectName("pageDescription")
+        self.financial_data_availability.setVisible(False)
+        tab_layouts["financial"].addWidget(self.financial_data_availability)
         tab_layouts["financial"].addWidget(self._section("Financeiro"))
         finance_grid = QGridLayout()
         self.financial_cards = {}
@@ -299,6 +303,10 @@ class DashboardPage(QWidget):
         boe_filter_panel.setObjectName("dashboardFilterBar")
         boe_filter_panel.setLayout(boe_filters)
         tab_layouts["boe"].addWidget(boe_filter_panel)
+        self.boe_data_availability = QLabel()
+        self.boe_data_availability.setObjectName("pageDescription")
+        self.boe_data_availability.setVisible(False)
+        tab_layouts["boe"].addWidget(self.boe_data_availability)
         tab_layouts["boe"].addWidget(self._section("BOE"))
         boe_cards = QHBoxLayout()
         self.boe_unit_value = self._add_card(boe_cards, "Valor Unitário", role="boe")
@@ -388,6 +396,10 @@ class DashboardPage(QWidget):
         target_filter_panel.setObjectName("dashboardFilterBar")
         target_filter_panel.setLayout(target_filters)
         tab_layouts["targets"].addWidget(target_filter_panel)
+        self.target_data_availability = QLabel()
+        self.target_data_availability.setObjectName("pageDescription")
+        self.target_data_availability.setVisible(False)
+        tab_layouts["targets"].addWidget(self.target_data_availability)
         tab_layouts["targets"].addWidget(self._section("Meta x Realizado"))
         targets = QHBoxLayout()
         query_card, self.query_target, self.query_actual, self.query_achievement = (
@@ -538,6 +550,10 @@ class DashboardPage(QWidget):
             self._show_target_data(data["targets"])
 
     def _show_financial_data(self, data: dict) -> None:
+        self._show_data_availability(
+            self.financial_data_availability,
+            data.get("data_available_through"),
+        )
         for key, label in self.financial_cards.items():
             label.setText(self.currency(data["kpis"].get(key)))
         budget = data["budget"]
@@ -584,6 +600,10 @@ class DashboardPage(QWidget):
         self._yield_gui()
 
     def _show_boe_data(self, data: dict) -> None:
+        self._show_data_availability(
+            self.boe_data_availability,
+            data.get("data_available_through"),
+        )
         self._sync_entities(self.boe_entity_filter, data.get("filters", {}).get("entities", []))
         self.boe_unit_value.setText(self.currency(data.get("unit_value")))
         self.boe_entities.setText(self.integer(data["entity_count"]))
@@ -618,6 +638,10 @@ class DashboardPage(QWidget):
         self._yield_gui()
 
     def _show_target_data(self, data: dict) -> None:
+        self._show_data_availability(
+            self.target_data_availability,
+            data.get("data_available_through"),
+        )
         self._sync_entities(self.target_entity_filter,
                             data.get("filters", {}).get("entities", []))
         queries, registrations = data["queries"], data["registrations"]
@@ -682,6 +706,20 @@ class DashboardPage(QWidget):
         self.target_ranking_chart.setChart(self._bar_chart(
             "Ranking / Classificação", ranking_labels, [("Score", ranking_values)]))
         self._yield_gui()
+
+    def _show_data_availability(
+        self, label: QLabel, available_through: dict | None
+    ) -> None:
+        if not available_through:
+            label.clear()
+            label.setVisible(False)
+            return
+        period = self.period_label(
+            int(available_through["year"]),
+            int(available_through["month"]),
+        )
+        label.setText(f"Dados disponíveis até {period}.")
+        label.setVisible(True)
 
     @staticmethod
     def _sync_entities(combo: QComboBox, entities: list[dict]) -> None:

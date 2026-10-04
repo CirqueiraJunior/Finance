@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import select, union
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.boe_import import BOEImport
@@ -45,6 +45,18 @@ class CashflowRepository(BaseRepository[CashflowEntry]):
             .order_by(CashflowEntry.data_lancamento, CashflowEntry.id)
         )
         return list(self.session.scalars(statement))
+
+    def available_years(self) -> list[int]:
+        years = union(
+            select(CashflowEntry.periodo_ano),
+            select(BOEImport.periodo_ano).where(BOEImport.status == "imported"),
+            select((BOEImport.periodo_ano + 1).label("periodo_ano")).where(
+                BOEImport.status == "imported", BOEImport.periodo_mes == 12,
+            ),
+        ).subquery()
+        return list(self.session.scalars(
+            select(years.c.periodo_ano).order_by(years.c.periodo_ano)
+        ))
 
     def get_imported_boe_by_period(self, year: int, month: int) -> BOEImport | None:
         return self.session.scalar(select(BOEImport).where(

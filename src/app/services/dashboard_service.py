@@ -229,7 +229,7 @@ class DashboardService:
 
             official_cash = official["cash"].get(key)
             official_investment = official["investments"].get(key)
-            official_direct = official["direct"].get(key)
+            official_direct = official["direct"].get(key, ZERO)
             if running_opening is None or official_direct is None:
                 opening = bank = None
             else:
@@ -324,8 +324,42 @@ class DashboardService:
         variance = actual_result - budgeted_result
         variance_percentage = None if budgeted_result == 0 else variance / abs(budgeted_result) * Decimal("100")
 
+        applied_balance = ZERO
+        applied_periods = [
+            period for period in official["applied"]
+            if period <= (
+                (end_year, end_month) if explicit_period else (year, month)
+            )
+        ]
+        if applied_periods:
+            applied_base_period = max(applied_periods)
+            applied_balance = official["applied"][applied_base_period]
+            applied_balance += sum(
+                (
+                    row.applications - row.redemptions
+                    for period, row in official["investments"].items()
+                    if applied_base_period < period <= (
+                        (end_year, end_month)
+                        if explicit_period
+                        else (year, month)
+                    )
+                ),
+                ZERO,
+            )
+
+        available_periods = (
+            set(official["cash"])
+            | set(official["investments"])
+            | set(official["direct"])
+            | set(official["applied"])
+        )
+        data_available_through = self._data_available_through(
+            periods, available_periods
+        )
+
         return {
             "year": end_year, "month": end_month,
+            "data_available_through": data_available_through,
             "start_year": start_year, "start_month": start_month,
             "end_year": end_year, "end_month": end_month,
             "filters": {"category": category, "type": entry_type},
@@ -340,9 +374,7 @@ class DashboardService:
                 "applications": applications_total,
                 "redemptions": redemptions_total,
                 "bank_balance": last["bank_balance"],
-                "applied_balance": aggregates["applied"].get(
-                    (end_year, end_month) if explicit_period else (year, month)
-                ),
+                "applied_balance": applied_balance,
             },
             "budget": {
                 "budgeted_revenue": budgeted_revenue,
@@ -393,8 +425,14 @@ class DashboardService:
             monthly.append({"year": selected_year, "month": selected_month,
                             "queries": sum((row.queries for row in selected_rows), 0),
                             "total_value": sum((row.value for row in selected_rows), ZERO)})
+        data_available_through = self._data_available_through(
+            periods,
+            {(row.periodo_ano, row.periodo_mes) for row in rows},
+        )
+
         return {
             "year": end_year,
+            "data_available_through": data_available_through,
             "start_year": start_year, "start_month": start_month,
             "end_year": end_year, "end_month": end_month,
             "unit_value": None if queries == 0 else total / queries,
@@ -469,24 +507,69 @@ class DashboardService:
         else:
             meta_total, actual_total = q_target + r_target, q_actual + r_actual
         achievement = None if meta_total == 0 else actual_total / meta_total * Decimal("100")
-        associations = aggregates["associations"].get(periods[-1], ZERO)
-        initial_associations = aggregates["associations"].get(periods[0], ZERO)
+        target_periods = {
+            (row.periodo_ano, row.periodo_mes)
+            for row in aggregates["rows"]
+        }
+        association_periods = set(aggregates["associations"])
+        available_periods = target_periods | association_periods
+
+        effective_periods = [
+            period for period in periods
+            if period in available_periods
+        ]
+        effective_period = max(effective_periods) if effective_periods else None
+
+        effective_association_periods = [
+            period for period in periods
+            if period in association_periods
+        ]
+        first_association_period = (
+            min(effective_association_periods)
+            if effective_association_periods else None
+        )
+        last_association_period = (
+            max(effective_association_periods)
+            if effective_association_periods else None
+        )
+
+        initial_associations = (
+            aggregates["associations"].get(first_association_period, ZERO)
+            if first_association_period is not None else ZERO
+        )
+        associations = (
+            aggregates["associations"].get(last_association_period, ZERO)
+            if last_association_period is not None else ZERO
+        )
+
         variation = (
             None
             if initial_associations == 0
             else associations / initial_associations * Decimal("100") - Decimal("100")
         )
         ticket = None if associations == 0 else actual_total / associations
-        ranking_month = end_month
-        ranking = ([] if self.ranking is None else
-                   self.ranking.quarterly(end_year, (ranking_month - 1) // 3 + 1))
+
+        if self.ranking is None or effective_period is None:
+            ranking = []
+        else:
+            ranking_year, ranking_month = effective_period
+            ranking = self.ranking.quarterly(
+                ranking_year,
+                (ranking_month - 1) // 3 + 1,
+            )
         if region is not None:
             allowed_ids = {row.id for row in aggregates["entities"]}
             ranking = [row for row in ranking if row.entity_id in allowed_ids]
         if entity_id is not None:
             ranking = [row for row in ranking if row.entity_id == entity_id]
+        data_available_through = self._data_available_through(
+            periods,
+            available_periods,
+        )
+
         return {
             "year": end_year,
+            "data_available_through": data_available_through,
             "start_year": start_year, "start_month": start_month,
             "end_year": end_year, "end_month": end_month,
             "indicator": selected, "region": region,
@@ -524,6 +607,22 @@ class DashboardService:
         if start > end:
             raise ValueError("O período inicial não pode ser posterior ao período final.")
         return range(start, end + 1)
+
+    @staticmethod
+    def _data_available_through(
+        periods: tuple[tuple[int, int], ...],
+        available_periods: set[tuple[int, int]],
+    ) -> dict[str, int] | None:
+        available = [
+            period for period in periods
+            if period in available_periods
+        ]
+        if not available:
+            return None
+        latest = max(available)
+        if latest >= periods[-1]:
+            return None
+        return {"year": latest[0], "month": latest[1]}
 
     @staticmethod
     def _dashboard_periods(

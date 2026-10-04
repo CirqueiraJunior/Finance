@@ -97,6 +97,9 @@ class BudgetService:
         )
         return self._persist(budget)
 
+    def available_years(self) -> list[int]:
+        return self.repository.available_years()
+
     def update_budget(
         self,
         budget_id: int,

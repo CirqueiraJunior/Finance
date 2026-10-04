@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
@@ -18,6 +19,7 @@ from app.services.cashflow_service import CashflowService
 from app.services.financial_flow_service import FinancialFlowService
 from app.services.financial_balance_service import FinancialBalanceService
 from app.services.investment_service import InvestmentService
+from app.widgets.year_combo import AvailableYearsLoader
 
 
 class CashflowController(QObject):
@@ -63,6 +65,17 @@ class CashflowController(QObject):
         self.view.validate_import_button.clicked.connect(self.validate_import_file)
         self.view.confirm_import_button.clicked.connect(self.import_validated_file)
         self.view.select_import_button.setEnabled(import_service is not None)
+        self._years_loader = AvailableYearsLoader(
+            self,
+            self.financial_flow.available_years,
+            self.view.set_available_years,
+            lambda error: self.view.set_status(
+                f"Falha ao carregar anos disponíveis: {error}", error=True
+            ),
+        )
+        self._years_loader.load(
+            remote=getattr(self.financial_flow, "api", None) is not None
+        )
         # A MainWindow possui o ProcessingDialog global de pós-login.
         # Evita abrir um segundo diálogo "Financeiro" durante a construção.
 
@@ -227,7 +240,8 @@ class CashflowController(QObject):
         self.import_file_path = None
         self._import_validated = False
         self.view.selected_import_file.setText("Nenhum arquivo selecionado.")
-        self.refresh_entries()
+        if self.view.selected_period()[0] is not None:
+            self.refresh_entries()
         self.import_completed.emit()
 
     @Slot(object)
@@ -288,18 +302,19 @@ class CashflowController(QObject):
 
         self._run_operation(
             window_title="Financeiro",
-            title="Carregando informacoes...",
+            title="Carregando informações...",
             description=(
-                f"Aguarde enquanto o periodo "
-                f"{month:02d}/{year} e processado."
+                f"Aguarde enquanto o período "
+                f"{month:02d}/{year} é processado."
             ),
             operation=operation,
             succeeded=succeeded,
-            error_prefix="Falha ao carregar lancamentos",
+            error_prefix="Falha ao carregar lançamentos",
         )
 
     def open_new_entry_dialog(self) -> None:
         year, month = self.view.selected_period()
+        year = year or date.today().year
         dialog = CashflowEntryDialog(
             self.view,
             self.catalog_service.list_options(),
@@ -368,7 +383,7 @@ class CashflowController(QObject):
                     value=value,
                     notes=notes,
                 )
-                message = "Aplicacao cadastrada com sucesso."
+                message = "Aplicação cadastrada com sucesso."
 
             else:
                 self.financial_flow.create_redemption(
@@ -414,13 +429,13 @@ class CashflowController(QObject):
 
         self._run_operation(
             window_title="Financeiro",
-            title="Salvando lancamento...",
+            title="Salvando lançamento...",
             description=(
-                "Aguarde enquanto o lancamento e processado."
+                "Aguarde enquanto o lançamento é processado."
             ),
             operation=operation,
             succeeded=succeeded,
-            error_prefix="Falha ao salvar lancamento",
+            error_prefix="Falha ao salvar lançamento",
         )
 
     def open_indirect_revenue_dialog(self) -> None:

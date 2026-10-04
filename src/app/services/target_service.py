@@ -7,6 +7,7 @@ from app.core.exceptions import TargetDuplicateError, TargetValidationError
 from app.models.entity import Entity
 from app.models.target_entry import TargetEntry, TargetIndicator
 from app.repositories.entity_repository import EntityRepository
+from app.repositories.association_repository import AssociationRepository
 from app.repositories.target_repository import TargetRepository
 
 
@@ -89,6 +90,12 @@ class TargetService:
             raise TargetDuplicateError(
                 "Já existe Meta para esta Entidade, período e indicador."
             ) from error
+
+    def available_years(self) -> list[int]:
+        association = AssociationRepository(self.repository.session)
+        return sorted(set(
+            self.repository.available_years() + association.available_years()
+        ))
 
     def update_target(
         self,

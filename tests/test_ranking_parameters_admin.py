@@ -129,6 +129,12 @@ class RankingAPI(FakeRemoteAPI):
         self.parameters = {2026: {"id": 1, "year": 2026, **deepcopy(OFFICIAL)}}
         self.saved = []
 
+    def get_ranking_parameter_configurations(self):
+        return [
+            {"year": 2025, "strategy": "legacy_2025", "editable": False},
+            {"year": 2026, "strategy": "parameterized", "editable": True},
+        ]
+
     def get_ranking_parameters(self, year):
         value = self.parameters.get(year)
         return deepcopy(value) if value else None
@@ -166,24 +172,26 @@ def test_only_administrator_sees_ranking_parameter_block(qtbot, tmp_path):
         assert visible is (role == "ADMINISTRADOR")
 
 
-def test_administrator_loads_existing_starts_blank_year_and_saves(qtbot, tmp_path):
+def test_administrator_switches_legacy_2025_and_editable_2026(qtbot, tmp_path):
     api = RankingAPI()
     window = _window(tmp_path, "ADMINISTRADOR", api)
     qtbot.addWidget(window)
     widget = window.pages["administracao"].ranking_parameters_widget
 
-    widget.load_button.click()
     assert widget.fields["billing_level_2_min"].value() == 110
     assert widget.fields["first_place_award"].value() == 3000
+    assert widget.selected_year() == 2026
+    assert widget.save_button.isEnabled()
 
-    widget.year.setValue(2027)
-    widget.load_button.click()
-    assert all(field.value() == 0 for field in widget.fields.values())
-    assert "Nova configuração para 2027" in widget.status.text()
+    widget.year.setCurrentIndex(widget.year.findData(2025))
+    assert widget.selected_year() == 2025
+    assert not widget.save_button.isVisibleTo(widget)
+    assert widget.legacy_strategy.isVisibleTo(widget)
+    assert "somente leitura" in widget.status.text()
 
-    widget.show_parameters({"id": 2, "year": 2027, **OFFICIAL})
+    widget.year.setCurrentIndex(widget.year.findData(2026))
     widget.save_button.click()
-    assert api.saved[-1][0] == 2027
+    assert api.saved[-1][0] == 2026
     assert api.saved[-1][1]["billing_level_3_points"] == 7
     assert "salvos com sucesso" in widget.status.text()
 

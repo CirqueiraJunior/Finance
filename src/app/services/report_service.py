@@ -62,6 +62,16 @@ class ReportService:
             )
         return AnnualReport(year, tuple(rows))
 
+    def available_years(self) -> list[int]:
+        return sorted(set(
+            self.financial_flow.available_years()
+            + self.budget.available_years()
+            + [
+                item.periodo_ano for item in self.boe.list_imports()
+                if item.status == "imported"
+            ]
+        ))
+
     def _boe_value(self, year: int, month: int) -> Decimal:
         for item in self.boe.list_imports():
             if (
