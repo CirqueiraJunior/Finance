@@ -140,6 +140,9 @@ class MainWindow(QMainWindow):
         administracao_page.check_updates_button.clicked.connect(
             lambda: self._check_for_updates(administracao_page)
         )
+        administracao_page.update_now_button.clicked.connect(
+            lambda: self._start_update(administracao_page)
+        )
 
         self._boe_session = None
         self._historical_import_service = None
@@ -590,6 +593,8 @@ class MainWindow(QMainWindow):
     def _update_succeeded(self, result: UpdateCheckResult) -> None:
         if self._update_page is None:
             return
+        self._update_page.set_update_available(False)
+
         if result.status == UpdateStatus.UPDATE_AVAILABLE:
             if (
                 not result.installable
@@ -601,6 +606,11 @@ class MainWindow(QMainWindow):
                 )
             else:
                 message = f"Nova versão disponível: {result.available_version}."
+                if result.installable:
+                    self._update_page.set_update_available(
+                        True,
+                        result.available_version,
+                    )
         elif result.status == UpdateStatus.INSTALLED_NEWER:
             message = (
                 "A versão instalada é mais recente que a última versão publicada."
@@ -608,6 +618,34 @@ class MainWindow(QMainWindow):
         else:
             message = "O Finance está atualizado."
         self._update_page.set_status(message)
+
+    def _start_update(self, page: AdministracaoPage) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Atualizar Finance",
+            (
+                "O Finance será fechado para concluir a atualização.\n\n"
+                "Deseja atualizar agora?"
+            ),
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self._update_service.launch_update()
+        except Exception:
+            page.set_status(
+                "Não foi possível iniciar a atualização.",
+                error=True,
+            )
+            return
+
+        page.set_status("Atualização iniciada. Encerrando o Finance...")
+        self.close()
 
     @Slot(object)
     def _update_failed(self, _error: Exception) -> None:

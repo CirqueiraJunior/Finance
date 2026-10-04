@@ -495,6 +495,10 @@ class AdministracaoPage(QWidget):
         self.refresh_button.setProperty("buttonRole", "info")
         self.check_updates_button = QPushButton("Verificar atualizações")
         self.check_updates_button.setProperty("buttonRole", "info")
+        self.update_now_button = QPushButton("Atualizar agora")
+        self.update_now_button.setProperty("buttonRole", "primary")
+        self.update_now_button.setVisible(False)
+        self.update_now_button.setEnabled(False)
         self.logs_button = QPushButton("Abrir diretório de logs")
         self.logs_button.setProperty("buttonRole", "secondary")
         self.backup_button = QPushButton("Fazer Backup")
@@ -510,6 +514,7 @@ class AdministracaoPage(QWidget):
         for button in (
             self.refresh_button,
             self.check_updates_button,
+            self.update_now_button,
             self.logs_button,
             self.backup_button,
             self.import_button,
@@ -582,6 +587,7 @@ class AdministracaoPage(QWidget):
             self.ranking_parameters_widget,
             self.refresh_button,
             self.check_updates_button,
+            self.update_now_button,
             self.logs_button,
             self.backup_button,
             self.import_button,
@@ -676,6 +682,21 @@ class AdministracaoPage(QWidget):
     def set_status(self, message: str, *, error: bool = False) -> None:
         self.status.setText(message)
         self.status.setStyleSheet("color: #b91c1c;" if error else "color: #166534;")
+
+    def set_update_available(
+        self,
+        available: bool,
+        version: str | None = None,
+    ) -> None:
+        self.update_now_button.setVisible(available)
+        self.update_now_button.setEnabled(available)
+
+        if available and version:
+            self.update_now_button.setText(
+                f"Atualizar agora para {version}"
+            )
+        else:
+            self.update_now_button.setText("Atualizar agora")
 
     def set_update_check_running(self, running: bool) -> None:
         self.check_updates_button.setEnabled(not running)

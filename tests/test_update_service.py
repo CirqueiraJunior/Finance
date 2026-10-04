@@ -7,7 +7,7 @@ from time import monotonic
 
 import pytest
 from PySide6.QtCore import QThread
-from PySide6.QtWidgets import QMainWindow
+from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 import app.services.update_service as update_module
 from app.core.version import __version__
@@ -390,6 +390,7 @@ def test_updater_communication_failures_have_controlled_message(error):
 
 class _UpdateWindowHarness(QMainWindow):
     _check_for_updates = MainWindow._check_for_updates
+    _start_update = MainWindow._start_update
     _update_succeeded = MainWindow._update_succeeded
     _update_failed = MainWindow._update_failed
     _finish_update_check = MainWindow._finish_update_check
@@ -597,3 +598,209 @@ def test_administration_displays_installed_desktop_version_not_server_version(qt
     )
 
     assert page.fields["version"].text() == __version__
+
+
+def test_launch_update_starts_confirmed_detached_updater():
+    calls = []
+
+    def starter(command, **kwargs):
+        calls.append((command, kwargs))
+        return object()
+
+    service = UpdateService(
+        command=[r"C:\Tools\J.A. Updater.exe"],
+        starter=starter,
+    )
+
+    service.launch_update()
+
+    assert calls[0][0] == [
+        r"C:\Tools\J.A. Updater.exe",
+        "update",
+        "--product",
+        "finance",
+        "--confirmed",
+    ]
+
+    kwargs = calls[0][1]
+
+    assert kwargs["stdin"] is subprocess.DEVNULL
+    assert kwargs["stdout"] is subprocess.DEVNULL
+    assert kwargs["stderr"] is subprocess.DEVNULL
+    assert kwargs["close_fds"] is True
+
+    expected_flags = (
+        getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        | getattr(subprocess, "DETACHED_PROCESS", 0)
+        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    )
+
+    assert kwargs["creationflags"] == expected_flags
+
+
+def test_launch_update_uses_same_official_updater_resolution(
+    monkeypatch,
+    tmp_path,
+):
+    official = (
+        tmp_path
+        / "J.A. Technology"
+        / "J.A. Updater"
+        / "J.A. Updater.exe"
+    )
+    official.parent.mkdir(parents=True)
+    official.touch()
+
+    calls = []
+
+    monkeypatch.delenv("JA_UPDATER_EXECUTABLE", raising=False)
+    monkeypatch.setenv("PROGRAMFILES", str(tmp_path))
+    monkeypatch.setattr(
+        update_module.shutil,
+        "which",
+        lambda _name: pytest.fail("PATH fallback must not be consulted"),
+    )
+
+    def starter(command, **_kwargs):
+        calls.append(command)
+        return object()
+
+    UpdateService(starter=starter).launch_update()
+
+    assert calls == [[
+        str(official),
+        "update",
+        "--product",
+        "finance",
+        "--confirmed",
+    ]]
+
+
+def test_launch_update_failure_is_controlled():
+    def starter(_command, **_kwargs):
+        raise OSError("blocked")
+
+    with pytest.raises(
+        UpdateCheckUnavailableError,
+        match="Não foi possível iniciar a atualização",
+    ):
+        UpdateService(
+            command=["ja-updater"],
+            starter=starter,
+        ).launch_update()
+
+
+def test_installable_update_exposes_update_now_action(qtbot):
+    page = AdministracaoPage()
+    window = _UpdateWindowHarness(None)
+
+    qtbot.addWidget(page)
+    qtbot.addWidget(window)
+
+    window._update_page = page
+
+    window._update_succeeded(
+        UpdateCheckResult(
+            status=UpdateStatus.UPDATE_AVAILABLE,
+            installed_version="1.0.0",
+            available_version="1.1.0",
+            installable=True,
+        )
+    )
+
+    assert not page.update_now_button.isHidden()
+    assert page.update_now_button.isEnabled()
+    assert page.update_now_button.text() == "Atualizar agora para 1.1.0"
+
+
+def test_non_installable_update_hides_update_now_action(qtbot):
+    page = AdministracaoPage()
+    window = _UpdateWindowHarness(None)
+
+    qtbot.addWidget(page)
+    qtbot.addWidget(window)
+
+    window._update_page = page
+    page.set_update_available(True, "1.1.0")
+
+    window._update_succeeded(
+        UpdateCheckResult(
+            status=UpdateStatus.UPDATE_AVAILABLE,
+            installed_version="1.0.0",
+            available_version="1.1.0",
+            installable=False,
+            reason="missing_sha256",
+        )
+    )
+
+    assert not page.update_now_button.isVisible()
+    assert not page.update_now_button.isEnabled()
+
+
+def test_confirmed_update_launches_updater_and_closes_window(
+    qtbot,
+    monkeypatch,
+):
+    page = AdministracaoPage()
+
+    class Service:
+        def __init__(self):
+            self.calls = 0
+
+        def launch_update(self):
+            self.calls += 1
+
+    service = Service()
+    window = _UpdateWindowHarness(service)
+
+    qtbot.addWidget(page)
+    qtbot.addWidget(window)
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    closed = []
+
+    monkeypatch.setattr(
+        window,
+        "close",
+        lambda: closed.append(True),
+    )
+
+    window._start_update(page)
+
+    assert service.calls == 1
+    assert closed == [True]
+
+
+def test_cancelled_update_does_not_launch_updater(
+    qtbot,
+    monkeypatch,
+):
+    page = AdministracaoPage()
+
+    class Service:
+        def __init__(self):
+            self.calls = 0
+
+        def launch_update(self):
+            self.calls += 1
+
+    service = Service()
+    window = _UpdateWindowHarness(service)
+
+    qtbot.addWidget(page)
+    qtbot.addWidget(window)
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.No,
+    )
+
+    window._start_update(page)
+
+    assert service.calls == 0

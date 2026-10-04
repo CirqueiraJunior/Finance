@@ -33,6 +33,7 @@ class UpdateCheckUnavailableError(RuntimeError):
 
 
 ProcessRunner = Callable[..., subprocess.CompletedProcess[str]]
+ProcessStarter = Callable[..., object]
 
 
 def _resolve_updater_command() -> tuple[str, ...]:
@@ -78,10 +79,12 @@ class UpdateService:
         command: Sequence[str] | None = None,
         timeout: float = 15.0,
         runner: ProcessRunner = subprocess.run,
+        starter: ProcessStarter = subprocess.Popen,
     ) -> None:
         self.command = tuple(command) if command is not None else None
         self.timeout = timeout
         self.runner = runner
+        self.starter = starter
 
     def check(self) -> UpdateCheckResult:
         base_command = (
@@ -139,6 +142,41 @@ class UpdateService:
             raise UpdateCheckUnavailableError(message)
 
         return self._result_from_payload(payload)
+
+    def launch_update(self) -> None:
+        base_command = (
+            self.command
+            if self.command is not None
+            else _resolve_updater_command()
+        )
+
+        command = [
+            *base_command,
+            "update",
+            "--product",
+            "finance",
+            "--confirmed",
+        ]
+
+        creationflags = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+
+        try:
+            self.starter(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                creationflags=creationflags,
+            )
+        except OSError as error:
+            raise UpdateCheckUnavailableError(
+                "Não foi possível iniciar a atualização."
+            ) from error
 
     @staticmethod
     def _result_from_payload(payload: dict) -> UpdateCheckResult:
