@@ -15,7 +15,7 @@ from app.models.entity import Entity
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.target_repository import TargetRepository
 from app.services.target_service import TargetService
-from app.services.target_service import TargetSummary, TargetVsActual
+from app.services.target_service import TargetComparison, TargetSummary, TargetVsActual
 from app.services.remote_services import RemoteTargetService
 
 
@@ -99,11 +99,39 @@ def test_controller_displays_meta_actual_cards_and_zero_target(qtbot, db_session
 
     assert page.table.rowCount() == 1
     assert page.table.item(0, 0).text() == "7501"
-    assert page.table.item(0, 4).text() == "10,0000"
+    assert page.table.item(0, 4).text() == "R$ 10,00"
     assert page.table.item(0, 6).text() == "—"
     assert page.entity_count.text() == "1"
     assert page.achievement_total.text() == "—"
     assert not page.empty_state.isVisible()
+
+
+def test_meta_actual_uses_official_currency_and_percentage_format(qtbot):
+    page = MetasPage()
+    qtbot.addWidget(page)
+    comparison = TargetComparison(
+        1, 7501, "Entidade", "CONSULTAS",
+        Decimal("1482803.5600"), Decimal("1423865.3600"),
+        Decimal("-58938.2000"), Decimal("96.0252"), None,
+    )
+    result = TargetVsActual(
+        (comparison,),
+        TargetSummary(
+            1, comparison.target, comparison.actual,
+            comparison.difference, comparison.achievement_percentage,
+        ),
+    )
+
+    page.show_result(result)
+
+    assert page.table.item(0, 3).text() == "R$ 1.482.803,56"
+    assert page.table.item(0, 4).text() == "R$ 1.423.865,36"
+    assert page.table.item(0, 5).text() == "R$ -58.938,20"
+    assert page.table.item(0, 6).text() == "96,03%"
+    assert page.target_total.text() == "R$ 1.482.803,56"
+    assert page.actual_total.text() == "R$ 1.423.865,36"
+    assert page.difference_total.text() == "R$ -58.938,20"
+    assert page.achievement_total.text() == "96,03%"
 
 
 def test_controller_creates_and_edits_target(qtbot, db_session, monkeypatch):

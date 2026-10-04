@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.gui.formatters import format_currency
 from app.services.report_service import AnnualReport
 from app.widgets.year_combo import populate_year_combo
 
@@ -142,5 +143,4 @@ class RelatoriosPage(QWidget):
 
     @staticmethod
     def currency(value) -> str:
-        formatted = f"{value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
-        return f"R$ {formatted}"
+        return format_currency(value)

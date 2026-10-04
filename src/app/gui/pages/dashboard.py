@@ -10,10 +10,9 @@ from PySide6.QtCharts import (
     QChartView,
     QValueAxis,
 )
-from PySide6.QtCore import QEventLoop, Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
-    QApplication,
     QAbstractSpinBox,
     QComboBox,
     QGridLayout,
@@ -28,6 +27,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.gui.formatters import (
+    format_currency, format_integer, format_number, format_percentage,
+)
 from app.services.dashboard_service import DashboardSummary
 from app.widgets import MonthComboBox
 from app.widgets.buttons import PrimaryButton
@@ -99,7 +101,7 @@ class DashboardChartView(QChartView):
     @staticmethod
     def _format_chart_value(value: float, kind: str) -> str:
         if kind == "percentage":
-            return f"{value:.1f}%".replace(".", ",")
+            return format_percentage(value)
         absolute = abs(value)
         if absolute >= 1_000_000:
             text = f"{value / 1_000_000:.1f} mi"
@@ -113,6 +115,7 @@ class DashboardChartView(QChartView):
 
 
 class DashboardPage(QWidget):
+    BOE_TABLE_BATCH_SIZE = 20
     CHART_COLORS = {
         "Receita": "#1D4ED8",
         "Receitas": "#1D4ED8",
@@ -133,6 +136,14 @@ class DashboardPage(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
+        self._dashboard_render_steps = None
+        self._dashboard_render_finished = None
+        self._dashboard_render_failed = None
+        self._dashboard_render_timer = QTimer(self)
+        self._dashboard_render_timer.setSingleShot(True)
+        self._dashboard_render_timer.timeout.connect(
+            self._advance_dashboard_render
+        )
         self.setObjectName("contentPage")
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -535,21 +546,61 @@ class DashboardPage(QWidget):
             widget.setEnabled(bool(options))
             widget.blockSignals(False)
 
-    @staticmethod
-    def _yield_gui() -> None:
-        QApplication.processEvents(
-            QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
-        )
-
     def show_dashboard_data(self, data: dict) -> None:
+        """Render synchronously for compatibility outside the controller flow."""
+        for _ in self._dashboard_render_stages(data):
+            pass
+
+    def show_dashboard_data_async(
+        self, data: dict, on_finished, on_failed=None,
+    ) -> None:
+        """Render one GUI-owned stage per Qt event-loop iteration."""
+        if self._dashboard_render_steps is not None:
+            raise RuntimeError("Uma renderização do Dashboard já está em andamento.")
+        self._dashboard_render_steps = iter(self._dashboard_render_stages(data))
+        self._dashboard_render_finished = on_finished
+        self._dashboard_render_failed = on_failed
+        self._dashboard_render_timer.start(0)
+
+    def _advance_dashboard_render(self) -> None:
+        steps = self._dashboard_render_steps
+        if steps is None:
+            return
+        try:
+            next(steps)
+        except StopIteration:
+            callback = self._dashboard_render_finished
+            self._clear_dashboard_render()
+            if callback is not None:
+                callback()
+            return
+        except Exception as error:
+            callback = self._dashboard_render_failed
+            self._clear_dashboard_render()
+            if callback is not None:
+                callback(error)
+                return
+            raise
+        self._dashboard_render_timer.start(0)
+
+    def _clear_dashboard_render(self) -> None:
+        self._dashboard_render_steps = None
+        self._dashboard_render_finished = None
+        self._dashboard_render_failed = None
+
+    def _dashboard_render_stages(self, data: dict):
         if "financial" in data:
-            self._show_financial_data(data["financial"])
+            yield from self._financial_render_stages(data["financial"])
         if "boe" in data:
-            self._show_boe_data(data["boe"])
+            yield from self._boe_render_stages(data["boe"])
         if "targets" in data:
-            self._show_target_data(data["targets"])
+            yield from self._target_render_stages(data["targets"])
 
     def _show_financial_data(self, data: dict) -> None:
+        for _ in self._financial_render_stages(data):
+            pass
+
+    def _financial_render_stages(self, data: dict):
         self._show_data_availability(
             self.financial_data_availability,
             data.get("data_available_through"),
@@ -567,15 +618,16 @@ class DashboardPage(QWidget):
                 self.budget_table.setItem(index, column, QTableWidgetItem(value))
         monthly = data.get("monthly", [])
         categories = [self.month_label(row["month"]) for row in monthly]
+        yield
         self.finance_chart.setChart(self._bar_chart(
             "Receita x Despesa por mês", categories,
             [("Receita", [row["revenue"] for row in monthly]),
              ("Despesa", [row["expense"] for row in monthly])]))
-        self._yield_gui()
+        yield
         self.balance_chart.setChart(self._bar_chart(
             "Evolução do Saldo Bancário", categories,
             [("Saldo", [row["bank_balance"] or 0 for row in monthly])]))
-        self._yield_gui()
+        yield
         self.budget_chart.setChart(self._bar_chart(
             "Orçado x Realizado mensal", categories,
             [("Orçado", [abs(self.decimal(row["budgeted_revenue"]) -
@@ -584,22 +636,26 @@ class DashboardPage(QWidget):
              ("Realizado", [abs(self.decimal(row["actual_revenue"]) -
                                  self.decimal(row["actual_expense"]))
                              for row in monthly])]))
-        self._yield_gui()
+        yield
         revenue = data.get("revenue_distribution", {})
         expense = data.get("expense_distribution", {})
         self.revenue_distribution_chart.setChart(self._distribution_chart(
             "Distribuição das Receitas", revenue, "Receita"))
-        self._yield_gui()
+        yield
         self.expense_distribution_chart.setChart(self._distribution_chart(
             "Distribuição das Despesas", expense, "Despesa"))
-        self._yield_gui()
+        yield
         self.investment_chart.setChart(self._bar_chart(
             "Aplicação x Resgate", categories,
             [("Aplicação", [row["applications"] for row in monthly]),
              ("Resgate", [row["redemptions"] for row in monthly])]))
-        self._yield_gui()
+        yield
 
     def _show_boe_data(self, data: dict) -> None:
+        for _ in self._boe_render_stages(data):
+            pass
+
+    def _boe_render_stages(self, data: dict):
         self._show_data_availability(
             self.boe_data_availability,
             data.get("data_available_through"),
@@ -612,32 +668,39 @@ class DashboardPage(QWidget):
         rows = data.get("entities", [])
         self.boe_state.setVisible(not rows)
         self.boe_table.setRowCount(len(rows))
+        yield
         for row_index, row in enumerate(rows):
             values = (f"{row['code']} — {row['name']}", self.integer(row["queries"]),
                       self.currency(row["unit_value"]), self.currency(row["total_value"]))
             for column, value in enumerate(values):
                 self.boe_table.setItem(row_index, column, QTableWidgetItem(value))
+            if (row_index + 1) % self.BOE_TABLE_BATCH_SIZE == 0:
+                yield
         monthly = data.get("monthly", [])
         months = [self.period_label(row["year"], row["month"]) for row in monthly]
         self.boe_value_period_chart.setChart(self._bar_chart(
             "Valor Total por período", months,
             [("Valor", [row["total_value"] for row in monthly])]))
-        self._yield_gui()
+        yield
         self.boe_queries_period_chart.setChart(self._bar_chart(
             "Consultas por período", months,
             [("Consultas", [row["queries"] for row in monthly])]))
-        self._yield_gui()
+        yield
         entity_labels = [str(row["code"]) for row in rows] or ["Sem dados"]
         self.boe_value_entity_chart.setChart(self._bar_chart(
             "Valor Total por entidade", entity_labels,
             [("Valor", [row["total_value"] for row in rows] or [0])]))
-        self._yield_gui()
+        yield
         self.boe_queries_entity_chart.setChart(self._bar_chart(
             "Consultas por entidade", entity_labels,
             [("Consultas", [row["queries"] for row in rows] or [0])]))
-        self._yield_gui()
+        yield
 
     def _show_target_data(self, data: dict) -> None:
+        for _ in self._target_render_stages(data):
+            pass
+
+    def _target_render_stages(self, data: dict):
         self._show_data_availability(
             self.target_data_availability,
             data.get("data_available_through"),
@@ -689,23 +752,24 @@ class DashboardPage(QWidget):
                              for row in monthly]
             actual_values = [row["queries_actual"] + row["registrations_actual"]
                              for row in monthly]
+        yield
         self.target_chart.setChart(self._bar_chart(
             "Meta x Realizado por período", months,
             [("Meta", target_values), ("Realizado", actual_values)]))
-        self._yield_gui()
+        yield
         percentages = [0 if target == 0 else actual / target * 100
                        for target, actual in zip(target_values, actual_values)]
         self.target_achievement_chart.setChart(self._bar_chart(
             "% Atingimento", months, [("Atingimento %", percentages)]))
-        self._yield_gui()
+        yield
         self.target_evolution_chart.setChart(self._bar_chart(
             "Evolução mensal", months, [("Realizado", actual_values)]))
-        self._yield_gui()
+        yield
         ranking_labels = [str(getter("entity_code", ""))] if top is not None else ["Sem dados"]
         ranking_values = [getter("score", 0)] if top is not None else [0]
         self.target_ranking_chart.setChart(self._bar_chart(
             "Ranking / Classificação", ranking_labels, [("Score", ranking_values)]))
-        self._yield_gui()
+        yield
 
     def _show_data_availability(
         self, label: QLabel, available_through: dict | None
@@ -735,8 +799,8 @@ class DashboardPage(QWidget):
 
     def _show_target_values(self, value: dict, target: QLabel, actual: QLabel,
                             achievement: QLabel) -> None:
-        target.setText(self.number(value["target"]))
-        actual.setText(self.number(value["actual"]))
+        target.setText(self.currency(value["target"]))
+        actual.setText(self.currency(value["actual"]))
         achievement.setText(self.percentage(value["achievement_percentage"]))
 
     @staticmethod
@@ -895,8 +959,8 @@ class DashboardPage(QWidget):
         )
 
     def _show_target(self, result, target: QLabel, actual: QLabel, achievement: QLabel) -> None:
-        target.setText(self.number(result.target))
-        actual.setText(self.number(result.actual))
+        target.setText(self.currency(result.target))
+        actual.setText(self.currency(result.actual))
         achievement.setText(self.percentage(result.achievement_percentage))
 
     @classmethod
@@ -966,7 +1030,7 @@ class DashboardPage(QWidget):
         for label, value in distribution.items():
             numeric = cls.decimal(value)
             percentage = Decimal("0") if total == 0 else numeric / total * Decimal("100")
-            categories.append(f"{label} ({percentage:.1f}%)".replace(".", ","))
+            categories.append(f"{label} ({format_percentage(percentage)})")
         return cls._bar_chart(title, categories, [(series_name, values)])
 
     @staticmethod
@@ -991,26 +1055,19 @@ class DashboardPage(QWidget):
 
     @staticmethod
     def currency(value: Decimal | None) -> str:
-        if value is None:
-            return "—"
-        value = Decimal(str(value))
-        formatted = f"{value:,.2f}"
-        return "R$ " + formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+        return format_currency(value)
 
     @staticmethod
     def number(value: Decimal) -> str:
-        value = Decimal(str(value))
-        formatted = f"{value:,.4f}"
-        return formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+        return format_number(value)
 
     @staticmethod
     def integer(value: int) -> str:
-        return f"{value:,}".replace(",", ".")
+        return format_integer(value)
 
     @staticmethod
     def percentage(value: Decimal | None) -> str:
-        return ("—" if value is None else
-                f"{Decimal(str(value)):.2f}%".replace(".", ","))
+        return format_percentage(value)
 
     @staticmethod
     def decimal(value) -> Decimal:

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from app.gui.formatters import format_currency
 from app.models.cashflow_entry import EXPENSE_CATEGORIES, CashflowCategory, CashflowType
 from app.models.investment_movement import InvestmentMovementType
 from app.services.cashflow_catalog_service import CashflowCatalogOption
@@ -624,8 +625,7 @@ class FinanceiroPage(QWidget):
 
     @staticmethod
     def format_currency(value: Decimal) -> str:
-        formatted = f"{value:,.2f}"
-        return "R$ " + formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+        return format_currency(value)
 
     @staticmethod
     def _category_label(category: str) -> str:

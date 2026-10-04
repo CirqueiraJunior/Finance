@@ -220,7 +220,7 @@ def test_boe_page_shows_operational_kpis_and_rows(qtbot):
     assert page.operations_table.item(0, 0).text() == "07/2026"
     assert page.operations_table.item(0, 1).text() == "Entidade"
     assert page.operational_queries.text() == "100"
-    assert page.operational_unit_value.text() == "R$ 0,0693"
+    assert page.operational_unit_value.text() == "R$ 0,07"
     assert page.operational_total_value.text() == "R$ 6,93"
 
 

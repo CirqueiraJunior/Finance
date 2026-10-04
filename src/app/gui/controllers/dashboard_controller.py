@@ -1,4 +1,7 @@
+from weakref import ref
+
 from PySide6.QtCore import QObject, QThread, Slot
+from shiboken6 import isValid
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.gui.pages.dashboard import DashboardPage
@@ -22,6 +25,9 @@ class DashboardController(QObject):
         self._refresh_after_years = False
         self._years_retry_on_finish = False
         self._pending_refresh_areas: set[str] | None = None
+        self._refresh_active = False
+        self._request_finished = False
+        self._render_in_progress = False
 
         self.view.refresh_button.clicked.connect(
             lambda _checked=False: self.refresh({"financial"})
@@ -108,10 +114,7 @@ class DashboardController(QObject):
             self._start_available_years_load()
 
     def refresh(self, areas: set[str] | None = None) -> None:
-        if (
-            self._refresh_thread is not None
-            and self._refresh_thread.isRunning()
-        ):
+        if self._refresh_active:
             self.view.set_status(
                 "Processando Dashboard... Aguarde a conclusão da atualização atual."
             )
@@ -131,6 +134,9 @@ class DashboardController(QObject):
         filters = self.view.selected_dashboard_filters()
 
         self._requested_period = (year, month)
+        self._refresh_active = True
+        self._request_finished = False
+        self._render_in_progress = False
         self.view.refresh_button.setEnabled(False)
         self.view.boe_refresh_button.setEnabled(False)
         self.view.target_refresh_button.setEnabled(False)
@@ -198,15 +204,50 @@ class DashboardController(QObject):
         result_type, data = result
 
         if result_type == "dashboard":
-            self.view.show_dashboard_data(data)
+            self._render_in_progress = True
+            controller_ref = ref(self)
+
+            def render_finished() -> None:
+                controller = controller_ref()
+                if controller is not None and isValid(controller):
+                    controller._render_finished()
+
+            def render_failed(error: Exception) -> None:
+                controller = controller_ref()
+                if controller is not None and isValid(controller):
+                    controller._render_failed(error)
+
+            try:
+                self.view.show_dashboard_data_async(
+                    data, render_finished, render_failed
+                )
+            except Exception as error:
+                self._render_failed(error)
         else:
             self.view.show_summary(data)
+            self._set_success_status()
 
-        if self._requested_period is not None:
-            year, month = self._requested_period
-            self.view.set_status(
-                f"Dashboard atualizado para {month:02d}/{year}."
-            )
+    def _render_finished(self) -> None:
+        if not self._render_in_progress:
+            return
+        self._render_in_progress = False
+        self._set_success_status()
+        if self._request_finished:
+            self._finalize_refresh()
+
+    def _render_failed(self, error: Exception) -> None:
+        self._render_in_progress = False
+        self._refresh_failed(error)
+        if self._request_finished:
+            self._finalize_refresh()
+
+    def _set_success_status(self) -> None:
+        if self._requested_period is None:
+            return
+        year, month = self._requested_period
+        self.view.set_status(
+            f"Dashboard atualizado para {month:02d}/{year}."
+        )
 
     @Slot(object)
     def _refresh_failed(self, error: Exception) -> None:
@@ -223,6 +264,14 @@ class DashboardController(QObject):
 
     @Slot()
     def _refresh_finished(self) -> None:
+        self._request_finished = True
+        if self._render_in_progress:
+            return
+        self._finalize_refresh()
+
+    def _finalize_refresh(self) -> None:
+        if not self._refresh_active:
+            return
         if self._refresh_dialog is not None:
             self._refresh_dialog.accept()
             self._refresh_dialog.deleteLater()
@@ -233,6 +282,9 @@ class DashboardController(QObject):
 
         self._refresh_thread = None
         self._refresh_worker = None
+        self._refresh_active = False
+        self._request_finished = False
+        self._render_in_progress = False
         self.view.refresh_button.setEnabled(True)
         self.view.boe_refresh_button.setEnabled(True)
         self.view.target_refresh_button.setEnabled(True)

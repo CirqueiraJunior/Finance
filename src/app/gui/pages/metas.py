@@ -11,6 +11,9 @@ from PySide6.QtWidgets import (
 
 from app.models.entity import Entity
 from app.models.target_entry import TargetEntry, TargetIndicator
+from app.gui.formatters import (
+    format_currency, format_integer, format_number, format_percentage,
+)
 from app.services.target_service import TargetVsActual
 from app.services.ranking_service import AnnualRankingEntry, RankingEntry
 from app.widgets import BrazilianDecimalEdit, MonthComboBox
@@ -163,7 +166,7 @@ class TargetDialog(QDialog):
 
     @staticmethod
     def format_decimal(value: Decimal) -> str:
-        return f"{value:.4f}".replace(".", ",")
+        return format_number(value)
 
 
 class MetasPage(QWidget):
@@ -349,7 +352,8 @@ class MetasPage(QWidget):
             f"Tipo: {metadata.get('detected_type', '—')} | "
             f"Ano: {metadata.get('year') or '—'} | "
             f"Registros: {totals.get('rows', 0)} | "
-            f"Meta: {totals.get('target', 0)} | Realizado: {totals.get('actual', 0)}"
+            f"Meta: {format_currency(totals.get('target', 0))} | "
+            f"Realizado: {format_currency(totals.get('actual', 0))}"
         )
         rows = value.get("preview", [])
         self.import_preview.setRowCount(min(len(rows), 500))
@@ -358,7 +362,9 @@ class MetasPage(QWidget):
                 row.get("line", "—"),
                 f"{row.get('entity_code', '—')} — {row.get('entity_name') or 'Não cadastrada'}",
                 f"{row.get('month', 0):02d}/{row.get('year', '—')}",
-                row.get("indicator", "—"), row.get("target", 0), row.get("actual", 0),
+                row.get("indicator", "—"),
+                format_currency(row.get("target", 0)),
+                format_currency(row.get("actual", 0)),
             )
             for column, text in enumerate(values):
                 self.import_preview.setItem(index, column, QTableWidgetItem(str(text)))
@@ -378,14 +384,14 @@ class MetasPage(QWidget):
         self.import_summary.setText(
             f"Importação concluída: {value.get('imported', 0)} registros | "
             f"Ano: {value.get('year') or '—'} | "
-            f"Meta: {value.get('target_total', 0)} | "
-            f"Realizado: {value.get('actual_total', 0)}"
+            f"Meta: {format_currency(value.get('target_total', 0))} | "
+            f"Realizado: {format_currency(value.get('actual_total', 0))}"
         )
         self.confirm_import_button.setEnabled(False)
         self.set_status("Metas importadas com sucesso.")
 
     @staticmethod
-    def _card(title: str, layout: QHBoxLayout, initial: str = "0,0000") -> QLabel:
+    def _card(title: str, layout: QHBoxLayout, initial: str = "R$ 0,00") -> QLabel:
         card = QWidget()
         card.setObjectName("summaryCard")
         card_layout = QVBoxLayout(card)
@@ -423,8 +429,8 @@ class MetasPage(QWidget):
         for row, comparison in enumerate(result.comparisons):
             values = [
                 str(comparison.entity_code), comparison.entity_name,
-                comparison.indicator.title(), self.number(comparison.target),
-                self.number(comparison.actual), self.number(comparison.difference),
+                comparison.indicator.title(), self.currency(comparison.target),
+                self.currency(comparison.actual), self.currency(comparison.difference),
                 self.percentage(comparison.achievement_percentage),
                   comparison.notes or "—",
             ]
@@ -435,9 +441,9 @@ class MetasPage(QWidget):
                 self.table.setItem(row, column, item)
         summary = result.summary
         self.entity_count.setText(str(summary.entity_count))
-        self.target_total.setText(self.number(summary.target_total))
-        self.actual_total.setText(self.number(summary.actual_total))
-        self.difference_total.setText(self.number(summary.difference_total))
+        self.target_total.setText(self.currency(summary.target_total))
+        self.actual_total.setText(self.currency(summary.actual_total))
+        self.difference_total.setText(self.currency(summary.difference_total))
         self.achievement_total.setText(self.percentage(summary.achievement_percentage))
         self.empty_state.setVisible(not result.comparisons)
         self.table.resizeColumnsToContents()
@@ -482,9 +488,9 @@ class MetasPage(QWidget):
                 cancellation_points = row.cancellation_points
                 score = row.score
             values = [position, row.entity_code, row.entity_name,
-                      self.number(row.target_total), self.number(row.actual_total),
-                      self.percentage(row.achievement), self.number(row.captures),
-                      self.number(row.cancellations), billing_points,
+                      self.currency(row.target_total), self.currency(row.actual_total),
+                      self.percentage(row.achievement), self.integer(row.captures),
+                      self.integer(row.cancellations), billing_points,
                       capture_points, cancellation_points, score,
                       situation, self.currency(row.award) if row.award is not None else "-"]
             for column, value in enumerate(values):
@@ -521,7 +527,7 @@ class MetasPage(QWidget):
                 for result in detail.category_results
             ) or "Sem classificação"
             detail_text = (
-                f"Total: {self.number(detail.target_total)} / {self.number(detail.actual_total)}  •  "
+                f"Total: {self.currency(detail.target_total)} / {self.currency(detail.actual_total)}  •  "
                 f"Atingimento: {self.percentage(detail.achievement)}  •  "
                 f"Crescimento de associados: {self.percentage(detail.association_growth_percentage)}  •  "
                 f"Ticket médio: {self.currency(detail.average_ticket) if detail.average_ticket is not None else '-'}  •  "
@@ -529,11 +535,11 @@ class MetasPage(QWidget):
             )
         else:
             detail_text = (
-                f"Consultas: Meta {self.number(detail.meta_queries)} | Realizado {self.number(detail.actual_queries)}  •  "
-                f"Registros: Meta {self.number(detail.meta_registrations)} | Realizado {self.number(detail.actual_registrations)}  •  "
-                f"Total: {self.number(detail.target_total)} / {self.number(detail.actual_total)}  •  "
-                f"Atingimento: {self.percentage(detail.achievement)}  •  Captações: {self.number(detail.captures)}  •  "
-                f"Cancelamentos: {self.number(detail.cancellations)}  •  Pontos: {detail.billing_points}+{detail.capture_points}+{detail.cancellation_points}={detail.score}  •  "
+                f"Consultas: Meta {self.currency(detail.meta_queries)} | Realizado {self.currency(detail.actual_queries)}  •  "
+                f"Registros: Meta {self.currency(detail.meta_registrations)} | Realizado {self.currency(detail.actual_registrations)}  •  "
+                f"Total: {self.currency(detail.target_total)} / {self.currency(detail.actual_total)}  •  "
+                f"Atingimento: {self.percentage(detail.achievement)}  •  Captações: {self.integer(detail.captures)}  •  "
+                f"Cancelamentos: {self.integer(detail.cancellations)}  •  Pontos: {detail.billing_points}+{detail.capture_points}+{detail.cancellation_points}={detail.score}  •  "
                 f"Posição: {detail.position or '-'}  •  Premiação: {self.currency(detail.award) if detail.award else '-'}"
             )
         self.entity_detail.setText(detail_text)
@@ -541,14 +547,16 @@ class MetasPage(QWidget):
 
     @staticmethod
     def currency(value: Decimal) -> str:
-        formatted = f"{value:,.2f}"
-        return "R$ " + formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+        return format_currency(value)
 
     @staticmethod
     def number(value: Decimal) -> str:
-        formatted = f"{value:,.4f}"
-        return formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+        return format_number(value)
+
+    @staticmethod
+    def integer(value: Decimal | int) -> str:
+        return format_integer(value)
 
     @staticmethod
     def percentage(value: Decimal | None) -> str:
-        return "—" if value is None else f"{value:.4f}%".replace(".", ",")
+        return format_percentage(value)

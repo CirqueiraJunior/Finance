@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from app.gui.formatters import format_currency, format_number, format_percentage
 from app.models.budget_entry import BudgetEntry
 from app.models.cashflow_entry import EXPENSE_CATEGORIES, CashflowCategory, CashflowType
 from app.services.budget_service import BudgetVsActual, REVENUE_CATEGORIES
@@ -163,7 +164,7 @@ class BudgetDialog(QDialog):
 
     @staticmethod
     def format_decimal(value: Decimal) -> str:
-        return f"{value:.4f}".replace(".", ",")
+        return format_number(value)
 
 
 class OrcamentoPage(QWidget):
@@ -275,7 +276,7 @@ class OrcamentoPage(QWidget):
             f"Tipo: {metadata.get('detected_type', '—')} | "
             f"Ano: {metadata.get('year') or '—'} | "
             f"Registros: {totals.get('rows', 0)} | "
-            f"Total: {totals.get('value', 0)}"
+            f"Total: {format_currency(totals.get('value', 0))}"
         )
         rows = value.get("preview", [])
         self.import_preview.setRowCount(min(len(rows), 500))
@@ -283,7 +284,7 @@ class OrcamentoPage(QWidget):
             values = (
                 row.get("line", "—"), row.get("year", "—"),
                 row.get("month", "—"), row.get("entry_type", "—"),
-                row.get("category", "—"), row.get("value", 0),
+                row.get("category", "—"), format_currency(row.get("value", 0)),
                 row.get("source_label", "—"),
             )
             for column, text in enumerate(values):
@@ -310,7 +311,7 @@ class OrcamentoPage(QWidget):
         self.import_summary.setText(
             f"Importação concluída: {value.get('imported', 0)} registros | "
             f"Ano: {value.get('year') or '—'} | "
-            f"Total: {value.get('total', 0)}"
+            f"Total: {format_currency(value.get('total', 0))}"
         )
         self.confirm_import_button.setEnabled(False)
         self.set_status("Orçamento importado com sucesso.")
@@ -362,8 +363,7 @@ class OrcamentoPage(QWidget):
                 self.currency(comparison.budgeted),
                 self.currency(comparison.actual),
                 self.currency(comparison.absolute_variance),
-                "—" if comparison.percentage_variance is None
-                else f"{comparison.percentage_variance:.4f}%".replace(".", ","),
+                format_percentage(comparison.percentage_variance),
                 budget_notes.get((comparison.entry_type, comparison.category), "—"),
             ]
             for column, value in enumerate(values):
@@ -396,5 +396,4 @@ class OrcamentoPage(QWidget):
 
     @staticmethod
     def currency(value: Decimal) -> str:
-        formatted = f"{value:,.2f}"
-        return "R$ " + formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+        return format_currency(value)

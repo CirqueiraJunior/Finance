@@ -1,9 +1,10 @@
 from decimal import Decimal
+import inspect
 from threading import Event
 
 import pytest
 from PySide6.QtCharts import QChartView
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 
 from app.gui.controllers.dashboard_controller import DashboardController
 from app.gui.pages.dashboard import DashboardChartView, DashboardPage
@@ -225,6 +226,96 @@ def test_dashboard_concurrent_refresh_is_ignored_and_button_is_restored(qtbot):
     assert page.refresh_button.isEnabled()
 
 
+def test_dashboard_async_render_yields_and_batches_large_boe_table(qtbot):
+    page = DashboardPage()
+    qtbot.addWidget(page)
+    rows = [
+        {
+            "id": index,
+            "code": 1000 + index,
+            "name": f"Entidade {index}",
+            "queries": index,
+            "unit_value": Decimal("1.50"),
+            "total_value": Decimal(index) * Decimal("1.50"),
+        }
+        for index in range(55)
+    ]
+    data = {
+        "boe": {
+            "filters": {"entities": []},
+            "unit_value": Decimal("1.50"),
+            "entity_count": len(rows),
+            "queries": sum(row["queries"] for row in rows),
+            "total_value": sum(
+                (row["total_value"] for row in rows), Decimal("0")
+            ),
+            "entities": rows,
+            "monthly": [],
+        }
+    }
+    events = []
+
+    page.show_dashboard_data_async(
+        data, lambda: events.append("complete")
+    )
+    QTimer.singleShot(0, lambda: events.append("sentinel"))
+
+    qtbot.waitUntil(lambda: "complete" in events, timeout=5000)
+    qtbot.wait(20)
+    assert events[0] == "sentinel"
+    assert events.count("complete") == 1
+    assert page.boe_table.rowCount() == len(rows)
+    assert page.boe_table.item(54, 0).text() == "1054 — Entidade 54"
+
+
+def test_dashboard_controller_waits_for_visual_render_before_finishing(qtbot):
+    page = DashboardPage()
+    qtbot.addWidget(page)
+    page.show()
+
+    class ServiceStub:
+        def __init__(self):
+            self.calls = 0
+
+        def get_dashboard_data(self, year, month, **filters):
+            self.calls += 1
+            return {}
+
+    service = ServiceStub()
+    controller = DashboardController(page, service)
+    deferred = []
+
+    def defer_render(data, on_finished, on_failed=None):
+        deferred.append(on_finished)
+
+    page.show_dashboard_data_async = defer_render
+    controller.refresh({"boe"})
+    qtbot.waitUntil(
+        lambda: bool(deferred) and controller._request_finished,
+        timeout=5000,
+    )
+
+    assert controller._refresh_active
+    assert controller._render_in_progress
+    assert controller._refresh_dialog is not None
+    assert controller._refresh_dialog.isVisible()
+    assert not page.refresh_button.isEnabled()
+    controller.refresh({"boe"})
+    assert service.calls == 1
+
+    deferred[0]()
+    qtbot.waitUntil(lambda: not controller._refresh_active, timeout=5000)
+    assert controller._refresh_dialog is None
+    assert page.refresh_button.isEnabled()
+
+
+def test_dashboard_rendering_does_not_pump_events_manually():
+    source = inspect.getsource(DashboardPage)
+
+    assert "processEvents" not in source
+    assert "_yield_gui" not in source
+
+
 def test_dashboard_hides_unauthorized_internal_areas(qtbot):
     page = DashboardPage()
     qtbot.addWidget(page)
@@ -350,7 +441,7 @@ def test_dashboard_month_selector_and_distribution_percentages(qtbot):
     assert page.month_filter.minimumWidth() >= 120
     chart=page._distribution_chart("Distribui\u00e7\u00e3o", {"A": Decimal("25"), "B": Decimal("75")}, "Receita")
     axis=next(axis for axis in chart.axes() if hasattr(axis, "categories"))
-    assert axis.categories() == ["A (25,0%)", "B (75,0%)"]
+    assert axis.categories() == ["A (25,00%)", "B (75,00%)"]
 
 
 def test_dense_dashboard_chart_keeps_compact_bar_labels(qtbot):
@@ -374,7 +465,7 @@ def test_dashboard_chart_overlay_formats_readable_values(qtbot):
     qtbot.addWidget(page)
     assert DashboardChartView._format_chart_value(44502, "number") == "44,5 mil"
     assert DashboardChartView._format_chart_value(1441296, "number") == "1,4 mi"
-    assert DashboardChartView._format_chart_value(99.1366, "percentage") == "99,1%"
+    assert DashboardChartView._format_chart_value(99.1366, "percentage") == "99,14%"
     chart = page._bar_chart("% Atingimento", ["1", "2"], [("Atingimento %", [99.1, 104.2])])
     assert chart.series()[0].isLabelsVisible() is False
     assert chart.series()[0].barSets()[0].label() == "Atingimento %"

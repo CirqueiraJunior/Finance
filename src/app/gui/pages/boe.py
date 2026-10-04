@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.gui.formatters import format_currency, format_integer
 from app.importers.boe_types import BOEValidationResult
 from app.models.boe_import import BOEImport
 from app.services.boe_service import BOEImportDetails, BOEOperationalSummary
@@ -155,7 +156,7 @@ class BoePage(QWidget):
         operational_kpis = QHBoxLayout()
         self.operational_queries = self._create_summary_card(operational_kpis, "Consultas", "0")
         self.operational_unit_value = self._create_summary_card(
-            operational_kpis, "Valor Unitário", self._format_currency(Decimal("0.0000"), 4)
+            operational_kpis, "Valor Unitário", self._format_currency(Decimal("0.0000"))
         )
         self.operational_total_value = self._create_summary_card(
             operational_kpis, "Valor Total Pago", self._format_currency(Decimal("0.0000"))
@@ -259,14 +260,14 @@ class BoePage(QWidget):
         for row_index, row in enumerate(summary.rows):
             values = (
                 f"{row.month:02d}/{row.year}", row.entity_name,
-                self._format_integer(row.queries), self._format_currency(row.unit_value, 4),
+                self._format_integer(row.queries), self._format_currency(row.unit_value),
                 self._format_currency(row.total_value),
             )
             for column, value in enumerate(values):
                 self.operations_table.setItem(row_index, column, QTableWidgetItem(value))
         self.operations_table.resizeColumnsToContents()
         self.operational_queries.setText(self._format_integer(summary.total_queries))
-        self.operational_unit_value.setText(self._format_currency(summary.unit_value, 4))
+        self.operational_unit_value.setText(self._format_currency(summary.unit_value))
         self.operational_total_value.setText(self._format_currency(summary.total_value))
 
     def show_validation(self, result: BOEValidationResult) -> None:
@@ -381,10 +382,9 @@ class BoePage(QWidget):
         self.operation_status.style().polish(self.operation_status)
 
     @staticmethod
-    def _format_currency(value: Decimal, decimals: int = 2) -> str:
-        formatted = f"{value:,.{decimals}f}"
-        return "R$ " + formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+    def _format_currency(value: Decimal) -> str:
+        return format_currency(value)
 
     @staticmethod
     def _format_integer(value: int) -> str:
-        return f"{value:,}".replace(",", ".")
+        return format_integer(value)
