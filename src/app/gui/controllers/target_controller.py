@@ -79,7 +79,10 @@ class TargetController(QObject):
 
     def _years_loaded(self, values: dict) -> None:
         self.view.set_available_years(values["targets"], values["ranking"])
-        self._initial_load()
+        if self._has_remote_api(self.service):
+            self._initial_load_remote()
+        else:
+            self._initial_load()
 
     def _rollback_local(self, service=None) -> None:
         target = service or self.service
@@ -201,6 +204,92 @@ class TargetController(QObject):
 
         dialog.show()
         thread.start()
+
+    def _initial_load_remote(self) -> None:
+        filters = self.view.selected_filters()
+        ranking_year = self.view.ranking_year.currentData()
+        ranking_quarter = self.view.ranking_quarter.currentData()
+
+        def operation():
+            payload = {
+                "entities": None,
+                "target": None,
+                "ranking": None,
+                "errors": [],
+            }
+
+            try:
+                payload["entities"] = self.service.list_entities()
+            except (SQLAlchemyError, RuntimeError) as error:
+                payload["errors"].append(
+                    f"Entidades: {error}"
+                )
+
+            try:
+                payload["target"] = self._get_target_vs_actual(
+                    *filters
+                )
+            except (
+                TargetDomainError,
+                SQLAlchemyError,
+                RuntimeError,
+            ) as error:
+                payload["errors"].append(
+                    f"Meta x Realizado: {error}"
+                )
+
+            if self.ranking is not None:
+                try:
+                    payload["ranking"] = (
+                        self.ranking.quarterly(
+                            ranking_year,
+                            ranking_quarter,
+                        ),
+                        self.ranking.annual(ranking_year),
+                    )
+                except (
+                    ValueError,
+                    SQLAlchemyError,
+                    RuntimeError,
+                ) as error:
+                    payload["errors"].append(
+                        f"Ranking: {error}"
+                    )
+
+            return payload
+
+        def succeeded(payload) -> None:
+            entities = payload["entities"]
+            self.view.set_entities(
+                entities if entities is not None else []
+            )
+
+            if payload["target"] is not None:
+                self.view.show_result(payload["target"])
+
+            if payload["ranking"] is not None:
+                rows, annual = payload["ranking"]
+                self.view.show_ranking(rows, annual)
+
+            if payload["errors"]:
+                self.view.set_status(
+                    " | ".join(payload["errors"]),
+                    error=True,
+                )
+
+        def failed(error: Exception) -> None:
+            self.view.set_status(
+                f"Falha ao carregar Metas: {error}",
+                error=True,
+            )
+
+        self._run_operation(
+            service=self.service,
+            window_title="Carregando Metas",
+            operation=operation,
+            succeeded=succeeded,
+            failed=failed,
+        )
 
     def _initial_load(self) -> None:
         # Carga inicial sequencial para evitar concorrência entre
@@ -446,63 +535,11 @@ class TargetController(QObject):
         )
 
     def _get_target_vs_actual(self, year, month, indicator, entity_id):
-        if indicator != "TODAS":
-            return self.service.get_target_vs_actual(
-                year,
-                month,
-                indicator,
-                entity_id,
-            )
-
-        queries = self.service.get_target_vs_actual(
+        return self.service.get_target_vs_actual(
             year,
             month,
-            "CONSULTAS",
+            indicator,
             entity_id,
-        )
-        registrations = self.service.get_target_vs_actual(
-            year,
-            month,
-            "REGISTROS",
-            entity_id,
-        )
-
-        comparisons = tuple(queries.comparisons) + tuple(
-            registrations.comparisons
-        )
-
-        zero = Decimal("0.0000")
-        target_total = sum(
-            (item.target for item in comparisons),
-            zero,
-        )
-        actual_total = sum(
-            (item.actual for item in comparisons),
-            zero,
-        )
-        difference_total = actual_total - target_total
-
-        achievement = (
-            None
-            if target_total == 0
-            else (
-                actual_total
-                / target_total
-                * Decimal("100")
-            ).quantize(Decimal("0.0001"))
-        )
-
-        summary = type(queries.summary)(
-            len({item.entity_code for item in comparisons}),
-            target_total,
-            actual_total,
-            difference_total,
-            achievement,
-        )
-
-        return type(queries)(
-            comparisons,
-            summary,
         )
 
     def refresh(self) -> None:

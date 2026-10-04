@@ -332,3 +332,60 @@ def test_import_distinguishes_timeout_from_connection_error(
     with pytest.raises(exception, match=message):
         client.upload("/api/v1/targets/import", str(path), import_file=True)
     client.close()
+
+def test_remote_initial_load_runs_off_ui_thread(qtbot):
+    service = _RemoteImportService()
+    page = MetasPage()
+    qtbot.addWidget(page)
+    ranking = _Ranking()
+
+    controller = TargetController(page, service, ranking)
+
+    main_thread = threading.get_ident()
+    worker_threads = []
+
+    original_entities = service.list_entities
+    original_target = service.get_target_vs_actual
+    original_quarterly = ranking.quarterly
+    original_annual = ranking.annual
+
+    def list_entities():
+        worker_threads.append(threading.get_ident())
+        return original_entities()
+
+    def get_target_vs_actual(*args):
+        worker_threads.append(threading.get_ident())
+        return original_target(*args)
+
+    def quarterly(*args):
+        worker_threads.append(threading.get_ident())
+        return original_quarterly(*args)
+
+    def annual(*args):
+        worker_threads.append(threading.get_ident())
+        return original_annual(*args)
+
+    service.list_entities = list_entities
+    service.get_target_vs_actual = get_target_vs_actual
+    ranking.quarterly = quarterly
+    ranking.annual = annual
+
+    controller._has_remote_api = lambda _service: True
+
+    controller._years_loaded(
+        {"targets": [2026], "ranking": [2026]}
+    )
+
+    qtbot.waitUntil(
+        lambda: (
+            controller._operation_thread is None
+            and len(worker_threads) >= 4
+        ),
+        timeout=5000,
+    )
+
+    assert worker_threads
+    assert all(
+        thread_id != main_thread
+        for thread_id in worker_threads
+    )

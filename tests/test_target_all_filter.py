@@ -40,12 +40,28 @@ class FakeTargetService:
                 Comparison(1, Decimal("20"), Decimal("25")),
                 Comparison(2, Decimal("5"), Decimal("5")),
             )
+        elif indicator == "TODAS":
+            comparisons = (
+                Comparison(1, Decimal("10"), Decimal("8")),
+                Comparison(1, Decimal("20"), Decimal("25")),
+                Comparison(2, Decimal("5"), Decimal("5")),
+            )
         else:
             raise AssertionError(f"Unexpected indicator: {indicator}")
 
         zero = Decimal("0")
         target_total = sum((item.target for item in comparisons), zero)
         actual_total = sum((item.actual for item in comparisons), zero)
+
+        achievement = (
+            None
+            if target_total == 0
+            else (
+                actual_total
+                / target_total
+                * Decimal("100")
+            ).quantize(Decimal("0.0001"))
+        )
 
         return Result(
             comparisons,
@@ -54,7 +70,7 @@ class FakeTargetService:
                 target_total,
                 actual_total,
                 actual_total - target_total,
-                None,
+                achievement,
             ),
         )
 
@@ -71,10 +87,13 @@ def test_all_indicators_combines_queries_and_registrations():
         None,
     )
 
-    assert [call[2] for call in service.calls] == [
-        "CONSULTAS",
-        "REGISTROS",
-    ]
+    assert len(service.calls) == 1
+    assert service.calls[0] == (
+        2026,
+        10,
+        "TODAS",
+        None,
+    )
 
     assert len(result.comparisons) == 3
     assert result.summary.entity_count == 2

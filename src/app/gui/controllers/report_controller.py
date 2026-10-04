@@ -45,8 +45,6 @@ class ReportController(QObject):
 
     def _years_loaded(self, years) -> None:
         self.view.set_available_years(years)
-        if years:
-            self.refresh()
 
     @staticmethod
     def _is_remote(service) -> bool:

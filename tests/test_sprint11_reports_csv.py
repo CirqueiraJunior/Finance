@@ -186,7 +186,9 @@ def test_report_gui_and_controller_use_only_year(qtbot, tmp_path):
     reports = Reports()
     exports = Exports()
     ReportController(page, reports, exports)
-    reports.years.clear()
+
+    assert reports.years == []
+
     page.year_filter.setCurrentIndex(page.year_filter.findData(2026))
 
     assert not hasattr(page, "month_filter")

@@ -142,16 +142,31 @@ class TargetService:
         indicator: TargetIndicator | str,
         entity_id: int | tuple[int, ...] | list[int] | None = None,
     ) -> TargetVsActual:
-        normalized_indicator = self._valid_indicator(indicator)
+        all_indicators = indicator == "TODAS"
+
+        if all_indicators:
+            accepted_indicators = {
+                TargetIndicator.QUERIES.value,
+                TargetIndicator.REGISTRATIONS.value,
+            }
+        else:
+            normalized_indicator = self._valid_indicator(indicator)
+            accepted_indicators = {normalized_indicator.value}
+
         entries = self.list_by_period(year, month)
-        entity_ids = set(entity_id if isinstance(entity_id, (tuple, list, set)) else
-                         (() if entity_id is None else (entity_id,)))
+        entity_ids = set(
+            entity_id
+            if isinstance(entity_id, (tuple, list, set))
+            else (() if entity_id is None else (entity_id,))
+        )
+
         for selected_id in entity_ids:
             self._valid_entity(selected_id)
+
         entries = [
             entry
             for entry in entries
-            if entry.indicador == normalized_indicator.value
+            if entry.indicador in accepted_indicators
             and entry.entity.codigo_entidade != 7500
             and (not entity_ids or entry.entity_id in entity_ids)
         ]
