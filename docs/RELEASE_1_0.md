@@ -6,7 +6,7 @@
 
 Versão planejada: `1.0.0`
 Branch oficial: `main`
-Tag Git: **ainda não criada nesta homologação final**
+Tag Git oficial planejada: `finance-v1.0.0` — **ainda não criada**
 Instalador oficial: **ainda não gerado nesta homologação final**
 
 A versão 1.0.0 só será considerada publicada depois da validação final do código,
@@ -48,7 +48,7 @@ build dos artefatos oficiais, homologação dos binários e criação da tag Git
 
 ## Validação automatizada
 
-- Suíte completa final desta Sprint: **672 testes aprovados, 28 warnings conhecidos**.
+- Suíte completa final desta Sprint: **679 testes aprovados, 28 warnings conhecidos**.
 - Testes focados do parser: **14 testes aprovados**.
 - `git diff --check`: sem erro após correção de whitespace e encoding.
 
@@ -74,7 +74,17 @@ pré-release.
 - [ ] Revisão de release readiness.
 - [ ] Build dos dois artefatos.
 - [ ] Homologação do instalador e do `.japackage`.
-- [ ] Tag `v1.0.0`.
+- [ ] Tag `finance-v1.0.0`.
+
+## Homologação do binário Desktop
+
+- Commit fonte: `7e159c7`
+- Versão: `1.0.0`
+- Build Desktop compilado homologado visualmente.
+- SHA-256 do `Finance.exe` homologado:
+  `7FBF7F4569B8B5B60675A50D04192A60A21A781C120348F281FA2B78908CC26C`
+- Homologação realizada contra a API de pré-release em `127.0.0.1:8011`.
+- O artefato homologado é de validação pré-release e não constitui publicação oficial.
 
 ## Rastreabilidade
 
