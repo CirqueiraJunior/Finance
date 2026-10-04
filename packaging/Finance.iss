@@ -12,6 +12,8 @@
   #error UpdaterInstaller define is required for official Finance builds
 #endif
 #define UpdaterInstallerName ExtractFileName(UpdaterInstaller)
+#define UpdaterRequiredVersion "1.0.0"
+#define UpdaterUninstallKey "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{A72CFE39-4BA1-46C1-A8A2-9244536D86BB}_is1"
 
 [Setup]
 AppId={{D4265C90-A4A7-4F51-BE50-DDAA3984E5E9}
@@ -39,6 +41,7 @@ UsedUserAreasWarning=no
 [Files]
 Source: "{#BuildRoot}\Finance\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#BuildRoot}\FinanceServer.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\ja-product.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#UpdaterInstaller}"; DestName: "{#UpdaterInstallerName}"; Flags: dontcopy
 
 [InstallDelete]
@@ -60,35 +63,161 @@ begin
   Result := RegKeyExists(HKLM, ServiceRegistryKey);
 end;
 
-function UpdaterInstalled(): Boolean;
+function CompareVersionPart(
+  A: Integer;
+  B: Integer
+): Integer;
 begin
-  Result := FileExists(ExpandConstant(
-    '{autopf}\J.A. Technology\J.A. Updater\J.A. Updater.exe'));
+  if A < B then
+    Result := -1
+  else if A > B then
+    Result := 1
+  else
+    Result := 0;
 end;
 
-procedure EnsureUpdaterInstalled();
+function NextVersionPart(
+  Version: String;
+  var Position: Integer
+): Integer;
+var
+  StartPos: Integer;
+  PartText: String;
+begin
+  while
+    (Position <= Length(Version)) and
+    (Version[Position] = '.')
+  do
+    Position := Position + 1;
+
+  StartPos := Position;
+
+  while
+    (Position <= Length(Version)) and
+    (Version[Position] <> '.')
+  do
+    Position := Position + 1;
+
+  PartText := Copy(
+    Version,
+    StartPos,
+    Position - StartPos
+  );
+
+  Result := StrToIntDef(
+    PartText,
+    0
+  );
+end;
+
+function CompareVersions(
+  CurrentVersion: String;
+  RequiredVersion: String
+): Integer;
+var
+  I: Integer;
+  CurrentPos: Integer;
+  RequiredPos: Integer;
+  CurrentValue: Integer;
+  RequiredValue: Integer;
+begin
+  CurrentPos := 1;
+  RequiredPos := 1;
+
+  for I := 0 to 3 do
+  begin
+    CurrentValue := NextVersionPart(
+      CurrentVersion,
+      CurrentPos
+    );
+
+    RequiredValue := NextVersionPart(
+      RequiredVersion,
+      RequiredPos
+    );
+
+    Result := CompareVersionPart(
+      CurrentValue,
+      RequiredValue
+    );
+
+    if Result <> 0 then
+      Exit;
+  end;
+
+  Result := 0;
+end;
+
+function UpdaterNeedsInstallation(): Boolean;
+var
+  InstalledVersion: String;
+  UpdaterExe: String;
+begin
+  UpdaterExe := ExpandConstant(
+    '{autopf}\J.A. Technology\J.A. Updater\J.A. Updater.exe'
+  );
+
+  if not FileExists(UpdaterExe) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  if not RegQueryStringValue(
+    HKLM64,
+    '{#UpdaterUninstallKey}',
+    'DisplayVersion',
+    InstalledVersion
+  ) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  Result :=
+    CompareVersions(
+      InstalledVersion,
+      '{#UpdaterRequiredVersion}'
+    ) < 0;
+end;
+
+procedure InstallUpdaterIfRequired();
 var
   ResultCode: Integer;
   InstallerPath: String;
 begin
-  if UpdaterInstalled() then
-    exit;
+  if not UpdaterNeedsInstallation() then
+    Exit;
 
-  ExtractTemporaryFile('{#UpdaterInstallerName}');
-  InstallerPath := ExpandConstant('{tmp}\{#UpdaterInstallerName}');
+  ExtractTemporaryFile(
+    '{#UpdaterInstallerName}'
+  );
 
-  if not Exec(InstallerPath,
-    '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-', '', SW_HIDE,
-    ewWaitUntilTerminated, ResultCode) then
-    RaiseException('J.A. Updater bootstrap could not be started.');
+  InstallerPath :=
+    ExpandConstant(
+      '{tmp}\{#UpdaterInstallerName}'
+    );
+
+  if not Exec(
+    InstallerPath,
+    '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+    RaiseException(
+      'J.A. Updater bootstrap could not be started.'
+    );
 
   if ResultCode <> 0 then
     RaiseException(Format(
       'J.A. Updater bootstrap returned exit code %d.', [ResultCode]));
 
-  if not UpdaterInstalled() then
+  if UpdaterNeedsInstallation() then
     RaiseException(
-      'J.A. Updater bootstrap completed without the expected executable.');
+      'J.A. Updater bootstrap did not install the required version.'
+    );
 end;
 
 procedure RunServiceCommand(const Parameters: String; const Required: Boolean);
@@ -163,7 +292,7 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
-  EnsureUpdaterInstalled();
+  InstallUpdaterIfRequired();
   RemovePreviousService();
 end;
 

@@ -1,0 +1,8 @@
+﻿{
+  "schema_version": 1,
+  "product_id": "finance",
+  "display_name": "Finance",
+  "executable": "Finance.exe",
+  "release_tag_prefix": "finance-v",
+  "installer_asset_pattern": "Finance_Setup_{version}.exe"
+}
