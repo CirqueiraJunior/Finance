@@ -48,7 +48,7 @@ Criar exclusivamente a fundacao tecnica do J.A. Finance, sem regras de negocio, 
 
 ## Ambiente homologado
 
-- Workspace: C:\Users\jose.alves\J.A. Technology\Finance
+- Workspace: C:\Users\jose.alves\J.A. Technology\Softwares\Finance
 - Venv: C:\Users\jose.alves\.venvs\Finance
 - Python: 3.13.15
 - PySide6: 6.11.2

@@ -1,4 +1,4 @@
-# Sprint 01 — Fundação
+﻿# Sprint 01 — Fundação
 
 ## Escopo entregue
 
@@ -23,7 +23,7 @@
 - Status: APROVADA
 - Python homologado: 3.13.15
 - Venv oficial: C:\Users\jose.alves\.venvs\Finance
-- Workspace oficial: C:\Users\jose.alves\J.A. Technology\Finance
+- Workspace oficial: C:\Users\jose.alves\J.A. Technology\Softwares\Finance
 - Testes: 5 passed in 0.94s
 - Interface e navegacao dos sete placeholders: OK
 - Logging: OK

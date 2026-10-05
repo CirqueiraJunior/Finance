@@ -1,4 +1,4 @@
-# Finance
+﻿# Finance
 
 Produto Finance 1.0.0 da J.A. Technology. A pré-release multiusuário usa PySide6 → HTTPS/FastAPI → PostgreSQL; SQLite é restrito a desenvolvimento e testes. Consulte `docs/MULTIUSER_ARCHITECTURE.md`, `docs/SECURITY.md` e `docs/DEPLOYMENT.md`.
 
@@ -101,6 +101,6 @@ Consulte:
 
 ## Release 1.0
 
-Workspace oficial: `C:\Users\jose.alves\J.A. Technology\Finance`.
+Workspace oficial: `C:\Users\jose.alves\J.A. Technology\Softwares\Finance`.
 Venv oficial: `C:\Users\jose.alves\.venvs\Finance`.
 Consulte `docs/RELEASE_1_0.md` para escopo, validações e limitações.
