@@ -102,8 +102,8 @@ def test_updater_bootstrap_precedes_finance_service_replacement():
     )
 
 
-def test_finance_version_and_output_name_remain_100():
+def test_finance_version_fallback_and_dynamic_output_name():
     text = source()
 
     assert '#define ProductVersion "1.0.0"' in text
-    assert "OutputBaseFilename=Finance_Setup_1.0.0" in text
+    assert "OutputBaseFilename=Finance_Setup_{#ProductVersion}" in text

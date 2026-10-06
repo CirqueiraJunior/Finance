@@ -23,11 +23,44 @@ def test_finance_spec_remains_windowed():
     assert "console=False" in text
 
 
-def test_finance_release_remains_version_100():
+def test_finance_installer_accepts_release_version():
     text = ISS.read_text(encoding="utf-8")
 
+    assert "#ifndef ProductVersion" in text
     assert '#define ProductVersion "1.0.0"' in text
-    assert "OutputBaseFilename=Finance_Setup_1.0.0" in text
+
+    assert (
+        "OutputBaseFilename=Finance_Setup_{#ProductVersion}"
+        in text
+    )
+
+
+def test_finance_installer_preserves_release_paths_and_branding():
+    text = ISS.read_text(encoding="utf-8")
+
+    assert "#ifndef BuildRoot" in text
+    assert "#ifndef OutputRoot" in text
+    assert "OutputDir={#OutputRoot}" in text
+
+    assert (
+        'SetupIconFile=..\\assets\\branding\\finance_desktop_v100.ico'
+        in text
+    )
+
+    assert (
+        'Source: "{#BuildRoot}\\Finance\\*"'
+        in text
+    )
+
+    assert (
+        'Source: "{#BuildRoot}\\FinanceServer.exe"'
+        in text
+    )
+
+    assert (
+        'DefaultDirName={autopf}\\J.A. Technology\\Finance'
+        in text
+    )
 
 
 def test_finance_specs_resolve_project_root_from_packaging_directory():

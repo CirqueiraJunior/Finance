@@ -1,5 +1,7 @@
 #define ProductName "Finance"
-#define ProductVersion "1.0.0"
+#ifndef ProductVersion
+  #define ProductVersion "1.0.0"
+#endif
 #define Publisher "J.A. Technology"
 #define ServiceName "JATechnologyFinanceServer"
 #ifndef BuildRoot
@@ -27,7 +29,7 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutputRoot}
-OutputBaseFilename=Finance_Setup_1.0.0
+OutputBaseFilename=Finance_Setup_{#ProductVersion}
 SetupIconFile=..\assets\branding\finance_desktop_v100.ico
 UninstallDisplayIcon={app}\Finance.exe
 Compression=lzma2/ultra64
