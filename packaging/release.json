@@ -10,5 +10,10 @@
     "packaging/Finance.spec",
     "packaging/FinanceServer.spec"
   ],
-  "inno_script": "packaging/Finance.iss"
+  "inno_script": "packaging/Finance.iss",
+  "module_runtime_includes": [
+    "src",
+    "assets"
+  ],
+  "module_minimum_control_center_version": "1.0.0"
 }
