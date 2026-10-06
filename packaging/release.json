@@ -2,6 +2,7 @@
   "schema_version": 1,
   "product_id": "finance",
   "display_name": "Finance",
+  "build_venv": "Finance",
   "installer_name_pattern": "Finance_Setup_{version}.exe",
   "release_tag_pattern": "finance-v{version}",
   "module_package_name_pattern": "Finance_Module_{version}.japackage",
