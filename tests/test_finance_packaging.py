@@ -28,3 +28,15 @@ def test_finance_release_remains_version_100():
 
     assert '#define ProductVersion "1.0.0"' in text
     assert "OutputBaseFilename=Finance_Setup_1.0.0" in text
+
+
+def test_finance_specs_resolve_project_root_from_packaging_directory():
+    for spec_name in ("Finance.spec", "FinanceServer.spec"):
+        text = (ROOT / "packaging" / spec_name).read_text(
+            encoding="utf-8"
+        )
+
+        assert (
+            "project_root = Path(SPECPATH).parent.parent"
+            in text
+        )
