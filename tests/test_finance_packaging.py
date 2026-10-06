@@ -70,6 +70,6 @@ def test_finance_specs_resolve_project_root_from_packaging_directory():
         )
 
         assert (
-            "project_root = Path(SPECPATH).parent.parent"
+            "project_root = Path(SPECPATH).parent"
             in text
         )

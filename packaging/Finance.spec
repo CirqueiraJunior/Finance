@@ -1,7 +1,7 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 
-project_root = Path(SPECPATH).parent.parent
+project_root = Path(SPECPATH).parent
 source_root = project_root / "src"
 
 resources_root = source_root / "app" / "resources"

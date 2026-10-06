@@ -3,7 +3,7 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 
-project_root = Path(SPECPATH).parent.parent
+project_root = Path(SPECPATH).parent
 source_root = project_root / "src"
 
 psycopg_datas, psycopg_binaries, psycopg_hiddenimports = collect_all("psycopg")
