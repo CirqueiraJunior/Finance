@@ -155,20 +155,23 @@ class MainWindow(QMainWindow):
             budget_service = RemoteBudgetService(api_client)
             catalog_service = RemoteCatalogService(api_client)
             target_service = RemoteTargetService(api_client)
-            self._boe_controller = BOEController(boe_page, boe_service)
+            self._boe_controller = BOEController(boe_page, boe_service, defer_initial_load=True)
             _startup_yield()
             self._cashflow_controller = CashflowController(
                 financeiro_page, cashflow_service, investment_service,
                 financial_flow=financial_flow,
                 catalog_service=catalog_service,
                 import_service=cashflow_service,
+                defer_initial_load=True,
             )
             _startup_yield()
             self._budget_controller = BudgetController(
-                orcamento_page, budget_service, catalog_service)
+                orcamento_page, budget_service, catalog_service,
+                defer_initial_load=True)
             _startup_yield()
             self._target_controller = TargetController(
-                metas_page, target_service, RemoteRankingService(api_client))
+                metas_page, target_service, RemoteRankingService(api_client),
+                defer_initial_load=True)
             _startup_yield()
             self._remote_dashboard_service = RemoteDashboardService(
                 api_client, dashboard_areas
@@ -180,11 +183,12 @@ class MainWindow(QMainWindow):
                 lambda: self._dashboard_controller.refresh({"financial"})
             )
             self._report_controller = ReportController(
-                relatorios_page, RemoteReportService(api_client), RemoteCSVService(api_client))
+                relatorios_page, RemoteReportService(api_client), RemoteCSVService(api_client), defer_initial_load=True)
             _startup_yield()
             self._registration_controller = RemoteRegistrationController(
                 cadastros_page, api_client,
                 allowed_areas=allowed_registration_areas(initial_role),
+                defer_initial_load=True,
             )
             _startup_yield()
             administracao_page.logs_button.setEnabled(False)
@@ -232,13 +236,18 @@ class MainWindow(QMainWindow):
             catalog_service = CashflowCatalogService(
                 CashflowCatalogRepository(self._boe_session))
             target_service = TargetService(TargetRepository(self._boe_session), EntityRepository(self._boe_session))
-            self._boe_controller = BOEController(boe_page, boe_service)
-            self._cashflow_controller = CashflowController(financeiro_page, cashflow_service, investment_service)
+            self._boe_controller = BOEController(boe_page, boe_service, defer_initial_load=True)
+            self._cashflow_controller = CashflowController(
+                financeiro_page, cashflow_service, investment_service,
+                defer_initial_load=True,
+            )
             self._budget_controller = BudgetController(
-                orcamento_page, budget_service, catalog_service)
+                orcamento_page, budget_service, catalog_service,
+                defer_initial_load=True)
             self._target_controller = TargetController(
                 metas_page, target_service,
-                RankingService(TargetRepository(self._boe_session), AssociationRepository(self._boe_session)))
+                RankingService(TargetRepository(self._boe_session), AssociationRepository(self._boe_session)),
+                defer_initial_load=True)
             self._dashboard_controller = DashboardController(
                 dashboard_page, DashboardService(financial_flow, boe_service, budget_service, target_service))
             self._cashflow_controller.import_completed.connect(
@@ -247,10 +256,11 @@ class MainWindow(QMainWindow):
             self._report_controller = ReportController(
                 relatorios_page, ReportService(financial_flow, boe_service, budget_service),
                 SiteCSVService(EntityRepository(self._boe_session), TargetRepository(self._boe_session),
-                               AssociationRepository(self._boe_session), CSVExportRepository(self._boe_session)))
+                               AssociationRepository(self._boe_session), CSVExportRepository(self._boe_session)), defer_initial_load=True)
             entity_service = EntityService(EntityRepository(self._boe_session))
             self._registration_controller = RegistrationController(
-                cadastros_page, entity_service, catalog_service
+                cadastros_page, entity_service, catalog_service,
+                defer_initial_load=True,
             )
             backup_service = BackupService(settings)
             historical_service = HistoricalImportService(
@@ -294,8 +304,7 @@ class MainWindow(QMainWindow):
             administracao_page.ranking_parameters_widget.year.currentIndexChanged.connect(
                 lambda _index: self._load_ranking_parameters(administracao_page)
             )
-            if initial_role == "ADMINISTRADOR":
-                self._load_ranking_parameter_configurations(administracao_page)
+            # Configuracoes do Ranking carregadas ao acessar Administracao.
         else:
             administracao_page.set_user_management_enabled(False)
 
@@ -314,6 +323,71 @@ class MainWindow(QMainWindow):
         indexes = {key: stack.addWidget(page) for key, page in self.pages.items()}
         initial_modules = set(indexes) if api_client is None else allowed_modules(initial_role)
         self.navigation = NavigationController(stack, indexes, initial_modules)
+
+        # JA_TECH_LAZY_ADMIN_RANKING_V1
+        self._admin_ranking_loaded = False
+
+        def _load_admin_ranking_on_navigation(index: int) -> None:
+            if (
+                api_client is not None
+                and initial_role == "ADMINISTRADOR"
+                and index == indexes["administracao"]
+                and not self._admin_ranking_loaded
+            ):
+                self._admin_ranking_loaded = True
+                self._load_ranking_parameter_configurations(
+                    administracao_page
+                )
+
+        stack.currentChanged.connect(_load_admin_ranking_on_navigation)
+
+        # JA_TECH_LAZY_METAS_V1
+        def _load_metas_on_navigation(index: int) -> None:
+            if index == indexes["metas"]:
+                self._target_controller.load_initial_data()
+
+        stack.currentChanged.connect(_load_metas_on_navigation)
+
+        # JA_TECH_LAZY_BOE_V1
+        def _load_boe_on_navigation(index: int) -> None:
+            if index == indexes["boe"]:
+                self._boe_controller.load_initial_data()
+
+        stack.currentChanged.connect(_load_boe_on_navigation)
+
+        # JA_TECH_LAZY_FINANCEIRO_V1
+        def _load_financeiro_on_navigation(index: int) -> None:
+            if index == indexes["financeiro"]:
+                self._cashflow_controller.load_initial_data()
+
+        stack.currentChanged.connect(_load_financeiro_on_navigation)
+
+        # JA_TECH_LAZY_ORCAMENTO_V1
+        def _load_orcamento_on_navigation(index: int) -> None:
+            if index == indexes["orcamento"]:
+                self._budget_controller.load_initial_data()
+
+        stack.currentChanged.connect(_load_orcamento_on_navigation)
+
+        # JA_TECH_LAZY_RELATORIOS_V1
+        def _load_relatorios_on_navigation(index: int) -> None:
+            if index == indexes["relatorios"]:
+                self._report_controller.load_initial_data()
+
+        stack.currentChanged.connect(_load_relatorios_on_navigation)
+
+        # JA_TECH_LAZY_CADASTROS_V1
+        def _load_cadastros_on_navigation(index: int) -> None:
+            if index == indexes["cadastros"]:
+                self._registration_controller.load_initial_data()
+
+        stack.currentChanged.connect(_load_cadastros_on_navigation)
+
+
+
+
+
+
 
         root = QWidget()
         root_layout = QVBoxLayout(root)
@@ -356,6 +430,8 @@ class MainWindow(QMainWindow):
         if first_page is not None:
             self.navigation.navigate_to(first_page)
             self.sidebar.select_page(first_page)
+            if first_page == "cadastros":
+                self._registration_controller.load_initial_data()
 
     def apply_authenticated_user(self, user: AuthenticatedUser) -> None:
         self._authenticated_role = user.perfil

@@ -1,3 +1,4 @@
+from PySide6.QtWidgets import QFrame
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
@@ -24,52 +25,202 @@ TOPICS = {
 
 
 class HelpDialog(QDialog):
+    # JA_TECH_FINANCE_HELP_BOOKMAKER_V2
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Finance — Central de Ajuda")
+
+        self.setWindowTitle("Finance \u2014 Central de Ajuda")
         self.setModal(True)
-        self.resize(840, 650)
-        self.setMinimumSize(720, 540)
+        self.setMinimumSize(900, 560)
+        self.resize(980, 620)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 18, 20, 18)
-        layout.setSpacing(10)
+        self._build_ui()
+        self._apply_styles()
+        self._filter("")
 
-        title = QLabel("Central de Ajuda do Finance")
-        title.setObjectName("pageTitle")
-        layout.addWidget(title)
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 22, 24, 22)
+        root.setSpacing(16)
 
-        intro = QLabel(f"Precisa de atendimento? Use o suporte oficial pelo WhatsApp {SUPPORT_WHATSAPP_DISPLAY}.")
-        intro.setWordWrap(True)
-        layout.addWidget(intro)
+        title = QLabel("Central de Ajuda")
+        title.setObjectName("HelpTitle")
+
+        subtitle = QLabel("Orienta\u00e7\u00f5es r\u00e1pidas e suporte para utiliza\u00e7\u00e3o do Finance.")
+        subtitle.setObjectName("HelpSubtitle")
+
+        root.addWidget(title)
+        root.addWidget(subtitle)
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Buscar orientação")
+        self.search.setPlaceholderText("Buscar orienta\u00e7\u00e3o")
+        self.search.setMinimumHeight(40)
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._filter)
-        layout.addWidget(self.search)
+        root.addWidget(self.search)
 
-        content = QHBoxLayout()
+        body = QHBoxLayout()
+        body.setSpacing(16)
+
+        nav = QFrame()
+        nav.setObjectName("HelpNavigation")
+        nav.setFixedWidth(290)
+
+        nav_layout = QVBoxLayout(nav)
+        nav_layout.setContentsMargins(16, 16, 16, 16)
+        nav_layout.setSpacing(10)
+
+        nav_title = QLabel("GUIA R\u00c1PIDO")
+        nav_title.setObjectName("HelpSectionTitle")
+
         self.topics = QListWidget()
-        self.topics.setMinimumWidth(245)
+        self.topics.setObjectName("HelpArticleList")
+        self.topics.setSpacing(8)
         self.topics.currentTextChanged.connect(self._show_topic)
-        content.addWidget(self.topics, 1)
+
+        nav_layout.addWidget(nav_title)
+        nav_layout.addWidget(self.topics, 1)
+
+        panel = QFrame()
+        panel.setObjectName("HelpContentPanel")
+
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(20, 18, 20, 18)
+        panel_layout.setSpacing(12)
+
+        content_title = QLabel("ORIENTA\u00c7\u00c3O")
+        content_title.setObjectName("HelpSectionTitle")
 
         self.text = QTextBrowser()
-        content.addWidget(self.text, 2)
-        layout.addLayout(content, 1)
+        self.text.setObjectName("HelpContent")
 
-        self.whatsapp = QPushButton("Falar com o suporte pelo WhatsApp")
-        self.whatsapp.setProperty("buttonRole", "primary")
-        self.whatsapp.setMinimumWidth(280)
-        self.whatsapp.setMaximumWidth(360)
+        panel_layout.addWidget(content_title)
+        panel_layout.addWidget(self.text, 1)
+
+        body.addWidget(nav)
+        body.addWidget(panel, 1)
+        root.addLayout(body, 1)
+
+        support = QFrame()
+        support.setObjectName("HelpSupport")
+
+        support_layout = QHBoxLayout(support)
+        support_layout.setContentsMargins(16, 12, 16, 12)
+
+        support_text = QLabel("Suporte e diagn\u00f3stico \u2014 atendimento oficial J.A. Technology")
+        support_text.setObjectName("HelpSupportText")
+
+        self.whatsapp = QPushButton(
+            "Falar com o suporte pelo WhatsApp"
+        )
+        self.whatsapp.setObjectName("HelpWhatsAppButton")
         self.whatsapp.clicked.connect(self._open_whatsapp)
 
-        support_actions = QHBoxLayout()
-        support_actions.addWidget(self.whatsapp)
-        support_actions.addStretch()
-        layout.addLayout(support_actions)
-        self._filter("")
+        support_layout.addWidget(support_text)
+        support_layout.addStretch()
+        support_layout.addWidget(self.whatsapp)
+
+        root.addWidget(support)
+
+    def _apply_styles(self) -> None:
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #F4F6F8;
+            }
+
+            QLabel#HelpTitle {
+                color: #003B71;
+                font-size: 24px;
+                font-weight: 700;
+            }
+
+            QLabel#HelpSubtitle {
+                color: #64748B;
+                font-size: 13px;
+            }
+
+            QLabel#HelpSectionTitle {
+                color: #003B71;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            QFrame#HelpNavigation,
+            QFrame#HelpContentPanel,
+            QFrame#HelpSupport {
+                background-color: #FFFFFF;
+                border: 1px solid #D9E0E7;
+                border-radius: 8px;
+            }
+
+            QListWidget#HelpArticleList {
+                background-color: transparent;
+                border: none;
+                outline: none;
+            }
+
+            QListWidget#HelpArticleList::item {
+                background-color: #F4F6F8;
+                color: #334155;
+                border: 1px solid #D5DDE5;
+                border-radius: 7px;
+                padding: 12px 14px;
+                margin: 2px 0;
+            }
+
+            QListWidget#HelpArticleList::item:hover {
+                background-color: #E9EEF3;
+                border-color: #AAB7C4;
+            }
+
+            QListWidget#HelpArticleList::item:selected {
+                background-color: #E1E7EC;
+                color: #003B71;
+                border: 1px solid #AAB7C4;
+            }
+
+            QTextBrowser#HelpContent {
+                border: none;
+                background-color: #FFFFFF;
+                color: #334155;
+                padding: 6px;
+            }
+
+            QLineEdit {
+                background-color: #FFFFFF;
+                border: 1px solid #CBD5E1;
+                border-radius: 7px;
+                padding: 7px 10px;
+            }
+
+            QLineEdit:focus {
+                border-color: #4C8FC0;
+            }
+
+            QLabel#HelpSupportText {
+                color: #475569;
+            }
+
+            QPushButton#HelpWhatsAppButton {
+                background-color: #EDF7F5;
+                color: #176D66;
+                border: 1px solid #B4D8D2;
+                border-radius: 7px;
+                padding: 7px 12px;
+                font-weight: 600;
+                min-height: 24px;
+            }
+
+            QPushButton#HelpWhatsAppButton:hover {
+                background-color: #DDEFEA;
+                border-color: #42978E;
+            }
+
+            QPushButton#HelpWhatsAppButton:pressed {
+                background-color: #91C9C2;
+            }
+        """)
 
     def _filter(self, value: str) -> None:
         query = value.strip().casefold()

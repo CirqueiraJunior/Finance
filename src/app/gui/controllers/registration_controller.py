@@ -11,7 +11,8 @@ from app.gui.processing import OperationWorker, ProcessingDialog
 
 class RegistrationController(QObject):
     def __init__(self, view: CadastrosPage, entities: EntityService,
-                 catalog: CashflowCatalogService) -> None:
+                 catalog: CashflowCatalogService,
+                 *, defer_initial_load: bool = False) -> None:
         super().__init__(view)
         self.view, self.entities, self.catalog = view, entities, catalog
         view.new_entity_button.clicked.connect(self.new_entity)
@@ -20,6 +21,16 @@ class RegistrationController(QObject):
         view.aliases_button.clicked.connect(self.show_aliases)
         view.new_catalog_button.clicked.connect(self.new_catalog)
         view.edit_catalog_button.clicked.connect(self.edit_catalog)
+        # JA_TECH_LAZY_CADASTROS_V1
+        self._initial_load_started = False
+        if not defer_initial_load:
+            self.load_initial_data()
+
+    def load_initial_data(self) -> None:
+        """Load registration records on first access."""
+        if self._initial_load_started:
+            return
+        self._initial_load_started = True
         self.refresh()
 
     def refresh(self) -> None:
@@ -96,6 +107,7 @@ class RemoteRegistrationController(QObject):
     def __init__(
         self, view: CadastrosPage, api_client,
         *, allowed_areas: set[str] | None = None,
+        defer_initial_load: bool = False,
     ) -> None:
         super().__init__(view)
         from types import SimpleNamespace
@@ -119,6 +131,15 @@ class RemoteRegistrationController(QObject):
         view.new_catalog_button.clicked.connect(self.new_catalog)
         view.edit_catalog_button.clicked.connect(self.edit_catalog)
 
+        self._initial_load_started = False
+        if not defer_initial_load:
+            self.load_initial_data()
+
+    def load_initial_data(self) -> None:
+        """Load remote records once, respecting current permissions."""
+        if self._initial_load_started:
+            return
+        self._initial_load_started = True
         self.refresh()
 
     def _run_remote(self, title, operation, succeeded) -> None:
@@ -190,7 +211,8 @@ class RemoteRegistrationController(QObject):
 
     def set_allowed_areas(self, allowed_areas: set[str]) -> None:
         self._allowed_areas = set(allowed_areas)
-        self.refresh()
+        if self._initial_load_started:
+            self.refresh()
 
     def _entity_object(self, item: dict):
         aliases = [

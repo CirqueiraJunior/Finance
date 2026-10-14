@@ -16,6 +16,8 @@ class ReportController(QObject):
         view: RelatoriosPage,
         report_service: ReportService,
         csv_service: SiteCSVService,
+        *,
+        defer_initial_load: bool = False,
     ) -> None:
         super().__init__(view)
         self.view = view
@@ -41,6 +43,16 @@ class ReportController(QObject):
                 f"Falha ao carregar anos disponíveis: {error}", error=True
             ),
         )
+        # JA_TECH_LAZY_RELATORIOS_V1
+        self._initial_load_started = False
+        if not defer_initial_load:
+            self.load_initial_data()
+
+    def load_initial_data(self) -> None:
+        """Load report years on the first page visit."""
+        if self._initial_load_started:
+            return
+        self._initial_load_started = True
         self._years_loader.load(remote=self._is_remote(self.report_service))
 
     def _years_loaded(self, years) -> None:

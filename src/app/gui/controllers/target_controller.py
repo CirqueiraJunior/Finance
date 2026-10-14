@@ -38,7 +38,8 @@ class TargetImportWorker(QObject):
 
 class TargetController(QObject):
     def __init__(self, view: MetasPage, service: TargetService,
-                 ranking: RankingService | None = None) -> None:
+                 ranking: RankingService | None = None,
+                 *, defer_initial_load: bool = False) -> None:
         super().__init__(view)
         self.view = view
         self.service = service
@@ -75,6 +76,16 @@ class TargetController(QObject):
                 f"Falha ao carregar anos disponíveis: {error}", error=True
             ),
         )
+        # JA_TECH_LAZY_METAS_V1
+        self._initial_load_started = False
+        if not defer_initial_load:
+            self.load_initial_data()
+
+    def load_initial_data(self) -> None:
+        """Start initial requests only once, when the module is accessed."""
+        if self._initial_load_started:
+            return
+        self._initial_load_started = True
         self._years_loader.load(remote=self._has_remote_api(self.service))
 
     def _years_loaded(self, values: dict) -> None:

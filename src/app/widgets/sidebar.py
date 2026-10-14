@@ -2,7 +2,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QColor, QIcon, QPainter
 from PySide6.QtWidgets import QFrame, QPushButton, QVBoxLayout, QWidget
 
 
@@ -29,6 +29,109 @@ class Sidebar(QFrame):
         super().__init__(parent)
         self.setObjectName("sidebar")
         self.setFixedWidth(220)
+
+        # JA_TECH_FINANCE_SIDEBAR_V1
+        self.setStyleSheet("""
+            QFrame#sidebar {
+                background-color: #FFFFFF;
+                border: none;
+            }
+
+            QFrame#sidebar QPushButton#navigationButton,
+            QFrame#sidebar QPushButton#sidebarActionButton {
+                background-color: #EDF5FC;
+                color: #003B71;
+                border: 1px solid #CBD5E1;
+                border-left: 5px solid #4C8FC0;
+                border-radius: 10px;
+                padding: 10px 9px;
+                min-height: 28px;
+                text-align: left;
+                font-weight: 600;
+            }
+
+            QFrame#sidebar QPushButton#navigationButton:hover,
+            QFrame#sidebar QPushButton#sidebarActionButton:hover {
+                background-color: #FFFFFF;
+                border-color: #8CB6D9;
+            }
+
+            QFrame#sidebar QPushButton#navigationButton:checked {
+                background-color: #DCECF9;
+                color: #003B71;
+                border: 1px solid #8CB6D9;
+                border-left: 5px solid #D6A400;
+                font-weight: 700;
+            }
+
+            QFrame#sidebar QPushButton#navigationButton:disabled {
+                background-color: #F2F4F7;
+                color: #98A2AD;
+                border-color: #D9DEE5;
+            }
+
+            QFrame#sidebar QPushButton#navigationButton[pageKey="financeiro"] {
+                background-color: #EDF7F5;
+                color: #176D66;
+                border-left-color: #42978E;
+            }
+
+            QFrame#sidebar QPushButton#navigationButton[pageKey="orcamento"] {
+                background-color: #EEF5FA;
+                border-left-color: #4C8FC0;
+            }
+
+            QFrame#sidebar QPushButton#navigationButton[pageKey="boe"] {
+                background-color: #F3F1FB;
+                color: #4D508E;
+                border-left-color: #7778C8;
+            }
+
+            QFrame#sidebar QPushButton#navigationButton[pageKey="metas"] {
+                background-color: #FFF7DF;
+                color: #745800;
+                border-left-color: #D6A400;
+            }
+
+            QFrame#sidebar QPushButton#navigationButton[pageKey="cadastros"] {
+                background-color: #F4F6F8;
+                color: #475569;
+                border-left-color: #91A3B0;
+            }
+
+            QFrame#sidebar QPushButton#navigationButton[pageKey="relatorios"] {
+                background-color: #EEF5FA;
+                border-left-color: #4C8FC0;
+            }
+
+            QFrame#sidebar QPushButton#navigationButton[pageKey="administracao"] {
+                background-color: #F4F6F8;
+                color: #475569;
+                border-left-color: #AAB7C4;
+            }
+
+            QFrame#sidebar QPushButton#navigationButton:checked {
+                background-color: #DCECF9;
+                color: #003B71;
+                border-left-color: #D6A400;
+                font-weight: 700;
+            }
+
+            QFrame#sidebar QPushButton#sidebarActionButton {
+                background-color: #FFFFFF;
+                color: #475569;
+                border-left-color: #91A3B0;
+            }
+
+            QFrame#sidebar QPushButton#sidebarActionButton:hover {
+                background-color: #F1F5F9;
+            }
+
+            QFrame#sidebar QFrame#sidebarSeparator {
+                background-color: #D6DEE8;
+                border: none;
+            }
+        """)
 
         self._icons_dir = (
             Path(__file__).resolve().parents[1]
@@ -94,7 +197,18 @@ class Sidebar(QFrame):
     ) -> QPushButton:
         button = QPushButton(text)
         button.setObjectName(object_name)
-        button.setIcon(QIcon(str(self._icons_dir / f"{icon_name}.svg")))
+        source_icon = QIcon(str(self._icons_dir / f"{icon_name}.svg"))
+        pixmap = source_icon.pixmap(QSize(18, 18))
+        if not pixmap.isNull():
+            painter = QPainter(pixmap)
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_SourceIn
+            )
+            painter.fillRect(pixmap.rect(), QColor("#003B71"))
+            painter.end()
+            button.setIcon(QIcon(pixmap))
+        else:
+            button.setIcon(source_icon)
         button.setIconSize(QSize(18, 18))
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         return button

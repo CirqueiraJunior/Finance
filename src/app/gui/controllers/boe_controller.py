@@ -12,7 +12,7 @@ from app.services.boe_service import BOEService
 
 
 class BOEController(QObject):
-    def __init__(self, view: BoePage, service: BOEService) -> None:
+    def __init__(self, view: BoePage, service: BOEService, *, defer_initial_load: bool = False) -> None:
         super().__init__(view)
         self.view = view
         self.service = service
@@ -30,6 +30,16 @@ class BOEController(QObject):
             self.load_selected_details
         )
         self.view.query_button.clicked.connect(self.query_operations)
+        # JA_TECH_LAZY_BOE_V1
+        self._initial_load_started = False
+        if not defer_initial_load:
+            self.load_initial_data()
+
+    def load_initial_data(self) -> None:
+        """Load BOE data once, when the page is first accessed."""
+        if self._initial_load_started:
+            return
+        self._initial_load_started = True
         self.refresh_history()
         self.refresh_operational_entities()
 

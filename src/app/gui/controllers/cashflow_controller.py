@@ -31,6 +31,7 @@ class CashflowController(QObject):
         financial_flow=None,
         catalog_service=None,
         import_service=None,
+        defer_initial_load: bool = False,
     ) -> None:
         super().__init__(view)
         self.view = view
@@ -73,6 +74,16 @@ class CashflowController(QObject):
                 f"Falha ao carregar anos disponíveis: {error}", error=True
             ),
         )
+        # JA_TECH_LAZY_FINANCEIRO_V1
+        self._initial_load_started = False
+        if not defer_initial_load:
+            self.load_initial_data()
+
+    def load_initial_data(self) -> None:
+        """Load financial years only on the first page visit."""
+        if self._initial_load_started:
+            return
+        self._initial_load_started = True
         self._years_loader.load(
             remote=getattr(self.financial_flow, "api", None) is not None
         )

@@ -176,6 +176,11 @@ def test_administrator_switches_legacy_2025_and_editable_2026(qtbot, tmp_path):
     api = RankingAPI()
     window = _window(tmp_path, "ADMINISTRADOR", api)
     qtbot.addWidget(window)
+    window.navigation.navigate_to("administracao")
+    qtbot.waitUntil(
+        lambda: window.pages["administracao"].ranking_parameters_widget.fields["billing_level_2_min"].value() == 110,
+        timeout=3000,
+    )
     widget = window.pages["administracao"].ranking_parameters_widget
 
     assert widget.fields["billing_level_2_min"].value() == 110
@@ -200,6 +205,11 @@ def test_gui_rejects_unordered_ranges_before_api_call(qtbot, tmp_path):
     api = RankingAPI()
     window = _window(tmp_path, "ADMINISTRADOR", api)
     qtbot.addWidget(window)
+    window.navigation.navigate_to("administracao")
+    qtbot.waitUntil(
+        lambda: window.pages["administracao"].ranking_parameters_widget.fields["billing_level_2_min"].value() == 110,
+        timeout=3000,
+    )
     widget = window.pages["administracao"].ranking_parameters_widget
     widget.show_parameters({"id": 1, "year": 2026, **OFFICIAL})
     widget.fields["billing_level_2_min"].setValue(99)
