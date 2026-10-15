@@ -1,3 +1,48 @@
+# Finance — Backlog vigente
+
+> **Referência documental: 14/10/2026.** Esta seção prevalece sobre registros históricos ao final deste arquivo.
+> Auditoria baseada em inspeção de código, testes existentes e homologações informadas anteriormente.
+> Não houve execução de testes, acesso a banco, mudança de código ou nova homologação nesta revisão.
+
+## Estado de referência — Finance 1.0.0
+
+- A release `Finance 1.0.0` foi homologada e publicada anteriormente, com instalador `Finance_Setup_1.0.0.exe` e módulo `Finance_Module_1.0.0.japackage` assinado digitalmente no processo de publicação.
+- A suíte de **697 testes aprovados** é um **resultado histórico informado**, não uma execução realizada durante esta auditoria. A referência antiga a 672 testes não é o último resultado conhecido.
+- Arquitetura multiusuário, API FastAPI, autenticação/permissões, PostgreSQL central e integração com Control Center constam como implementados no projeto. A presente auditoria inspecionou evidências de código, sem comprovar novamente o estado operacional do deploy.
+- Fluxos de cadastro e catálogo utilizam API e carregamento sob demanda (`src/app/gui/controllers/registration_controller.py` e `src/app/gui/main_window.py`).
+- O serviço SMTP existe (`src/finance_server/email_service.py`) e é conectado pela fábrica da API (`src/finance_server/app_factory.py`); o **envio real em infraestrutura de produção** não foi homologado nesta rodada.
+
+## Pendências específicas e sua classificação
+
+| Item | Situação em 14/10/2026 | Tratamento |
+| --- | --- | --- |
+| Limpar “Selecione uma Entidade.” ao alternar para Catálogo | **Ajuste visual ainda não verificado na UI** | Validar comportamento; não tratar como defeito comprovado |
+| Backup centralizado pela API | **Evolução futura** | No modo servidor, botão de backup local fica desabilitado, conforme `src/app/gui/main_window.py` |
+| Importação histórica via API em produção | **Evolução futura / fluxo controlado** | No modo servidor, importação depende de sinalização específica; o fluxo habilitado examinado utiliza serviços locais em DEV |
+| SMTP real (envio, erros e infraestrutura) | **Homologação operacional pendente nesta auditoria** | Verificar somente quando houver necessidade operacional e ambiente autorizado |
+| PostgreSQL isolado em infraestrutura de deploy | **Validação operacional não reexecutada nesta auditoria** | Confrontar evidências de homologação/deploy antes de marcar como pendência efetiva |
+| Migração de dados oficiais SQLite → PostgreSQL | **Condicionada a autorização formal** | Não executar sem inventário, reconciliação, autorização e rollback aprovado; não confundir com migrations Alembic do esquema |
+| Integração direta WordPress | **Futuro** | Fora do escopo da versão atual |
+| Novos relatórios, análises, saldos históricos e melhorias financeiras/BOE | **Backlog evolutivo** | Priorizar apenas em sprint futura aprovada |
+
+## Encerrado / não reabrir por documentação antiga
+
+- **Instalador e módulo oficiais:** existem e tiveram publicação e homologação anteriores.
+- **Login, autenticação, perfis e permissões:** implementação existente; não tratá-los como uma arquitetura exclusivamente planejada.
+- **API FastAPI e PostgreSQL:** implementação existente; distinguir código implementado de validações operacionais de infraestrutura.
+- **Cadastro de Entidades, catálogo e Dashboard:** há funcionalidades implementadas; cada evolução adicional continua sujeita a delimitação específica.
+- **Importação histórica controlada local:** implementação e arquivos de teste identificados; isso não implica importação remota já liberada.
+
+## Regra de leitura e continuidade
+
+Não transformar itens antigos das Sprints 01–12, da antiga proposta “Finance 1.1 — Arquitetura Multiusuário” ou do antigo pré-release em pendências atuais sem confrontar código, testes e artefatos. Não alterar o Finance 1.0.0 durante a revisão documental. Homologações operacionais não comprovadas aqui permanecem **não verificadas**, não automaticamente reprovadas.
+
+---
+
+# Registro histórico preservado — BACKLOG original
+
+> **ATENÇÃO: CONTEÚDO HISTÓRICO.** O texto abaixo foi mantido integralmente para rastreabilidade. Afirmações como “nenhum item desta arquitetura foi implementado” e “release pendente” descrevem o contexto da época, **não o estado atual**.
+
 # Backlog
 
 - Ajuste visual pequeno: limpar “Selecione uma Entidade.” ao trocar para a aba Catálogo.
