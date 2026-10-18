@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import BudgetDomainError
 from app.api_client import APIClient, APIReadTimeoutError
 from app.gui.processing import OperationWorker, ProcessingDialog
+from app.gui.import_confirmation import confirm_import
 from app.gui.pages.orcamento import (
     BudgetDialog, BudgetImportProgressDialog, OrcamentoPage,
 )
@@ -60,7 +61,7 @@ class BudgetController(QObject):
             self.validate_selected_import_file
         )
         self.view.confirm_import_button.clicked.connect(
-            self.import_validated_file
+            self.confirm_and_import
         )
 
         self.view.set_import_available(
@@ -285,6 +286,16 @@ class BudgetController(QObject):
             failed=failed,
         )
 
+    def confirm_and_import(self) -> None:
+        """Apenas a interação da interface exige confirmação modal."""
+        if not self.import_file_path:
+            return
+        if not confirm_import(self.view, module_name="Orçamento"):
+            self.view.set_status(
+                "Importação cancelada. Nenhum dado enviado."
+            )
+            return
+        self.import_validated_file()
     def import_validated_file(self) -> None:
         if not self.import_file_path or (
             self._import_thread is not None

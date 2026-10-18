@@ -83,10 +83,20 @@ def _headers(client, username="admin"):
 
 
 def _upload(client, endpoint, path, headers):
+    token = None
+    if endpoint == "/api/v1/budgets/import":
+        with path.open("rb") as handle:
+            checked = client.post(
+                "/api/v1/budgets/import/validate", headers=headers,
+                files={"file": (path.name, handle)},
+            )
+        if checked.status_code == 200:
+            token = checked.json().get("preview_authorization")
     with path.open("rb") as handle:
         return client.post(
             endpoint, headers=headers,
             files={"file": (path.name, handle)},
+            data={"preview_authorization": token} if token else {},
         )
 
 

@@ -197,7 +197,8 @@ class APIClient:
             {"temporary_password": temporary_password},
         )
 
-    def upload(self, path: str, file_path: str, *, import_file: bool = False) -> Any:
+    def upload(self, path: str, file_path: str, *, import_file: bool = False,
+               preview_authorization: str | None = None) -> Any:
         # Importações são atômicas no servidor e podem continuar após o cliente
         # desistir. O read timeout maior é exclusivo deste fluxo; conexão e pool
         # continuam com limites curtos para detectar indisponibilidade real.
@@ -210,7 +211,9 @@ class APIClient:
             return self._request(
                 "POST", path,
                 files={"file": (file_path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1], handle)},
-                data={"import_file": str(import_file).lower()},
+                data={**{"import_file": str(import_file).lower()},
+                      **({"preview_authorization": preview_authorization}
+                         if preview_authorization is not None else {})},
                 timeout=timeout,
                 _timeout_message=(
                     "A importação está demorando mais que o esperado. "

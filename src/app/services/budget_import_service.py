@@ -7,6 +7,7 @@ from pathlib import Path
 from app.importers.historical_parser import BudgetImportData, HistoricalWorkbookParser
 from app.models.budget_entry import BudgetEntry
 from app.repositories.budget_repository import BudgetRepository
+from app.services.budget_import_snapshot import budget_snapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +19,9 @@ class BudgetImportPreviewRow:
     category: str
     value: Decimal
     source_label: str
+    status: str = 'NEW'
+    previous_value: Decimal | None = None
+    difference: Decimal = Decimal('0.0000')
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +35,10 @@ class BudgetImportValidation:
     errors: tuple[str, ...]
     total: Decimal
     replacements: int = 0
+    new_count: int = 0
+    changed_count: int = 0
+    unchanged_count: int = 0
+    snapshot_hash: str | None = None
 
     @property
     def can_import(self) -> bool:
@@ -74,14 +82,17 @@ class BudgetImportService:
             row for row in result.data if isinstance(row, BudgetImportData)
         ]
 
-        existing_keys = self.budgets.existing_keys(
-            row.year for row in import_rows
-        )
+        requested_keys = {
+            (row.year, row.month, row.entry_type, row.category)
+            for row in import_rows
+        }
+        existing_entries = self.budgets.by_keys(requested_keys)
 
         preview: list[BudgetImportPreviewRow] = []
         seen: set[tuple[int, int, str, str]] = set()
         total = Decimal("0.0000")
         replacements = 0
+        new_count = changed_count = unchanged_count = 0
 
         for row in import_rows:
             key = (row.year, row.month, row.entry_type, row.category)
@@ -91,8 +102,20 @@ class BudgetImportService:
                     f"Linha {row.line}: registro repetido no arquivo para "
                     f"{row.month:02d}/{row.year}, {row.entry_type}, {row.category}."
                 )
-            elif key in existing_keys:
+            existing = existing_entries.get(key)
+            previous = Decimal(existing.valor_orcado) if existing is not None else None
+            if existing is None:
+                status = "NEW"
+                new_count += 1
+            else:
                 replacements += 1
+                same_value = previous == row.value
+                same_description = (existing.descricao or "") == row.source_label
+                status = "UNCHANGED" if same_value and same_description else "CHANGED"
+                if status == "UNCHANGED":
+                    unchanged_count += 1
+                else:
+                    changed_count += 1
 
             seen.add(key)
 
@@ -105,6 +128,9 @@ class BudgetImportService:
                     category=row.category,
                     value=row.value,
                     source_label=row.source_label,
+                    status=status,
+                    previous_value=previous,
+                    difference=row.value - (previous or Decimal("0")),
                 )
             )
             total += row.value
@@ -113,17 +139,17 @@ class BudgetImportService:
             errors.append(
                 "Nenhum registro de Orçamento válido foi encontrado no arquivo."
             )
-        if replacements:
+        if changed_count:
             warnings.append(
-                f"{replacements} registros existentes serão atualizados "
-                "pela mesma chave de período, tipo e categoria."
+                f"{changed_count} registros existentes apresentam diferenças "
+                "de valor ou descrição."
             )
 
         safe_name = Path(
             file_name or result.metadata.file_path.name
         ).name
 
-        return BudgetImportValidation(
+        validation = BudgetImportValidation(
             file_name=safe_name,
             detected_type=result.metadata.detected_type,
             year=result.metadata.year,
@@ -133,6 +159,14 @@ class BudgetImportService:
             errors=tuple(dict.fromkeys(errors)),
             total=total,
             replacements=replacements,
+            new_count=new_count,
+            changed_count=changed_count,
+            unchanged_count=unchanged_count,
+        )
+        from dataclasses import replace
+        return replace(
+            validation,
+            snapshot_hash=budget_snapshot(validation, existing_entries),
         )
 
     def stage_import(

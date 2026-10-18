@@ -233,13 +233,30 @@ class RemoteBudgetService:
             "description": description,
             "budgeted_value": str(values["budgeted_value"]), "notes": values.get("notes")}))
     def validate_import(self, file_path):
-        return self.api.upload(
+        self._budget_preview_authorization = None
+        self._budget_preview_file = None
+        result = self.api.upload(
             "/api/v1/budgets/import/validate", str(file_path)
         )
+        if result.get("can_import") and result.get("preview_authorization"):
+            self._budget_preview_authorization = result["preview_authorization"]
+            self._budget_preview_file = str(file_path)
+        return result
     def import_file(self, file_path):
-        return self.api.upload(
-            "/api/v1/budgets/import", str(file_path), import_file=True
-        )
+        token = getattr(self, "_budget_preview_authorization", None)
+        token_path = getattr(self, "_budget_preview_file", None)
+        if token and token_path != str(file_path):
+            raise ValueError("Arquivo diferente do validado. Valide novamente.")
+        try:
+            if token:
+                return self.api.upload(
+                    "/api/v1/budgets/import", str(file_path),
+                    import_file=True, preview_authorization=token
+                )
+            raise ValueError('Previa ausente. Valide novamente antes de importar.')
+        finally:
+            self._budget_preview_authorization = None
+            self._budget_preview_file = None
     def get_budget_vs_actual(self, year, month=None):
         data = self._data(year, month)["comparison"]
         comparisons = tuple(BudgetComparison(x["entry_type"], x.get("description"), x["category"], _decimal(x["budgeted"]),

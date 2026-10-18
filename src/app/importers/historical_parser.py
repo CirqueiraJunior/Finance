@@ -164,8 +164,16 @@ class HistoricalWorkbookParser:
                 )
             if target_error or actual_error:
                 return self._unknown(path, sheets, target_error or actual_error)
-            if "PLANEJ. ORCAMENTARIO" in names:
-                return self._budget(path, sheets, workbook[names["PLANEJ. ORCAMENTARIO"]])
+            current = names.get("ORCADO")
+            legacy = names.get("PLANEJ. ORCAMENTARIO")
+            if current and legacy:
+                return self._unknown(
+                    path, sheets, "Dois modelos de Orcamento presentes; separe o arquivo."
+                )
+            if current:
+                return self._budget_current(path, sheets, workbook[current])
+            if legacy:
+                return self._budget(path, sheets, workbook[legacy])
             return self._unknown(path, sheets, "Estrutura operacional não reconhecida.")
         finally:
             workbook.close()
@@ -490,6 +498,113 @@ class HistoricalWorkbookParser:
         if not years:
             return None, "Ano das Metas não identificado no nome, conteúdo ou diretório do arquivo."
         return years.pop(), None
+
+    def _budget_current(self, path: Path, sheets: tuple[str, ...], sheet) -> HistoricalParseResult:
+        """Orcamento tabular oficial: uma linha por periodo, tipo e categoria."""
+        required = {
+            "DESCRICAO", "CATEGORIA", "TIPO", "VALOR ORCADO",
+            "ANO", "MES", "ORDEMMES",
+        }
+        headers = None
+        header_line = None
+        for line, values in enumerate(
+            sheet.iter_rows(min_row=1, max_row=30, values_only=True), start=1
+        ):
+            columns = {
+                normalized(value): index
+                for index, value in enumerate(values)
+                if value is not None
+            }
+            if required.issubset(columns):
+                if headers is not None:
+                    return self._unknown(path, sheets, "Cabecalhos de Orcado ambiguos.")
+                headers, header_line = columns, line
+        if headers is None:
+            return self._unknown(
+                path, sheets, "A aba Orcado nao possui as sete colunas oficiais."
+            )
+
+        category_map = {
+            "RECEITA DIRETA": "RECEITA_DIRETA",
+            "RECEITA INDIRETA": "RECEITA_INDIRETA",
+            "ADMINISTRATIVO": "ADMINISTRATIVO",
+            "DIRETORIA": "DIRETORIA",
+            "EVENTOS": "EVENTOS",
+            "OPERACIONAL": "OPERACIONAL",
+            "PESSOAL": "PESSOAL",
+            "INVESTIMENTO": "INVESTIMENTO",
+            "RESGATE": "RESGATE",
+            "OUTROS": "OUTROS",
+        }
+        type_map = {"RECEITA": "RECEITA", "DESPESA": "DESPESA"}
+        data: list[BudgetImportData] = []
+        errors: list[str] = []
+        total = Decimal("0.0000")
+        years: set[int] = set()
+
+        for line, values in enumerate(
+            sheet.iter_rows(min_row=header_line + 1, values_only=True),
+            start=header_line + 1,
+        ):
+            def cell(name):
+                index = headers[name]
+                return values[index] if len(values) > index else None
+
+            if all(cell(column) is None for column in required):
+                continue
+            try:
+                year_value = cell("ANO")
+                year = int(year_value)
+                if isinstance(year_value, bool) or str(year_value).strip() not in {
+                    str(year), str(float(year))
+                } or not 2000 <= year <= 9999:
+                    raise ValueError("Ano invalido.")
+                raw_month = cell("MES")
+                if isinstance(raw_month, bool):
+                    raise ValueError("Mes invalido.")
+                month = self.MONTH_ALIASES.get(normalized(raw_month))
+                if month is None:
+                    try:
+                        numeric_month = int(raw_month)
+                        if str(raw_month).strip() in {
+                            str(numeric_month), str(float(numeric_month))
+                        } and 1 <= numeric_month <= 12:
+                            month = numeric_month
+                    except (TypeError, ValueError, OverflowError):
+                        pass
+                if month is None:
+                    raise ValueError("Mes invalido.")
+                raw_order = cell("ORDEMMES")
+                if raw_order is not None:
+                    if isinstance(raw_order, bool) or str(raw_order).strip() not in {
+                        str(month), str(float(month))
+                    }:
+                        raise ValueError("OrdemMes nao corresponde ao mes.")
+                entry_type = type_map.get(normalized(cell("TIPO")))
+                category = category_map.get(normalized(cell("CATEGORIA")))
+                if entry_type is None or category is None:
+                    raise ValueError("Tipo ou Categoria nao reconhecido.")
+                if (entry_type == "RECEITA") != category.startswith("RECEITA_"):
+                    raise ValueError("Tipo e Categoria incompativeis.")
+                description = cell("DESCRICAO")
+                if not isinstance(description, str) or not description.strip():
+                    raise ValueError("Descricao obrigatoria.")
+                value = decimal_value(cell("VALOR ORCADO"))
+                data.append(BudgetImportData(
+                    line, year, month, entry_type, category,
+                    value, description.strip(),
+                ))
+                total += value
+                years.add(year)
+            except (TypeError, ValueError, OverflowError) as error:
+                errors.append(f"Linha {line}: {error}")
+        metadata = HistoricalParseMetadata(
+            path, "ORCAMENTO", next(iter(years)) if len(years) == 1 else None,
+            sheets,
+        )
+        return HistoricalParseResult(
+            metadata, tuple(data), (), tuple(errors), total
+        )
 
     def _budget(self, path: Path, sheets: tuple[str, ...], sheet) -> HistoricalParseResult:
         year = self._year_from_name(path)

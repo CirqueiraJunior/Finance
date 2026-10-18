@@ -372,7 +372,9 @@ def test_remote_budget_import_uses_central_endpoints_and_import_timeout():
 
         def upload(self, path, file_path, **kwargs):
             self.calls.append((path, file_path, kwargs))
-            return {"can_import": path.endswith("validate")}
+            if path.endswith("validate"):
+                return {"can_import": True, "preview_authorization": "token-teste"}
+            return {"imported": 1}
 
     api = API()
     service = RemoteBudgetService(api)
@@ -381,5 +383,6 @@ def test_remote_budget_import_uses_central_endpoints_and_import_timeout():
     service.import_file("orcamento.xlsx")
     assert api.calls == [
         ("/api/v1/budgets/import/validate", "orcamento.xlsx", {}),
-        ("/api/v1/budgets/import", "orcamento.xlsx", {"import_file": True}),
+        ("/api/v1/budgets/import", "orcamento.xlsx",
+         {"import_file": True, "preview_authorization": "token-teste"}),
     ]

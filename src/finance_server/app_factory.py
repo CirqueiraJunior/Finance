@@ -71,6 +71,7 @@ from app.repositories.ranking_parameter_repository import RankingParameterReposi
 from app.importers.boe_importer import BOEImporter
 from app.services.boe_service import BOEService
 from app.services.budget_service import BudgetService
+from app.services.budget_preview_guard import BudgetPreviewGuard, BudgetPreviewTokenError, file_sha256
 from app.services.budget_import_service import (
     BudgetImportService, BudgetImportValidationError,
 )
@@ -103,6 +104,7 @@ from finance_server.identity_exchange import (
     verify_identity_envelope,
 )
 from finance_server.version import __version__
+from app.services.budget_write_lock import acquire_budget_write_lock
 
 
 def utcnow() -> datetime:
@@ -1289,6 +1291,7 @@ def create_app(
     @app.post("/api/v1/budgets", response_model=BudgetResponse, status_code=201)
     def create_budget(payload: BudgetCreate, user: User = Depends(require("budget:write")),
                       db: Session = Depends(get_db)):
+        acquire_budget_write_lock(db)
         item = domain_services(db)[3].create_budget(
             year=payload.year,
             month=payload.month,
@@ -1313,6 +1316,7 @@ def create_app(
     @app.patch("/api/v1/budgets/{budget_id}", response_model=BudgetResponse)
     def update_budget(budget_id: int, payload: BudgetUpdate,
                       user: User = Depends(require("budget:write")), db: Session = Depends(get_db)):
+        acquire_budget_write_lock(db)
         changes = payload.model_dump(exclude_unset=True)
         item = domain_services(db)[3].update_budget(
             budget_id,
@@ -1330,6 +1334,7 @@ def create_app(
         user: User = Depends(require("budget:write")),
         db: Session = Depends(get_db),
     ) -> Response:
+        acquire_budget_write_lock(db)
         item = BudgetRepository(db).get_by_id(budget_id)
         if item is None:
             raise HTTPException(status_code=404, detail="Orçamento não encontrado.")
@@ -1359,14 +1364,25 @@ def create_app(
         return Response(status_code=204)
 
     def budget_import_response(validation):
-        return jsonable_encoder({
+        response = jsonable_encoder({
             "metadata": {
                 "file_name": validation.file_name,
                 "detected_type": validation.detected_type,
                 "year": validation.year,
                 "sheets": validation.sheets,
             },
-            "preview": validation.preview,
+            "preview": [
+                {
+                    "line": row.line,
+                    "year": row.year,
+                    "month": row.month,
+                    "entry_type": row.entry_type,
+                    "category": row.category,
+                    "value": row.value,
+                    "source_label": row.source_label,
+                }
+                for row in validation.preview
+            ],
             "warnings": validation.warnings,
             "errors": validation.errors,
             "can_import": validation.can_import,
@@ -1375,7 +1391,28 @@ def create_app(
                 "rows": len(validation.preview),
                 "value": validation.total,
             },
+            "comparison_totals": {
+                "new": validation.new_count,
+                "changed": validation.changed_count,
+                "unchanged": validation.unchanged_count,
+                "invalid": len(validation.errors),
+            },
+            "comparison_preview": [
+                {
+                    "line": row.line,
+                    "year": row.year,
+                    "month": row.month,
+                    "entry_type": row.entry_type,
+                    "category": row.category,
+                    "status": row.status,
+                    "previous_value": row.previous_value,
+                    "value": row.value,
+                    "difference": row.difference,
+                }
+                for row in validation.preview
+            ],
         })
+        return response
 
     @app.post("/api/v1/budgets/import/validate")
     def validate_budget_import(
@@ -1390,16 +1427,26 @@ def create_app(
                 copyfileobj(file.file, destination)
 
             service = BudgetImportService(BudgetRepository(db))
-            return budget_import_response(
-                service.validate(path, file_name=file_name)
-            )
+            validation = service.validate(path, file_name=file_name)
+            response = budget_import_response(validation)
+            if validation.can_import:
+                response["preview_authorization"] = BudgetPreviewGuard(
+                    settings.secret_key
+                ).issue(
+                    user_id=user.id,
+                    file_hash=file_sha256(path),
+                    state_hash=validation.snapshot_hash,
+                )
+            return response
 
     @app.post("/api/v1/budgets/import", status_code=201)
     def import_budgets(
         file: UploadFile = File(...),
+        preview_authorization: str | None = Form(None),
         user: User = Depends(require("budget:write")),
         db: Session = Depends(get_db),
     ):
+        acquire_budget_write_lock(db)
         with TemporaryDirectory(prefix="finance_budgets_") as directory:
             file_name = Path(file.filename or "orcamento.xlsx").name
             path = Path(directory) / file_name
@@ -1409,6 +1456,19 @@ def create_app(
             service = BudgetImportService(BudgetRepository(db))
 
             try:
+                checked = service.validate(path, file_name=file_name)
+                if not checked.can_import:
+                    raise BudgetImportValidationError(checked)
+                if not preview_authorization:
+                    raise HTTPException(status_code=409, detail='Valide novamente o arquivo.')
+                try:
+                    BudgetPreviewGuard(settings.secret_key).verify(
+                        preview_authorization, user_id=user.id,
+                        file_hash=file_sha256(path),
+                        state_hash=checked.snapshot_hash,
+                    )
+                except BudgetPreviewTokenError as error:
+                    raise HTTPException(status_code=409, detail=str(error)) from None
                 validation, entries = service.stage_import(
                     path, file_name=file_name
                 )
