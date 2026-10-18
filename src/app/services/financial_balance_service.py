@@ -48,8 +48,8 @@ class FinancialBalanceService:
         if not cash.direct_revenue_available:
             return None
         investments = self.financial_flow.investments.get_monthly_summary(year, month)
-        net_revenue = cash.total_revenue - cash.boe_expense
-        movement = (investments.redemptions + net_revenue
+        net_revenue = cash.direct_revenue - cash.boe_expense
+        movement = (investments.redemptions + net_revenue + cash.indirect_revenue
                     - cash.non_boe_expense - investments.applications)
         return movement, net_revenue
 

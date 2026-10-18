@@ -117,7 +117,7 @@ class HistoricalWorkbookImporter:
             balance_type = None
             if "SALDO INICIAL" in technical_label:
                 balance_type = "SALDO_INICIAL"
-            elif "SALDO APLICADO" in technical_label:
+            elif technical_label == "SALDO APLICADO":
                 balance_type = "SALDO_APLICADO"
             if balance_type is not None:
                 try:
