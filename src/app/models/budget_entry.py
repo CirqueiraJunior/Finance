@@ -8,7 +8,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    UniqueConstraint,
+    Index,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -19,10 +19,6 @@ from app.database.base import Base
 class BudgetEntry(Base):
     __tablename__ = "budget_entries"
     __table_args__ = (
-        UniqueConstraint(
-            "periodo_ano", "periodo_mes", "tipo", "categoria",
-            name="uq_budget_entries_period_type_category",
-        ),
         CheckConstraint(
             "periodo_ano BETWEEN 2000 AND 9999", name="ck_budget_entries_year"
         ),
@@ -58,3 +54,18 @@ class BudgetEntry(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+# The description distinguishes individual budget entries.
+# Null and blank descriptions share the same normalized identity.
+Index(
+    "uq_budget_entries_period_type_category_description",
+    BudgetEntry.__table__.c.periodo_ano,
+    BudgetEntry.__table__.c.periodo_mes,
+    BudgetEntry.__table__.c.tipo,
+    BudgetEntry.__table__.c.categoria,
+    func.lower(func.trim(
+        func.coalesce(BudgetEntry.__table__.c.descricao, "")
+    )),
+    unique=True,
+)

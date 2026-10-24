@@ -16,10 +16,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.gui.import_workflow_steps import ImportWorkflowSteps
+from app.gui.import_workflow_panel import ImportWorkflowPanel
 from app.gui.formatters import format_currency, format_integer
 from app.importers.boe_types import BOEValidationResult
 from app.models.boe_import import BOEImport
-from app.services.boe_service import BOEImportDetails, BOEOperationalSummary
+from app.services.boe_service import (
+    BOEImportDetails,
+    BOEOperationalEntityOption,
+    BOEOperationalSummary,
+)
+from app.widgets.entity_multi_select import EntityMultiSelectCombo
 
 
 class BOEPeriodEdit(WheelBlockedDateEdit):
@@ -60,28 +67,11 @@ class BoePage(QWidget):
         )
         description.setObjectName("pageDescription")
 
-        file_layout = QHBoxLayout()
         self.file_path = QLineEdit()
         self.file_path.setObjectName("boeFilePath")
         self.file_path.setReadOnly(True)
         self.file_path.setPlaceholderText("Selecione um arquivo BOE no formato .xlsx")
-        self.select_button = QPushButton("Selecionar arquivo")
-        self.select_button.setProperty("buttonRole", "secondary")
-        self.select_button.setObjectName("primaryButton")
-        file_layout.addWidget(self.file_path, 1)
-        file_layout.addWidget(self.select_button)
 
-        action_layout = QHBoxLayout()
-        self.validate_button = QPushButton("Validar")
-        self.validate_button.setProperty("buttonRole", "info")
-        self.validate_button.setEnabled(False)
-        self.import_button = QPushButton("Importar")
-        self.import_button.setProperty("buttonRole", "primary")
-        self.import_button.setObjectName("primaryButton")
-        self.import_button.setEnabled(False)
-        action_layout.addWidget(self.validate_button)
-        action_layout.addWidget(self.import_button)
-        action_layout.addStretch()
 
         result_layout = QHBoxLayout()
         result_layout.setSpacing(12)
@@ -113,6 +103,27 @@ class BoePage(QWidget):
         import_layout.addWidget(self.import_result)
         result_layout.addLayout(import_layout, 1)
 
+        self.validation_issues_label = QLabel(
+            "Inconsist\u00eancias da valida\u00e7\u00e3o"
+        )
+        self.validation_issues_label.setObjectName("sectionTitle")
+        self.validation_issues = QTableWidget(0, 4)
+        self.validation_issues.setObjectName("boeValidationIssuesTable")
+        self.validation_issues.setHorizontalHeaderLabels([
+            "Severidade", "Linha", "C\u00f3digo", "Descri\u00e7\u00e3o"
+        ])
+        self.validation_issues.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self.validation_issues.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.validation_issues.setMinimumHeight(190)
+        self.validation_issues.setMaximumHeight(320)
+        self.validation_issues.horizontalHeader().setStretchLastSection(True)
+        self.validation_issues_label.hide()
+        self.validation_issues.hide()
+
         history_label = QLabel("Histórico de importações")
         history_label.setObjectName("sectionTitle")
         self.history_table = QTableWidget(0, 6)
@@ -131,20 +142,26 @@ class BoePage(QWidget):
 
         operations_label = QLabel("Consulta operacional BOE")
         operations_label.setObjectName("sectionTitle")
-        filters_layout = QHBoxLayout()
-        self.start_period = self._create_period_edit(QDate.currentDate().addMonths(-11))
-        self.start_period.setObjectName("boeStartPeriod")
-        self.end_period = self._create_period_edit(QDate.currentDate())
-        self.end_period.setObjectName("boeEndPeriod")
-        self.entity_filter = WheelBlockedComboBox()
+        filter_panel = QWidget()
+        filter_panel.setObjectName("dashboardFilterBar")
+        filters_layout = QHBoxLayout(filter_panel)
+        self.year_filter = WheelBlockedComboBox()
+        self.year_filter.setObjectName("boeYearFilter")
+        self.month_filter = WheelBlockedComboBox()
+        self.month_filter.setObjectName("boeMonthFilter")
+        self._imported_periods = set()
+        self.year_filter.currentIndexChanged.connect(
+            self._update_available_months
+        )
+        self.entity_filter = EntityMultiSelectCombo(all_label="Todas")
         self.entity_filter.setObjectName("boeEntityFilter")
-        self.entity_filter.addItem("Todas", None)
-        self.query_button = QPushButton("Consultar")
+        self.query_button = QPushButton("Aplicar filtro")
         self.query_button.setProperty("buttonRole", "info")
+        self.query_button.setEnabled(False)
         self.query_button.setObjectName("primaryButton")
         for label_text, widget in (
-            ("Período inicial", self.start_period),
-            ("Período final", self.end_period),
+            ("Ano", self.year_filter),
+            ("M\u00eas", self.month_filter),
             ("Entidade", self.entity_filter),
         ):
             field = QVBoxLayout()
@@ -203,22 +220,45 @@ class BoePage(QWidget):
         self.operation_status = QLabel("Selecione um arquivo para iniciar.")
         self.operation_status.setObjectName("operationStatus")
 
+        self.import_steps = ImportWorkflowSteps(steps=(
+            "Selecionar",
+            "Validar",
+            "Comparar e autorizar",
+            "Importar",
+        ))
         layout.addWidget(title)
         layout.addWidget(description)
-        layout.addLayout(file_layout)
-        layout.addLayout(action_layout)
-        layout.addLayout(result_layout)
+
+        # Filters and operational query first.
+        layout.addWidget(operations_label)
+        layout.addWidget(filter_panel)
+        layout.addLayout(operational_kpis)
+        layout.addWidget(self.operations_table)
+
+        # Historical data and entity details.
         layout.addWidget(history_label)
         layout.addWidget(self.history_table)
         layout.addWidget(details_label)
         layout.addWidget(self.details_state)
         layout.addLayout(summary_layout)
         layout.addWidget(self.details_table)
-        layout.addWidget(operations_label)
-        layout.addLayout(filters_layout)
-        layout.addLayout(operational_kpis)
-        layout.addWidget(self.operations_table)
-        layout.addWidget(self.operation_status)
+
+        # Import workflow at the bottom.
+        import_section = QLabel("Importa\u00e7\u00e3o BOE")
+        import_section.setObjectName("sectionTitle")
+        layout.addWidget(import_section)
+
+
+        self.import_panel = ImportWorkflowPanel(
+            steps=self.import_steps,
+            file_display=self.file_path,
+            results_layout=result_layout,
+            preview=self.validation_issues,
+        )
+        self.import_panel.add_footer(self.operation_status)
+
+        layout.addWidget(self.validation_issues_label)
+        layout.addWidget(self.import_panel)
 
     @staticmethod
     def _create_summary_card(layout: QHBoxLayout, title: str, value: str) -> QLabel:
@@ -242,18 +282,114 @@ class BoePage(QWidget):
         edit.setCalendarPopup(True)
         return edit
 
-    def operational_filters(self) -> tuple[int, int, int, int, int | None]:
-        start, end = self.start_period.date(), self.end_period.date()
-        return start.year(), start.month(), end.year(), end.month(), self.entity_filter.currentData()
+    def set_import_periods(self, imports) -> None:
+        previous_year = self.year_filter.currentData()
+        previous_month = self.month_filter.currentData()
+        self._imported_periods = {
+            (int(item.periodo_ano), int(item.periodo_mes))
+            for item in imports
+            if getattr(item, "status", None) == "imported"
+            and 1 <= int(item.periodo_mes) <= 12
+        }
 
-    def set_operational_entities(self, entities: tuple[tuple[int, str], ...]) -> None:
-        selected = self.entity_filter.currentData()
-        self.entity_filter.clear()
-        self.entity_filter.addItem("Todas", None)
-        for identifier, name in entities:
-            self.entity_filter.addItem(name, identifier)
-        index = self.entity_filter.findData(selected)
-        self.entity_filter.setCurrentIndex(max(0, index))
+        self.year_filter.blockSignals(True)
+        self.year_filter.clear()
+        for year in sorted(
+            {year for year, _ in self._imported_periods},
+            reverse=True,
+        ):
+            self.year_filter.addItem(str(year), year)
+
+        index = self.year_filter.findData(previous_year)
+        if index >= 0:
+            self.year_filter.setCurrentIndex(index)
+        self.year_filter.blockSignals(False)
+
+        self._update_available_months()
+        index = self.month_filter.findData(previous_month)
+        if index >= 0:
+            self.month_filter.setCurrentIndex(index)
+        self.query_button.setEnabled(bool(self._imported_periods))
+
+    def _update_available_months(self, _index=-1) -> None:
+        year = self.year_filter.currentData()
+        previous = self.month_filter.currentData()
+        self.month_filter.clear()
+        if year is None:
+            return
+
+        self.month_filter.addItem("Ano completo", None)
+        names = (
+            "Janeiro", "Fevereiro", "Mar\u00e7o",
+            "Abril", "Maio", "Junho", "Julho",
+            "Agosto", "Setembro", "Outubro",
+            "Novembro", "Dezembro",
+        )
+        for y, month in sorted(self._imported_periods):
+            if y == year:
+                self.month_filter.addItem(names[month - 1], month)
+        index = self.month_filter.findData(previous)
+        if index >= 0:
+            self.month_filter.setCurrentIndex(index)
+
+    def operational_filters(self):
+        year = self.year_filter.currentData()
+        if year is None:
+            raise ValueError("Nenhuma competencia BOE disponivel.")
+
+        month = self.month_filter.currentData()
+        first = 1 if month is None else int(month)
+        last = 12 if month is None else int(month)
+        filters = (
+            int(year), first, int(year), last,
+        )
+        selection = self.entity_filter.selected_values()
+        if selection is None:
+            return (*filters, None)
+        if not selection:
+            raise ValueError("Selecione ao menos uma Entidade BOE.")
+        if any(
+            kind not in {"master_entity", "boe_source"}
+            for kind, _value in selection
+        ):
+            raise ValueError("Filtro de Entidade BOE inválido.")
+        entity_ids = tuple(
+            int(value) for kind, value in selection
+            if kind == "master_entity"
+        )
+        source_codes = tuple(
+            int(value) for kind, value in selection
+            if kind == "boe_source"
+        )
+        if len(selection) == 1 and entity_ids:
+            return (*filters, entity_ids[0])
+        if len(selection) == 1 and source_codes:
+            return (*filters, None, source_codes[0])
+        return (
+            *filters,
+            None,
+            None,
+            entity_ids or None,
+            source_codes or None,
+        )
+
+    def set_operational_entities(
+        self,
+        entities: tuple[BOEOperationalEntityOption, ...],
+    ) -> None:
+        self.entity_filter.set_options(
+            (
+                (
+                    entity.name,
+                    (
+                        ("boe_source", int(entity.source_code))
+                        if entity.source_code is not None
+                        else ("master_entity", int(entity.entity_id))
+                    ),
+                )
+                for entity in entities
+            )
+        )
 
     def show_operations(self, summary: BOEOperationalSummary) -> None:
         self.operations_table.setRowCount(len(summary.rows))
@@ -292,6 +428,38 @@ class BoePage(QWidget):
                 f"[{issue.severidade.value}] {location}{code}: {issue.mensagem}"
             )
         self.validation_result.setPlainText("\n".join(lines))
+        ordered = sorted(
+            result.inconsistencias,
+            key=lambda issue: (
+                0 if issue.severidade.value == "ERROR" else 1
+            ),
+        )
+        self.validation_issues.setRowCount(len(ordered))
+        self.validation_issues_label.show()
+        self.validation_issues.show()
+
+        for row, issue in enumerate(ordered):
+            values = (
+                "Erro" if issue.severidade.value == "ERROR" else "Aviso",
+                str(issue.linha) if issue.linha is not None else "Arquivo",
+                issue.codigo or "\u2014",
+                issue.mensagem,
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                item.setToolTip(issue.mensagem)
+                self.validation_issues.setItem(row, column, item)
+
+        self.validation_issues.setColumnWidth(0, 100)
+        self.validation_issues.setColumnWidth(1, 70)
+        self.validation_issues.setColumnWidth(2, 110)
+
+
+    def clear_validation_preview(self) -> None:
+        self.validation_result.clear()
+        self.validation_issues.setRowCount(0)
+        self.validation_issues_label.hide()
+        self.validation_issues.hide()
 
     def clear_import_result(self) -> None:
         self.import_result.clear()
@@ -332,6 +500,7 @@ class BoePage(QWidget):
                     table_item.setData(Qt.ItemDataRole.UserRole, item.id)
                 self.history_table.setItem(row, column, table_item)
         self.history_table.resizeColumnsToContents()
+        self.set_import_periods(imports)
 
     def selected_import_id(self) -> int | None:
         selected = self.history_table.selectedItems()

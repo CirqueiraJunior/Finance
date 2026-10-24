@@ -28,6 +28,11 @@ class DashboardController(QObject):
         self._refresh_active = False
         self._request_finished = False
         self._render_in_progress = False
+        self._entities_thread: QThread | None = None
+        self._entities_worker: OperationWorker | None = None
+        self._entity_request_generation = 0
+        self._active_entity_generation = 0
+        self._pending_entity_areas: set[str] = set()
 
         self.view.refresh_button.clicked.connect(
             lambda _checked=False: self.refresh({"financial"})
@@ -38,7 +43,91 @@ class DashboardController(QObject):
         self.view.target_refresh_button.clicked.connect(
             lambda _checked=False: self.refresh({"targets"})
         )
+        self.view.target_region_filter.currentIndexChanged.connect(
+            lambda _index: self.refresh_entity_options({"targets"})
+        )
         self._start_available_years_load()
+        self.refresh_entity_options({"boe", "targets"})
+
+    def refresh_entity_options(self, areas: set[str] | None = None) -> None:
+        loader = getattr(self.service, "get_dashboard_entity_options", None)
+        if loader is None:
+            return
+        requested = set(areas or {"boe", "targets"}) & {"boe", "targets"}
+        if not requested:
+            return
+
+        self._entity_request_generation += 1
+        generation = self._entity_request_generation
+        if (
+            self._entities_thread is not None
+            and self._entities_thread.isRunning()
+        ):
+            self._pending_entity_areas.update(requested)
+            return
+
+        self._start_entity_options_load(requested, generation)
+
+    def _start_entity_options_load(
+        self, areas: set[str], generation: int
+    ) -> None:
+        loader = self.service.get_dashboard_entity_options
+        region = (
+            self.view.target_region_filter.currentData()
+            if "targets" in areas else None
+        )
+        self._active_entity_generation = generation
+        self._entities_thread = QThread(self)
+
+        def load_options():
+            return generation, loader(areas=areas, region=region)
+
+        self._entities_worker = OperationWorker(load_options)
+        self._entities_worker.moveToThread(self._entities_thread)
+        self._entities_thread.started.connect(self._entities_worker.run)
+        self._entities_worker.succeeded.connect(self._entities_succeeded)
+        self._entities_worker.failed.connect(self._entities_failed)
+        self._entities_worker.finished.connect(self._entities_thread.quit)
+        self._entities_worker.finished.connect(
+            self._entities_worker.deleteLater
+        )
+        self._entities_thread.finished.connect(self._entities_finished)
+        self._entities_thread.start()
+
+    @Slot(object)
+    def _entities_succeeded(self, result: object) -> None:
+        generation, options = result
+        if generation != self._entity_request_generation:
+            return
+        if not isinstance(options, dict):
+            self.view.set_status(
+                "Falha ao carregar entidades do Dashboard: resposta inválida.",
+                error=True,
+            )
+            return
+        self.view.set_dashboard_entity_options(options)
+
+    @Slot(object)
+    def _entities_failed(self, error: Exception) -> None:
+        if self._active_entity_generation != self._entity_request_generation:
+            return
+        self.view.set_status(
+            f"Falha ao carregar entidades do Dashboard: {error}",
+            error=True,
+        )
+
+    @Slot()
+    def _entities_finished(self) -> None:
+        if self._entities_thread is not None:
+            self._entities_thread.deleteLater()
+        self._entities_thread = None
+        self._entities_worker = None
+        if self._pending_entity_areas:
+            pending = set(self._pending_entity_areas)
+            self._pending_entity_areas.clear()
+            self._start_entity_options_load(
+                pending, self._entity_request_generation
+            )
 
     def _start_available_years_load(self) -> None:
         if self._years_thread is not None and self._years_thread.isRunning():
@@ -137,7 +226,11 @@ class DashboardController(QObject):
             return
 
         year, month = self.view.selected_period()
-        filters = self.view.selected_dashboard_filters()
+        try:
+            filters = self.view.selected_dashboard_filters(areas=areas)
+        except ValueError as error:
+            self.view.set_status(str(error), error=True)
+            return
 
         self._requested_period = (year, month)
         self._refresh_active = True

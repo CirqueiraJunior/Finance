@@ -179,6 +179,16 @@ class MainWindow(QMainWindow):
             self._dashboard_controller = DashboardController(
                 dashboard_page, self._remote_dashboard_service)
             _startup_yield()
+            self._boe_controller.import_completed.connect(
+                lambda: self._dashboard_controller.refresh_entity_options(
+                    {"boe"}
+                )
+            )
+            self._target_controller.import_completed.connect(
+                lambda: self._dashboard_controller.refresh_entity_options(
+                    {"targets"}
+                )
+            )
             self._cashflow_controller.import_completed.connect(
                 lambda: self._dashboard_controller.refresh({"financial"})
             )
@@ -250,6 +260,16 @@ class MainWindow(QMainWindow):
                 defer_initial_load=True)
             self._dashboard_controller = DashboardController(
                 dashboard_page, DashboardService(financial_flow, boe_service, budget_service, target_service))
+            self._boe_controller.import_completed.connect(
+                lambda: self._dashboard_controller.refresh_entity_options(
+                    {"boe"}
+                )
+            )
+            self._target_controller.import_completed.connect(
+                lambda: self._dashboard_controller.refresh_entity_options(
+                    {"targets"}
+                )
+            )
             self._cashflow_controller.import_completed.connect(
                 lambda: self._dashboard_controller.refresh({"financial"})
             )
@@ -442,6 +462,9 @@ class MainWindow(QMainWindow):
         self.pages["dashboard"].set_allowed_areas(dashboard_areas)
         if hasattr(self, "_remote_dashboard_service"):
             self._remote_dashboard_service.areas = dashboard_areas
+            self._dashboard_controller.refresh_entity_options(
+                dashboard_areas
+            )
         self.header.user.setText(f"{user.nome}\n{role_label(user.perfil)}")
         self.header.user.setVisible(True)
         self.header.logout_button.setVisible(False)
@@ -470,37 +493,50 @@ class MainWindow(QMainWindow):
 
     def _apply_desktop_permissions(self, role: str) -> None:
         cashflow_write = role_has_permission(role, "cashflow:write")
-        self.pages["financeiro"].new_entry_button.setEnabled(cashflow_write)
-        self.pages["financeiro"].select_import_button.setEnabled(cashflow_write)
+        financeiro_page = self.pages["financeiro"]
+        financeiro_page._import_write_allowed = cashflow_write
+        financeiro_page.new_entry_button.setEnabled(cashflow_write)
+
         if not cashflow_write:
-            self.pages["financeiro"].validate_import_button.setEnabled(False)
-            self.pages["financeiro"].confirm_import_button.setEnabled(False)
+            for button in financeiro_page.import_steps.buttons:
+                button.setEnabled(False)
+        else:
+            financeiro_page.import_steps.set_stage_enabled(
+                1,
+                getattr(financeiro_page, "_import_available", False),
+            )
 
         budget_write = role_has_permission(role, "budget:write")
         for button in (
             self.pages["orcamento"].new_button,
             self.pages["orcamento"].edit_button,
-            self.pages["orcamento"].import_file_button,
         ):
             button.setEnabled(budget_write)
-        if not budget_write:
-            self.pages["orcamento"].confirm_import_button.setEnabled(False)
+        self.pages["orcamento"].set_import_permission(budget_write)
 
         boe_write = role_has_permission(role, "boe:write")
-        self.pages["boe"].select_button.setEnabled(boe_write)
+        boe_page = self.pages["boe"]
+        boe_page._boe_write_allowed = boe_write
         if not boe_write:
-            self.pages["boe"].validate_button.setEnabled(False)
-            self.pages["boe"].import_button.setEnabled(False)
+            for button in boe_page.import_steps.buttons:
+                button.setEnabled(False)
+        else:
+            boe_page.import_steps.set_stage_enabled(1, True)
 
         target_write = role_has_permission(role, "targets:write")
-        for button in (
-            self.pages["metas"].new_button,
-            self.pages["metas"].edit_button,
-            self.pages["metas"].import_file_button,
-        ):
-            button.setEnabled(target_write)
+        metas_page = self.pages["metas"]
+        metas_page._import_write_allowed = target_write
+
+        metas_page.new_button.setEnabled(target_write)
+        metas_page.edit_button.setEnabled(target_write)
+
         if not target_write:
-            self.pages["metas"].confirm_import_button.setEnabled(False)
+            for button in metas_page.import_steps.buttons:
+                button.setEnabled(False)
+        else:
+            metas_page.import_steps.set_stage_enabled(
+                1, getattr(metas_page, "_import_available", False)
+            )
 
         reports_export = role_has_permission(role, "reports:export")
         self.pages["relatorios"].choose_folder_button.setEnabled(reports_export)
@@ -536,10 +572,20 @@ class MainWindow(QMainWindow):
         if self._api_client is not None:
             ChangePasswordDialog(self._api_client, self).exec()
 
+    def _reset_import_sessions(self) -> None:
+        for controller in (
+            self._cashflow_controller,
+            self._budget_controller,
+            self._boe_controller,
+            self._target_controller,
+        ):
+            controller.reset_import_session()
+
     def _logout(self) -> None:
         if self._api_client is None:
             self.close()
             return
+        self._reset_import_sessions()
         self._api_client.logout()
         self.hide()
         dialog = LoginDialog(self._api_client, self)
@@ -1031,7 +1077,13 @@ class MainWindow(QMainWindow):
             rows = [
                 (
                     item["timestamp"],
-                    str(item.get("user_id") or "-"),
+                    (
+                        f"{item.get('user_name')} (#{item['user_id']})"
+                        if item.get("user_name") and item.get("user_id") is not None
+                        else f"Usuário #{item['user_id']}"
+                        if item.get("user_id") is not None
+                        else "Sistema"
+                    ),
                     item["action"],
                     item.get("entity_type") or "-",
                 )

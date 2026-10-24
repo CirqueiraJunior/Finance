@@ -45,6 +45,11 @@ class BudgetController(QObject):
         self.catalog_service = catalog_service
         self.import_file_path = None
         self.selected_import_file_path = None
+        self._last_import_validation: dict | None = None
+        self._last_import_validation_path: str | None = None
+        self._workflow_compared = False
+        self._workflow_authorized_file: str | None = None
+        self._pending_import_period: tuple[int, int | None] | None = None
 
         self._operation_thread: QThread | None = None
         self._operation_worker: OperationWorker | None = None
@@ -56,22 +61,23 @@ class BudgetController(QObject):
         self.view.filter_button.clicked.connect(self.refresh)
         self.view.new_button.clicked.connect(self.open_new_dialog)
         self.view.edit_button.clicked.connect(self.open_edit_dialog)
-        self.view.import_file_button.clicked.connect(self.select_import_file)
-        self.view.validate_import_button.clicked.connect(
-            self.validate_selected_import_file
+        self.view.import_steps.configure_actions(
+            on_select=self.select_import_file,
+            on_validate=self.validate_selected_import_file,
+            on_compare=self.compare_import_validation,
+            on_import=self.import_workflow_step,
         )
-        self.view.confirm_import_button.clicked.connect(
-            self.confirm_and_import
-        )
+        self._reset_import_stages()
 
-        self.view.set_import_available(
+        import_available = (
             hasattr(service, "validate_import")
             and hasattr(service, "import_file")
         )
+        self.view.set_import_available(import_available)
         self._years_loader = AvailableYearsLoader(
             self,
             self.service.available_years,
-            self.view.set_available_years,
+            self._years_loaded,
             lambda error: self.view.set_status(
                 f"Falha ao carregar anos disponíveis: {error}", error=True
             ),
@@ -80,6 +86,16 @@ class BudgetController(QObject):
         self._initial_load_started = False
         if not defer_initial_load:
             self.load_initial_data()
+
+    def _years_loaded(self, years) -> None:
+        self.view.set_available_years(years)
+        pending = self._pending_import_period
+        self._pending_import_period = None
+        if pending is None:
+            return
+        year, month = pending
+        self.view.set_period(year, month)
+        self.refresh()
 
     def load_initial_data(self) -> None:
         """Load budget years on the first page visit."""
@@ -229,7 +245,51 @@ class BudgetController(QObject):
             error=True,
         )
 
+    def _invalidate_import_workflow(self) -> None:
+        self._last_import_validation = None
+        self._last_import_validation_path = None
+        self._workflow_compared = False
+        self._workflow_authorized_file = None
+        for stage in range(3, 5):
+            self._set_import_stage_enabled(stage, False)
+
+    def reset_import_session(self) -> None:
+        """Clear file-bound import state when the authenticated session ends."""
+        self.import_file_path = None
+        self.selected_import_file_path = None
+        self._pending_import_period = None
+        self._invalidate_import_workflow()
+        self._reset_import_stages()
+        self.view.import_summary.setText(
+            "Selecione um arquivo para validar a importação de Orçamento."
+        )
+        self.view.import_issues.clear()
+        self.view.import_preview.setRowCount(0)
+        self.view.import_result.clear()
+
+    def _set_import_stage_enabled(
+        self, stage: int, enabled: bool
+    ) -> None:
+        self.view.import_steps.set_stage_enabled(
+            stage,
+            bool(enabled) and self.view.import_workflow_allowed,
+        )
+
+    def _reset_import_stages(self) -> None:
+        for stage in range(1, 5):
+            self.view.import_steps.set_stage_enabled(stage, False)
+        self._set_import_stage_enabled(1, True)
+
+    def _restore_import_entry_stages(self) -> None:
+        self._set_import_stage_enabled(1, True)
+        self._set_import_stage_enabled(
+            2, self.selected_import_file_path is not None
+        )
+
     def select_import_file(self) -> None:
+        if not self.view.import_workflow_allowed:
+            return
+
         path, _ = QFileDialog.getOpenFileName(
             self.view,
             "Selecionar arquivo de Orçamento",
@@ -242,13 +302,14 @@ class BudgetController(QObject):
 
         self.selected_import_file_path = path
         self.import_file_path = None
+        self._invalidate_import_workflow()
+        self._reset_import_stages()
+        self._set_import_stage_enabled(2, True)
 
         self.view.import_summary.setText(
             f"Arquivo selecionado: {Path(path).name}"
         )
         self.view.import_issues.setText("")
-        self.view.validate_import_button.setEnabled(True)
-        self.view.confirm_import_button.setEnabled(False)
         self.view.set_status("Arquivo selecionado. Clique em Validar.")
 
     def validate_selected_import_file(self) -> None:
@@ -258,26 +319,49 @@ class BudgetController(QObject):
         self.validate_import_file(self.selected_import_file_path)
 
     def validate_import_file(self, path: str) -> None:
+        if not self.view.import_workflow_allowed:
+            return
+        if (
+            self._operation_thread is not None
+            and self._operation_thread.isRunning()
+        ):
+            return
+
         self.import_file_path = None
-        self.view.validate_import_button.setEnabled(False)
-        self.view.confirm_import_button.setEnabled(False)
+        self._invalidate_import_workflow()
+        self._set_import_stage_enabled(1, False)
+        self._set_import_stage_enabled(2, False)
 
         def succeeded(validation: dict) -> None:
+            if self.selected_import_file_path != path:
+                self._restore_import_entry_stages()
+                return
+            if not isinstance(validation, dict) or not validation:
+                self.view.set_status(
+                    "A validação do Orçamento não retornou um resultado utilizável.",
+                    error=True,
+                )
+                self._restore_import_entry_stages()
+                return
             self.view.show_import_validation(validation)
-            self.view.validate_import_button.setEnabled(True)
+            self._restore_import_entry_stages()
+            self._last_import_validation = validation
+            self._last_import_validation_path = path
+            self._set_import_stage_enabled(3, True)
 
             if validation.get("can_import"):
                 self.import_file_path = path
-                self.view.confirm_import_button.setEnabled(True)
 
         def failed(error: Exception) -> None:
+            if self.selected_import_file_path != path:
+                self._restore_import_entry_stages()
+                return
+            self._invalidate_import_workflow()
             self.view.set_status(
                 f"Falha ao validar arquivo de Or\u00e7amento: {error}",
                 error=True,
             )
-            self.view.validate_import_button.setEnabled(
-                self.selected_import_file_path is not None
-            )
+            self._restore_import_entry_stages()
 
         self._run_operation(
             window_title="Valida\u00e7\u00e3o do Or\u00e7amento",
@@ -286,9 +370,112 @@ class BudgetController(QObject):
             failed=failed,
         )
 
+    def compare_import_validation(self) -> None:
+        """Display differences and accept an explicit import authorization."""
+        from PySide6.QtWidgets import QDialog
+        from app.gui.budget_comparison_dialog import BudgetComparisonDialog
+
+        validation = self._last_import_validation
+        selected_file = self.selected_import_file_path
+
+        self._workflow_compared = False
+        self._workflow_authorized_file = None
+        self._set_import_stage_enabled(4, False)
+
+        if not self.view.import_workflow_allowed:
+            return
+
+        is_current = (
+            validation is not None
+            and selected_file is not None
+            and self._last_import_validation_path == selected_file
+            and self.import_file_path == selected_file
+        )
+        if not is_current:
+            self.view.set_status(
+                "Valide o arquivo de Or\u00e7amento antes de comparar.",
+                error=True,
+            )
+            return
+
+        comparison_rows = validation.get("comparison_preview") or []
+        has_changes = any(
+            isinstance(row, dict)
+            and row.get("status") in ("NEW", "CHANGED")
+            for row in comparison_rows
+        )
+        totals = validation.get("comparison_totals") or {}
+        counted_changes = (
+            int(totals.get("new") or 0)
+            + int(totals.get("changed") or 0)
+        )
+
+        eligible = (
+            bool(validation.get("can_import"))
+            and has_changes
+            and counted_changes > 0
+        )
+        dialog = BudgetComparisonDialog(
+            validation,
+            can_authorize=eligible,
+            parent=self.view,
+        )
+        decision = dialog.exec()
+
+        still_current = (
+            self.selected_import_file_path == selected_file
+            and self.import_file_path == selected_file
+            and self._last_import_validation_path == selected_file
+            and self._last_import_validation is validation
+        )
+
+        if (
+            decision == QDialog.DialogCode.Accepted
+            and eligible
+            and still_current
+        ):
+            self._workflow_compared = True
+            self._workflow_authorized_file = selected_file
+            self._set_import_stage_enabled(4, True)
+            self.view.set_status(
+                "Altera\u00e7\u00f5es autorizadas. "
+                "Etapa Importar liberada."
+            )
+        else:
+            self.view.set_status(
+                "Compara\u00e7\u00e3o encerrada sem "
+                "autoriza\u00e7\u00e3o."
+            )
+
+
+
+    def import_workflow_step(self) -> None:
+        """Run the existing mandatory final import confirmation."""
+        self.confirm_and_import()
+
+
     def confirm_and_import(self) -> None:
         """Apenas a interação da interface exige confirmação modal."""
-        if not self.import_file_path:
+        authorized_file = self._workflow_authorized_file
+        self._workflow_authorized_file = None
+        self._set_import_stage_enabled(4, False)
+        selected_file = self.selected_import_file_path
+        validation = self._last_import_validation
+        eligible = (
+            authorized_file is not None
+            and authorized_file == selected_file
+            and self._workflow_compared
+            and validation is not None
+            and bool(validation.get("can_import"))
+            and self._last_import_validation_path == selected_file
+            and self.import_file_path == selected_file
+            and self.view.import_workflow_allowed
+        )
+        if not eligible:
+            self.view.set_status(
+                "Confirme novamente o fluxo de Orçamento antes de importar.",
+                error=True,
+            )
             return
         if not confirm_import(self.view, module_name="Orçamento"):
             self.view.set_status(
@@ -296,7 +483,10 @@ class BudgetController(QObject):
             )
             return
         self.import_validated_file()
+
     def import_validated_file(self) -> None:
+        if not self.view.import_workflow_allowed:
+            return
         if not self.import_file_path or (
             self._import_thread is not None
             and self._import_thread.isRunning()
@@ -304,50 +494,44 @@ class BudgetController(QObject):
             return
 
         selected_file = self.import_file_path
-        selected_year, selected_month = self.view.selected_period()
+        _, selected_month = self.view.selected_period()
 
-        self.view.confirm_import_button.setEnabled(False)
-        self.view.validate_import_button.setEnabled(False)
-        self.view.import_file_button.setEnabled(False)
+        for stage in range(1, 5):
+            self._set_import_stage_enabled(stage, False)
 
         def operation():
-            result = self.service.import_file(selected_file)
+            return self.service.import_file(selected_file)
 
-            period = self._load_period(
-                selected_year,
-                selected_month,
-            )
-
-            return result, period
-
-        def succeeded(payload) -> None:
-            result, period = payload
-
+        def succeeded(result) -> None:
             self.view.show_import_result(result)
             self.import_file_path = None
             self.selected_import_file_path = None
-            self._show_period(period)
-
-            self.view.import_file_button.setEnabled(True)
-            self.view.validate_import_button.setEnabled(False)
-            self.view.confirm_import_button.setEnabled(False)
+            self._invalidate_import_workflow()
+            self._reset_import_stages()
+            imported_year = result.get("year") if isinstance(result, dict) else None
+            if imported_year is not None:
+                self._pending_import_period = (int(imported_year), selected_month)
+            self._years_loader.load(remote=self._is_remote())
 
         def failed(error: Exception) -> None:
             if isinstance(error, APIReadTimeoutError):
                 self.import_file_path = None
+                self._invalidate_import_workflow()
 
             self.view.set_status(
                 f"Falha ao importar Or\u00e7amento: {error}",
                 error=True,
             )
-
-            self.view.import_file_button.setEnabled(True)
-            self.view.validate_import_button.setEnabled(
-                self.selected_import_file_path is not None
+            self._restore_import_entry_stages()
+            can_compare = (
+                self._last_import_validation is not None
+                and self._last_import_validation_path
+                == self.selected_import_file_path
+                and self.import_file_path
+                == self.selected_import_file_path
             )
-            self.view.confirm_import_button.setEnabled(
-                self.import_file_path is not None
-            )
+            self._set_import_stage_enabled(3, can_compare)
+            self._set_import_stage_enabled(4, False)
 
         self._run_operation(
             window_title="Importa\u00e7\u00e3o do Or\u00e7amento",

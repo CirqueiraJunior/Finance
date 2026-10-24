@@ -103,6 +103,7 @@ from finance_server.identity_exchange import (
     decode_public_key_b64,
     verify_identity_envelope,
 )
+from finance_server.homologation_guard import enforce_homologation_target
 from finance_server.version import __version__
 from app.services.budget_write_lock import acquire_budget_write_lock
 
@@ -142,6 +143,11 @@ def create_app(
 ) -> FastAPI:
     settings = settings or get_server_settings()
     engine = create_engine(settings.database_url, **database_engine_options(settings.database_url))
+    try:
+        enforce_homologation_target(engine, settings.database_url)
+    except Exception:
+        engine.dispose()
+        raise
     factory = sessionmaker(engine, expire_on_commit=False)
     if create_schema:
         Base.metadata.create_all(engine)
@@ -884,7 +890,13 @@ def create_app(
             statement = statement.where(AuditLog.action == action)
         if user_id:
             statement = statement.where(AuditLog.user_id == user_id)
-        return list(db.scalars(statement))
+        records = list(db.scalars(statement))
+        result = []
+        for record in records:
+            item = AuditResponse.model_validate(record)
+            item.user_name = record.user.nome if record.user else None
+            result.append(item)
+        return result
 
     @app.get("/api/v1/entities", response_model=list[EntityResponse])
     def entities(
@@ -1229,19 +1241,33 @@ def create_app(
         user: User = Depends(require("boe:read")), db: Session = Depends(get_db)
     ):
         return [
-            {"id": identifier, "name": name}
-            for identifier, name in domain_services(db)[2].list_operational_entities()
+            {
+                "id": option.entity_id,
+                "source_code": option.source_code,
+                "name": option.name,
+            }
+            for option in domain_services(db)[2].list_operational_entities()
         ]
 
     @app.get("/api/v1/boe/operations")
     def boe_operations(
         start_year: int, start_month: int, end_year: int, end_month: int,
         entity_id: int | None = None,
+        source_code: int | None = None,
+        entity_ids: list[int] | None = Query(None),
+        source_codes: list[int] | None = Query(None),
         user: User = Depends(require("boe:read")), db: Session = Depends(get_db),
     ):
         try:
             result = domain_services(db)[2].query_operations(
-                start_year, start_month, end_year, end_month, entity_id
+                start_year,
+                start_month,
+                end_year,
+                end_month,
+                entity_id,
+                source_code,
+                entity_ids,
+                source_codes,
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
@@ -1804,6 +1830,9 @@ def create_app(
         year: int | None = None, month: int | None = None,
         start_year: int | None = None, end_year: int | None = None,
         entity_id: int | None = None,
+        source_code: int | None = None,
+        entity_ids: list[int] | None = Query(None),
+        source_codes: list[int] | None = Query(None),
         start_month: int | None = None, end_month: int | None = None,
         user: User = Depends(require("boe:read")),
         db: Session = Depends(get_db),
@@ -1821,8 +1850,37 @@ def create_app(
                 .get_boe_dashboard(
                     effective_end_year, entity_id, effective_start, effective_end,
                     start_year=effective_start_year, end_year=effective_end_year,
+                    source_code=source_code,
+                    entity_ids=entity_ids,
+                    source_codes=source_codes,
                 )
             )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+
+    @app.get("/api/v1/dashboard/boe/entities")
+    def dashboard_boe_entities(
+        user: User = Depends(require("boe:read")),
+        db: Session = Depends(get_db),
+    ):
+        _, _, boe, budget, targets, ranking_service, flow = domain_services(db)
+        return DashboardService(
+            flow, boe, budget, targets, ranking_service
+        ).get_boe_entity_options()
+
+    @app.get("/api/v1/dashboard/targets/entities")
+    def dashboard_target_entities(
+        region: str | None = None,
+        user: User = Depends(require("targets:read")),
+        db: Session = Depends(get_db),
+    ):
+        if not has_permission(user, "ranking:read"):
+            raise HTTPException(status_code=403, detail="Permissão insuficiente.")
+        _, _, boe, budget, targets, ranking_service, flow = domain_services(db)
+        try:
+            return DashboardService(
+                flow, boe, budget, targets, ranking_service
+            ).get_target_entity_options(region)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
 
@@ -1830,7 +1888,9 @@ def create_app(
     def dashboard_targets(
         year: int | None = None, month: int | None = None,
         start_year: int | None = None, end_year: int | None = None,
-        entity_id: int | None = None, region: str | None = None,
+        entity_id: int | None = None,
+        entity_ids: list[int] | None = Query(None),
+        region: str | None = None,
         indicator: str = "TODAS", start_month: int | None = None,
         end_month: int | None = None,
         user: User = Depends(require("targets:read")),
@@ -1853,6 +1913,7 @@ def create_app(
                     effective_start, effective_end,
                     start_year=effective_start_year, end_year=effective_end_year,
                     region=region,
+                    entity_ids=entity_ids,
                 )
             )
         except ValueError as error:

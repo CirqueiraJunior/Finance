@@ -59,7 +59,7 @@ class BOEImportDetails:
 class BOEOperationalRow:
     year: int
     month: int
-    entity_id: int
+    entity_id: int | None
     entity_name: str
     queries: int
     unit_value: Decimal
@@ -72,6 +72,14 @@ class BOEOperationalSummary:
     total_queries: int
     unit_value: Decimal
     total_value: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class BOEOperationalEntityOption:
+    entity_id: int | None
+    source_code: int | None
+    name: str
+    code: int | None = None
 
 
 class BOEService:
@@ -257,17 +265,35 @@ class BOEService:
             return None
         return self.get_import_details(boe_import.id)
 
-    def list_operational_entities(self) -> tuple[tuple[int, str], ...]:
-        entities: dict[int, str] = {}
-        for total, _imported in self.repository.list_operational_totals(
-            1, 1, 9999, 12
-        ):
-            entities[total.entity_id] = (
-                (total.entity.nome_oficial or total.entity.nome)
-                if total.entity is not None
-                else total.nome_entidade_origem
-            )
-        return tuple(sorted(entities.items(), key=lambda value: value[1].casefold()))
+    def list_operational_entities(
+        self,
+    ) -> tuple[BOEOperationalEntityOption, ...]:
+        entities: dict[tuple[str, int], BOEOperationalEntityOption] = {}
+        for (
+            entity_id,
+            source_code,
+            source_name,
+            entity_code,
+            official_name,
+            entity_name,
+        ) in self.repository.list_operational_entity_options():
+            if source_code == 7600:
+                entities[("source_code", 7600)] = BOEOperationalEntityOption(
+                    entity_id=None,
+                    source_code=7600,
+                    name=source_name,
+                    code=7600,
+                )
+            elif entity_id is not None:
+                entities[("entity_id", entity_id)] = (
+                    BOEOperationalEntityOption(
+                        entity_id=entity_id,
+                        source_code=None,
+                        name=official_name or entity_name or source_name,
+                        code=entity_code,
+                    )
+                )
+        return tuple(sorted(entities.values(), key=lambda value: value.name.casefold()))
 
     def query_operations(
         self,
@@ -276,14 +302,30 @@ class BOEService:
         end_year: int,
         end_month: int,
         entity_id: int | None = None,
+        source_code: int | None = None,
+        entity_ids: tuple[int, ...] | list[int] | None = None,
+        source_codes: tuple[int, ...] | list[int] | None = None,
     ) -> BOEOperationalSummary:
         if not 1 <= start_month <= 12 or not 1 <= end_month <= 12:
             raise ValueError("Mês do período BOE inválido.")
         if start_year * 100 + start_month > end_year * 100 + end_month:
             raise ValueError("O período inicial não pode ser posterior ao período final.")
+        entity_ids, source_codes = self.normalize_operational_entity_filters(
+            entity_id=entity_id,
+            source_code=source_code,
+            entity_ids=entity_ids,
+            source_codes=source_codes,
+        )
         rows = []
         for total, imported in self.repository.list_operational_totals(
-            start_year, start_month, end_year, end_month, entity_id
+            start_year,
+            start_month,
+            end_year,
+            end_month,
+            entity_id=entity_id,
+            source_code=source_code,
+            entity_ids=entity_ids,
+            source_codes=source_codes,
         ):
             official_name = (
                 (total.entity.nome_oficial or total.entity.nome)
@@ -309,6 +351,47 @@ class BOEService:
             total_value / total_queries if total_queries else Decimal("0.0000"),
             total_value,
         )
+
+    @staticmethod
+    def normalize_operational_entity_filters(
+        *,
+        entity_id: int | None = None,
+        source_code: int | None = None,
+        entity_ids: tuple[int, ...] | list[int] | None = None,
+        source_codes: tuple[int, ...] | list[int] | None = None,
+    ) -> tuple[tuple[int, ...] | None, tuple[int, ...] | None]:
+        plural_supplied = entity_ids is not None or source_codes is not None
+        if plural_supplied and (entity_id is not None or source_code is not None):
+            raise ValueError(
+                "Parâmetros individuais e múltiplos de Entidade são incompatíveis."
+            )
+        if entity_id is not None and source_code is not None:
+            raise ValueError(
+                "Informe apenas entity_id ou source_code para filtrar o BOE."
+            )
+
+        if plural_supplied:
+            normalized_entities = tuple(sorted(set(entity_ids or ())))
+            normalized_sources = tuple(sorted(set(source_codes or ())))
+            if not normalized_entities and not normalized_sources:
+                raise ValueError(
+                    "A seleção múltipla deve conter ao menos uma Entidade."
+                )
+        else:
+            normalized_entities = None
+            normalized_sources = None
+
+        effective_sources = (
+            {source_code} if source_code is not None
+            else set(normalized_sources or ())
+        )
+        if effective_sources - {7600}:
+            raise ValueError("Código BOE de origem não autorizado para filtro.")
+        if normalized_entities is not None and any(
+            entity <= 0 for entity in normalized_entities
+        ):
+            raise ValueError("Identificador de Entidade inválido.")
+        return normalized_entities, normalized_sources
 
     @classmethod
     def _name_matches(cls, entity: Entity, source_name: str) -> bool:

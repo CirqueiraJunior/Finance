@@ -133,6 +133,7 @@ class AuditResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     user_id: int | None
+    user_name: str | None = None
     timestamp: datetime
     action: str
     entity_type: str | None

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import QDate, QPoint, QPointF, Qt
 from PySide6.QtGui import QWheelEvent
+from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QApplication
 
 from app.gui.controllers.boe_controller import BOEController
@@ -12,7 +13,8 @@ from app.gui.pages.boe import BoePage
 from app.importers.boe_types import BOEParsedRow, BOEValidationResult
 from app.models.boe_import import BOEImport
 from app.services.boe_service import (
-    BOEEntityDetail, BOEImportDetails, BOEOperationalRow, BOEOperationalSummary,
+    BOEEntityDetail, BOEImportDetails, BOEOperationalEntityOption,
+    BOEOperationalRow, BOEOperationalSummary,
 )
 
 
@@ -20,8 +22,8 @@ def test_boe_page_starts_with_safe_actions_disabled(qtbot):
     page = BoePage()
     qtbot.addWidget(page)
 
-    assert not page.validate_button.isEnabled()
-    assert not page.import_button.isEnabled()
+    assert not page.import_steps.buttons[1].isEnabled()
+    assert not page.import_steps.buttons[3].isEnabled()
     assert page.history_table.columnCount() == 6
     assert page.details_table.columnCount() == 4
     assert page.operations_table.columnCount() == 5
@@ -35,20 +37,29 @@ def test_boe_page_starts_with_safe_actions_disabled(qtbot):
     )
 
 
-def test_boe_page_places_details_between_history_and_operational_query(qtbot):
+def test_boe_page_places_filters_first_and_import_last(qtbot):
     page = BoePage()
     qtbot.addWidget(page)
-    content_layout = page.scroll_area.widget().layout()
 
-    assert content_layout.indexOf(page.history_table) < content_layout.indexOf(
-        page.details_state
-    )
-    assert content_layout.indexOf(page.details_state) < content_layout.indexOf(
+    content = page.scroll_area.widget()
+    layout = content.layout()
+
+    positions = [
+        layout.indexOf(page.operations_table),
+        layout.indexOf(page.history_table),
+        layout.indexOf(page.details_table),
+        layout.indexOf(page.import_panel),
+        layout.indexOf(page.validation_result),
+    ]
+
+    # The validation result lives in a nested layout, so the last
+    # component must be checked through its parent instead.
+    assert positions[:4] == sorted(positions[:4])
+    assert all(position >= 0 for position in positions[:4])
+    assert layout.indexOf(page.import_panel) > layout.indexOf(
         page.details_table
     )
-    assert content_layout.indexOf(page.details_table) < content_layout.indexOf(
-        page.operations_table
-    )
+
 
 
 def test_boe_page_displays_validation_result(qtbot):
@@ -242,14 +253,30 @@ def _send_wheel_event(widget, delta: int = 120) -> None:
 def test_boe_period_filters_ignore_mouse_wheel(qtbot):
     page = BoePage()
     qtbot.addWidget(page)
-    page.start_period.setDate(QDate(2026, 3, 1))
-    page.end_period.setDate(QDate(2026, 8, 1))
+    page.set_import_periods([
+        SimpleNamespace(
+            periodo_ano=2025, periodo_mes=11, status="imported"
+        ),
+        SimpleNamespace(
+            periodo_ano=2026, periodo_mes=3, status="imported"
+        ),
+        SimpleNamespace(
+            periodo_ano=2026, periodo_mes=8, status="imported"
+        ),
+    ])
+    page.year_filter.setCurrentIndex(
+        page.year_filter.findData(2026)
+    )
+    page.month_filter.setCurrentIndex(
+        page.month_filter.findData(3)
+    )
 
-    _send_wheel_event(page.start_period)
-    _send_wheel_event(page.end_period, -120)
+    _send_wheel_event(page.year_filter)
+    _send_wheel_event(page.month_filter, -120)
 
-    assert page.start_period.date() == QDate(2026, 3, 1)
-    assert page.end_period.date() == QDate(2026, 8, 1)
+    assert page.year_filter.currentData() == 2026
+    assert page.month_filter.currentData() == 3
+
 
 
 def test_boe_period_explicit_selection_is_used_by_query(qtbot):
@@ -260,7 +287,9 @@ def test_boe_period_explicit_selection_is_used_by_query(qtbot):
     class ServiceStub:
         repository = SimpleNamespace(session=SimpleNamespace(rollback=lambda: None))
         list_imports = staticmethod(lambda: [])
-        list_operational_entities = staticmethod(lambda: ())
+        list_operational_entities = staticmethod(lambda: (
+            BOEOperationalEntityOption(1, None, "Entidade", 7501),
+        ))
 
         @staticmethod
         def query_operations(*filters):
@@ -268,17 +297,29 @@ def test_boe_period_explicit_selection_is_used_by_query(qtbot):
             return BOEOperationalSummary((), 0, Decimal("0"), Decimal("0"))
 
     BOEController(page, ServiceStub())
-    page.start_period.setDate(QDate(2025, 11, 1))
-    page.end_period.setDate(QDate(2026, 2, 1))
+    page.set_import_periods([
+        SimpleNamespace(
+            periodo_ano=2025, periodo_mes=11, status="imported"
+        ),
+        SimpleNamespace(
+            periodo_ano=2026, periodo_mes=2, status="imported"
+        ),
+    ])
+    page.year_filter.setCurrentIndex(
+        page.year_filter.findData(2026)
+    )
+    page.month_filter.setCurrentIndex(
+        page.month_filter.findData(2)
+    )
 
     page.query_button.click()
 
-    assert page.start_period.calendarPopup()
-    assert page.end_period.calendarPopup()
-    assert calls == [(2025, 11, 2026, 2, None)]
+    assert page.year_filter.currentData() == 2026
+    assert page.month_filter.currentData() == 2
+    assert calls == [(2026, 2, 2026, 2, None)]
 
 
-def test_boe_import_modal_blocks_duplicate_and_closes_on_success(qtbot):
+def test_boe_import_modal_blocks_duplicate_and_closes_on_success(qtbot, monkeypatch):
     page = BoePage()
     qtbot.addWidget(page)
     release = Event()
@@ -297,22 +338,41 @@ def test_boe_import_modal_blocks_duplicate_and_closes_on_success(qtbot):
             return imported
 
     controller = BOEController(page, ServiceStub())
+    import_completed = QSignalSpy(controller.import_completed)
     controller._selected_file = Path("boe.xlsx")
-    page.import_button.setEnabled(True)
-    page.import_button.click()
+    controller._validated_boe = BOEValidationResult(
+        caminho_arquivo=Path("boe.xlsx"),
+        nome_arquivo="boe.xlsx",
+        periodo_ano=2026,
+        periodo_mes=7,
+    )
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
+    monkeypatch.setattr(
+        QMessageBox,
+        "clickedButton",
+        lambda self: next(
+            button for button in self.buttons()
+            if button.text() == "Confirmar importa\u00e7\u00e3o"
+        ),
+    )
+    # Exercita diretamente a confirmação final e o worker.
+    # A autorização da etapa 4 possui testes próprios.
+    controller.import_file()
     qtbot.waitUntil(lambda: controller._import_dialog is not None and controller._import_dialog.isVisible())
     qtbot.waitUntil(lambda: len(calls) == 1)
     controller.import_file()
     assert len(calls) == 1
-    assert not page.import_button.isEnabled()
+    assert not page.import_steps.buttons[3].isEnabled()
     assert controller._import_dialog.title.text() == "Processando importação..."
     assert controller._import_dialog.description.text() == "Aguarde enquanto os dados são validados e gravados."
     release.set()
     qtbot.waitUntil(lambda: controller._import_dialog is None)
     assert "IMPORTADO COM SUCESSO" in page.import_result.toPlainText()
+    assert import_completed.count() == 1
 
 
-def test_boe_import_modal_closes_on_error(qtbot):
+def test_boe_import_modal_closes_on_error(qtbot, monkeypatch):
     page = BoePage()
     qtbot.addWidget(page)
 
@@ -324,9 +384,103 @@ def test_boe_import_modal_closes_on_error(qtbot):
 
     controller = BOEController(page, ServiceStub())
     controller._selected_file = Path("boe.xlsx")
-    page.import_button.setEnabled(True)
-    page.import_button.click()
+    controller._validated_boe = BOEValidationResult(
+        caminho_arquivo=Path("boe.xlsx"),
+        nome_arquivo="boe.xlsx",
+        periodo_ano=2026,
+        periodo_mes=7,
+    )
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
+    monkeypatch.setattr(
+        QMessageBox,
+        "clickedButton",
+        lambda self: next(
+            button for button in self.buttons()
+            if button.text() == "Confirmar importa\u00e7\u00e3o"
+        ),
+    )
+    # Exercita diretamente a confirmação final e o worker.
+    # A autorização da etapa 4 possui testes próprios.
+    controller.import_file()
     qtbot.waitUntil(lambda: controller._import_thread is None)
     assert controller._import_dialog is None
     assert "falha controlada" in page.import_result.toPlainText()
-    assert page.select_button.isEnabled()
+    assert page.import_steps.buttons[0].isEnabled()
+
+
+def test_boe_confirmation_no_never_imports(qtbot, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from app.importers.boe_types import BOEValidationResult
+
+    page = BoePage()
+    qtbot.addWidget(page)
+    calls = []
+
+    class ServiceStub:
+        repository = SimpleNamespace(
+            session=SimpleNamespace(rollback=lambda: None)
+        )
+        list_imports = staticmethod(lambda: [])
+        list_operational_entities = staticmethod(lambda: ())
+
+        def import_file(self, path):
+            calls.append(path)
+            raise AssertionError("Import should not run")
+
+    controller = BOEController(
+        page, ServiceStub(), defer_initial_load=True
+    )
+    controller._selected_file = Path("boe.xlsx")
+    controller._validated_boe = BOEValidationResult(
+        caminho_arquivo=Path("boe.xlsx"),
+        nome_arquivo="boe.xlsx",
+        periodo_ano=2026,
+        periodo_mes=7,
+    )
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
+    monkeypatch.setattr(
+        QMessageBox,
+        "clickedButton",
+        lambda self: next(
+            button for button in self.buttons()
+            if button.text() == "Cancelar"
+        ),
+    )
+    controller.import_file()
+
+    assert not calls
+    assert controller._import_thread is None
+    assert controller._validated_boe is not None
+    assert "cancelada" in page.operation_status.text().lower()
+
+
+def test_boe_available_months_from_history(qtbot):
+    page = BoePage()
+    qtbot.addWidget(page)
+
+    page.set_import_periods([
+        SimpleNamespace(periodo_ano=2025, periodo_mes=11, status="imported"),
+        SimpleNamespace(periodo_ano=2026, periodo_mes=2, status="imported"),
+        SimpleNamespace(periodo_ano=2026, periodo_mes=9, status="imported"),
+        SimpleNamespace(periodo_ano=2027, periodo_mes=1, status="pending"),
+    ])
+
+    assert page.year_filter.count() == 2
+    assert page.year_filter.itemData(0) == 2026
+    assert page.month_filter.count() == 3
+    assert page.month_filter.findData(1) == -1
+    assert page.operational_filters()[:4] == (2026, 1, 2026, 12)
+
+    page.month_filter.setCurrentIndex(
+        page.month_filter.findData(9)
+    )
+    assert page.operational_filters()[:4] == (2026, 9, 2026, 9)
+
+    page.year_filter.setCurrentIndex(
+        page.year_filter.findData(2025)
+    )
+    assert page.month_filter.findData(9) == -1
+
+    page.set_import_periods([])
+    assert not page.query_button.isEnabled()

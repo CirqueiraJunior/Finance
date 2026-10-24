@@ -421,8 +421,39 @@ QWidget#dashboardFilterBar QSpinBox:focus {
     border: 2px solid #2d64f1;
 }
 QWidget#dashboardFilterBar QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 26px;
     border: none;
-    width: 24px;
+}
+
+QWidget#dashboardFilterBar QComboBox {
+    padding-right: 30px;
+}
+
+QWidget#dashboardFilterBar QPushButton[buttonRole="primary"],
+QWidget#dashboardFilterBar QPushButton#primaryButton {
+    background: #114F82;
+    color: #FFFFFF;
+    border: 1px solid #114F82;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-weight: 600;
+}
+
+QWidget#dashboardFilterBar[dashboardArea="financial"] {
+    padding: 4px 6px;
+}
+QWidget#dashboardFilterBar[dashboardArea="financial"] QComboBox {
+    padding: 5px 4px;
+    padding-right: 20px;
+}
+QWidget#dashboardFilterBar[dashboardArea="financial"] QComboBox::drop-down {
+    width: 18px;
+}
+QWidget#dashboardFilterBar[dashboardArea="financial"] QPushButton[buttonRole="primary"],
+QWidget#dashboardFilterBar[dashboardArea="financial"] QPushButton#primaryButton {
+    padding: 8px 12px;
 }
 
 QWidget#summaryCard {
@@ -435,8 +466,8 @@ QWidget#summaryCard:hover {
     background: #fbfdff;
 }
 QWidget#summaryCard[cardRole="balance"] {
-    background: #eef6fb;
-    border: 1px solid #9fc0dc;
+    background: #EAF7EF;
+    border: 1px solid #A6D8B8;
 }
 QWidget#summaryCard[cardRole="revenue"] {
     background: #eef5ff;
@@ -502,4 +533,11 @@ QChartView {
     background: #ffffff;
     border: 1px solid #d7e1eb;
     border-radius: 10px;
+}
+
+
+QWidget#dashboardFilterBar QComboBox::down-arrow {
+    image: url(filter-chevron-down.svg);
+    width: 12px;
+    height: 8px;
 }

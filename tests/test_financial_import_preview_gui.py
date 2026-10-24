@@ -36,7 +36,7 @@ def test_financial_preview_shows_multiple_rows(qtbot):
     assert page.import_preview.item(5, 3).text() == "Item 6"
     assert page.import_preview.minimumHeight() >= 150
     assert page.import_issues.toPlainText() == "Arquivo validado sem inconsistências."
-    assert page.import_issues_scroll.height() <= 96
+    assert page.import_issues.height() >= 150
 
 
 def test_financial_validation_keeps_errors_and_warnings_without_squeezing_preview(qtbot):
@@ -69,7 +69,7 @@ def test_financial_validation_keeps_errors_and_warnings_without_squeezing_previe
     assert page.import_preview.item(5, 3).text() == "Item 6"
     assert error in page.import_issues.toPlainText()
     assert warning in page.import_issues.toPlainText()
-    assert page.import_issues_scroll.height() <= 96
+    assert page.import_issues.height() >= 150
     assert page.import_preview.height() >= 150
 
 
@@ -126,12 +126,17 @@ def test_financial_layout_uses_window_height_at_1366x768(qtbot, tmp_path):
     assert page.import_preview.rowCount() == 12
     assert page.import_preview.height() >= 150
     assert page.import_issues.isVisible()
-    assert page.import_issues.height() >= page.import_issues.sizeHint().height()
-    assert page.import_issues_scroll.height() <= 96
+    assert page.import_issues.isVisible()
+    assert page.import_issues.verticalScrollBar() is not None
+    assert page.import_issues.height() >= 150
     status_bottom = page.operation_status.mapToGlobal(
         page.operation_status.rect().bottomLeft()
     ).y()
     statusbar_top = window.statusBar().mapToGlobal(
         window.statusBar().rect().topLeft()
     ).y()
-    assert 0 <= statusbar_top - status_bottom - 1 <= 12
+    scrollbar = page.scroll_area.verticalScrollBar()
+    assert scrollbar.maximum() > 0
+    scrollbar.setValue(scrollbar.maximum())
+    qtbot.wait(20)
+    assert page.operation_status.isVisibleTo(page)

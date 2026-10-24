@@ -63,7 +63,10 @@ def test_budget_repository_queries(db_session):
     db_session.commit()
 
     assert repository.get_by_id(july.id) is july
-    assert repository.exists(2026, 7, "DESPESA", "ADMINISTRATIVO")
+    assert repository.exists(
+        2026, 7, "DESPESA", "ADMINISTRATIVO",
+        july.descricao,
+    )
     assert repository.list_by_period(2026, 7) == [july]
     assert len(repository.list_by_year(2026)) == 2
     assert len(repository.list_all()) == 2

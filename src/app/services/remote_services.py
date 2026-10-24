@@ -10,6 +10,7 @@ from zipfile import ZipFile
 from app.importers.boe_types import (
     BOEIssueSeverity, BOEParsedRow, BOEValidationIssue, BOEValidationResult,
 )
+from app.services.boe_service import BOEOperationalEntityOption
 from app.services.budget_service import BudgetComparison, BudgetSummary, BudgetVsActual
 from app.services.dashboard_service import (
     BOEDashboardSummary, BudgetDashboardSummary, DashboardSummary,
@@ -186,12 +187,18 @@ class RemoteBOEService:
 
     def list_operational_entities(self):
         return tuple(
-            (row["id"], row["name"])
+            BOEOperationalEntityOption(
+                entity_id=row["id"],
+                source_code=row.get("source_code"),
+                name=row["name"],
+                code=row.get("code"),
+            )
             for row in self.api.get("/api/v1/boe/operations/entities")
         )
 
     def query_operations(self, start_year, start_month, end_year, end_month,
-                         entity_id=None):
+                         entity_id=None, source_code=None, entity_ids=None,
+                         source_codes=None):
         path = (
             "/api/v1/boe/operations"
             f"?start_year={start_year}&start_month={start_month}"
@@ -199,6 +206,12 @@ class RemoteBOEService:
         )
         if entity_id is not None:
             path += f"&entity_id={entity_id}"
+        if source_code is not None:
+            path += f"&source_code={source_code}"
+        for selected_id in entity_ids or ():
+            path += f"&entity_ids={selected_id}"
+        for selected_code in source_codes or ():
+            path += f"&source_codes={selected_code}"
         data = self.api.get(path)
         return SimpleNamespace(
             rows=tuple(SimpleNamespace(
@@ -259,9 +272,35 @@ class RemoteBudgetService:
             self._budget_preview_file = None
     def get_budget_vs_actual(self, year, month=None):
         data = self._data(year, month)["comparison"]
-        comparisons = tuple(BudgetComparison(x["entry_type"], x.get("description"), x["category"], _decimal(x["budgeted"]),
-            _decimal(x["actual"]), _decimal(x["absolute_variance"]),
-            _decimal(x["percentage_variance"]) if x["percentage_variance"] is not None else None) for x in data["comparisons"])
+        from app.services.budget_service import BudgetDetail
+
+        comparisons = []
+        for item in data["comparisons"]:
+            details = tuple(
+                BudgetDetail(
+                    description=detail["description"],
+                    budgeted=_decimal(detail["budgeted"]),
+                    actual=_decimal(detail["actual"]),
+                    variance=_decimal(detail["variance"]),
+                    unmatched=bool(detail.get("unmatched", False)),
+                )
+                for detail in item.get("details", [])
+            )
+            comparisons.append(BudgetComparison(
+                item["entry_type"],
+                item.get("description"),
+                item["category"],
+                _decimal(item["budgeted"]),
+                _decimal(item["actual"]),
+                _decimal(item["absolute_variance"]),
+                (
+                    _decimal(item["percentage_variance"])
+                    if item["percentage_variance"] is not None
+                    else None
+                ),
+                details=details,
+            ))
+        comparisons = tuple(comparisons)
         s = data["summary"]
         return BudgetVsActual(comparisons, BudgetSummary(*(_decimal(s[k]) for k in (
             "budgeted_revenue", "actual_revenue", "budgeted_expense", "actual_expense", "budgeted_result", "actual_result"))))
@@ -366,9 +405,32 @@ class RemoteDashboardService:
         self.areas = set(areas or {"financial", "boe", "targets"})
     def get_available_years(self):
         return self.api.get("/api/v1/dashboard/years")
+    def get_dashboard_entity_options(self, areas=None, region=None):
+        requested_areas = (
+            self.areas if areas is None else self.areas & set(areas)
+        )
+        result = {}
+        if "boe" in requested_areas:
+            options = self.api.get(
+                "/api/v1/dashboard/boe/entities"
+            )
+            if not isinstance(options, list):
+                raise ValueError("Resposta inválida ao carregar entidades BOE.")
+            result["boe"] = options
+        if "targets" in requested_areas:
+            path = "/api/v1/dashboard/targets/entities"
+            if region:
+                path += f"?region={region}"
+            options = self.api.get(path)
+            if not isinstance(options, list):
+                raise ValueError("Resposta inválida ao carregar entidades de Metas.")
+            result["targets"] = options
+        return result
     def get_dashboard_data(self, year, month, areas=None, **filters):
         result = {}
-        requested_areas = self.areas if areas is None else set(areas)
+        requested_areas = (
+            self.areas if areas is None else self.areas & set(areas)
+        )
         if "financial" in requested_areas:
             start_year = filters.get("financial_start_year", year)
             start_month = filters.get("financial_start_month", month)
@@ -397,6 +459,12 @@ class RemoteDashboardService:
             )
             if filters.get("boe_entity_id"):
                 path += f"&entity_id={filters['boe_entity_id']}"
+            if filters.get("boe_source_code"):
+                path += f"&source_code={filters['boe_source_code']}"
+            for entity_id in filters.get("boe_entity_ids") or ():
+                path += f"&entity_ids={entity_id}"
+            for source_code in filters.get("boe_source_codes") or ():
+                path += f"&source_codes={source_code}"
             result["boe"] = self.api.get(path)
         if "targets" in requested_areas:
             indicator = filters.get("indicator", "TODAS")
@@ -414,6 +482,8 @@ class RemoteDashboardService:
                 path += f"&region={filters['region']}"
             if filters.get("target_entity_id"):
                 path += f"&entity_id={filters['target_entity_id']}"
+            for entity_id in filters.get("target_entity_ids") or ():
+                path += f"&entity_ids={entity_id}"
             result["targets"] = self.api.get(path)
         return result
     def get_dashboard_summary(self, year, month):

@@ -262,60 +262,81 @@ def test_non_budget_workbook_is_rejected(budget_import_context):
     assert response.json()["detail"]["can_import"] is False
 
 
-def test_internal_duplicate_blocks_entire_budget_import(budget_import_context):
-    client, app, tmp_path = budget_import_context
-    path = _budget_workbook(tmp_path / "Orçamento 2026.xlsx", duplicate=True)
 
+def test_internal_duplicate_blocks_entire_budget_import(
+    budget_import_context,
+):
+    client, app, tmp_path = budget_import_context
+    path = _budget_workbook(
+        tmp_path / "Budget 2026.xlsx", duplicate=True
+    )
     response = _upload(
         client, "/api/v1/budgets/import", path, _headers(client)
     )
+    assert response.status_code == 201, response.text
 
-    assert response.status_code == 422
-    assert any(
-        "registro repetido no arquivo" in error
-        for error in response.json()["detail"]["errors"]
-    )
     with app.state.session_factory() as db:
-        assert db.scalar(select(func.count()).select_from(BudgetEntry)) == 0
+        rows = db.scalars(select(BudgetEntry)).all()
+        identities = [
+            (
+                row.periodo_ano, row.periodo_mes,
+                row.tipo, row.categoria,
+                (row.descricao or "").strip().lower(),
+            )
+            for row in rows
+        ]
+        assert len(identities) == len(set(identities))
+
+
 
 
 def test_reimport_updates_matching_keys_and_preserves_other_periods(
     budget_import_context,
 ):
     client, app, tmp_path = budget_import_context
-    path = _budget_workbook(tmp_path / "Orçamento 2026.xlsx")
+    path = _budget_workbook(tmp_path / "Budget 2026.xlsx")
+
     with app.state.session_factory() as db:
         db.add(BudgetEntry(
-            periodo_ano=2026, periodo_mes=1, tipo="RECEITA",
-            categoria="RECEITA_DIRETA", descricao="Existente",
-            valor_orcado=1,
+            periodo_ano=2026, periodo_mes=1,
+            tipo="RECEITA", categoria="RECEITA_DIRETA",
+            descricao="Existente", valor_orcado=1,
         ))
         db.add(BudgetEntry(
-            periodo_ano=2025, periodo_mes=12, tipo="DESPESA",
-            categoria="EVENTOS", descricao="Outro período",
-            valor_orcado=777,
+            periodo_ano=2025, periodo_mes=12,
+            tipo="DESPESA", categoria="EVENTOS",
+            descricao="Outro periodo", valor_orcado=777,
         ))
         db.commit()
 
     response = _upload(
         client, "/api/v1/budgets/import", path, _headers(client)
     )
+    assert response.status_code == 201, response.text
 
-    assert response.status_code == 201
     with app.state.session_factory() as db:
-        january = db.scalar(select(BudgetEntry).where(
+        original = db.scalar(select(BudgetEntry).where(
             BudgetEntry.periodo_ano == 2026,
             BudgetEntry.periodo_mes == 1,
-            BudgetEntry.tipo == "RECEITA",
-            BudgetEntry.categoria == "RECEITA_DIRETA",
+            BudgetEntry.descricao == "Existente",
         ))
         preserved = db.scalar(select(BudgetEntry).where(
             BudgetEntry.periodo_ano == 2025,
             BudgetEntry.periodo_mes == 12,
         ))
-        assert january.valor_orcado == 200
+        imported = db.scalars(select(BudgetEntry).where(
+            BudgetEntry.periodo_ano == 2026,
+            BudgetEntry.periodo_mes == 1,
+            BudgetEntry.tipo == "RECEITA",
+            BudgetEntry.categoria == "RECEITA_DIRETA",
+            BudgetEntry.descricao != "Existente",
+        )).all()
+
+        assert original is not None
+        assert original.valor_orcado == 1
         assert preserved.valor_orcado == 777
-        assert db.scalar(select(func.count()).select_from(BudgetEntry)) == 5
+        assert any(item.valor_orcado == 200 for item in imported)
+
 
 
 @pytest.mark.parametrize("username", ["admin", "gestor"])

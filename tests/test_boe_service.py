@@ -251,6 +251,103 @@ def test_operational_query_filters_entity_and_calculates_all_kpis(boe_service):
     assert only_second.total_queries == 75
 
 
+def test_operational_filters_distinguish_master_fcdl_all_and_total_7500(
+    boe_service,
+):
+    session = boe_service.repository.session
+    entity = session.scalar(
+        select(Entity).where(Entity.codigo_entidade == 7501)
+    )
+    imported = add_boe_import(
+        session,
+        year=2026,
+        month=9,
+        file_hash="9" * 64,
+    )
+    session.add_all([
+        BOEEntityTotal(
+            boe_import_id=imported.id,
+            entity_id=entity.id,
+            codigo_entidade_origem=7501,
+            nome_entidade_origem=entity.nome,
+            quantidade_consultas=10,
+            valor_total=Decimal("10.0000"),
+        ),
+        BOEEntityTotal(
+            boe_import_id=imported.id,
+            entity_id=None,
+            codigo_entidade_origem=7600,
+            nome_entidade_origem="FCDL",
+            quantidade_consultas=5,
+            valor_total=Decimal("5.0000"),
+        ),
+        BOEEntityTotal(
+            boe_import_id=imported.id,
+            entity_id=None,
+            codigo_entidade_origem=7500,
+            nome_entidade_origem="TOTAL GERAL",
+            quantidade_consultas=999,
+            valor_total=Decimal("999.0000"),
+        ),
+    ])
+    session.commit()
+
+    options = boe_service.list_operational_entities()
+    all_entities = boe_service.query_operations(2026, 9, 2026, 9)
+    master_entity = boe_service.query_operations(
+        2026, 9, 2026, 9, entity_id=entity.id
+    )
+    fcdl = boe_service.query_operations(
+        2026, 9, 2026, 9, source_code=7600
+    )
+
+    assert {
+        (item.entity_id, item.source_code, item.name)
+        for item in options
+    } == {
+        (entity.id, None, entity.nome_oficial or entity.nome),
+        (None, 7600, "FCDL"),
+    }
+    assert all_entities.total_queries == 15
+    assert all_entities.total_value == Decimal("15.0000")
+    assert [row.entity_id for row in master_entity.rows] == [entity.id]
+    assert master_entity.total_value == Decimal("10.0000")
+    assert [(row.entity_id, row.entity_name) for row in fcdl.rows] == [
+        (None, "FCDL")
+    ]
+    assert fcdl.total_queries == 5
+    assert fcdl.total_value == Decimal("5.0000")
+    assert {
+        row.codigo_entidade_origem
+        for row in boe_service.repository.list_totals_by_import(imported.id)
+    } == {7500, 7501, 7600}
+
+
+@pytest.mark.parametrize("source_code", [7500, 9999])
+def test_operational_filter_rejects_unauthorized_source_codes(
+    boe_service,
+    source_code,
+):
+    with pytest.raises(ValueError, match="não autorizado"):
+        boe_service.query_operations(
+            2026, 1, 2026, 12, source_code=source_code
+        )
+
+
+def test_operational_filter_rejects_entity_and_source_code_together(
+    boe_service,
+):
+    with pytest.raises(ValueError, match="apenas entity_id ou source_code"):
+        boe_service.query_operations(
+            2026,
+            1,
+            2026,
+            12,
+            entity_id=1,
+            source_code=7600,
+        )
+
+
 def test_boe_accepts_fcdl_7600_without_master_entity(
     db_session,
     tmp_path,

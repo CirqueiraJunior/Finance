@@ -80,7 +80,12 @@ class FinancialImportService:
     def validate(
         self, file_path: str | Path, *, file_name: str | None = None
     ) -> FinancialImportValidation:
-        source = self.importer.parse(file_path)
+        cashflow_parser = getattr(self.importer, "parse_cashflow", None)
+        source = (
+            cashflow_parser(file_path)
+            if callable(cashflow_parser)
+            else self.importer.parse(file_path)
+        )
         rows = [dict(row) for row in source.rows]
         warnings = list(source.warnings)
         errors = list(source.errors)

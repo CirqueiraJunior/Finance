@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from PySide6.QtWidgets import QLabel, QDialog, QStackedWidget
 
@@ -147,8 +149,29 @@ def test_sidebar_updates_after_logout_and_login_with_another_role(qtbot, monkeyp
     qtbot.addWidget(window)
     assert all(not button.isHidden() for button in window.sidebar.buttons.values())
 
+    window._cashflow_controller.import_file_path = "financeiro.xlsx"
+    window._budget_controller.import_file_path = "orcamento.xlsx"
+    window._budget_controller.selected_import_file_path = "orcamento.xlsx"
+    window._target_controller.import_file_path = "metas.xlsx"
+    window._target_controller.selected_import_file_path = "metas.xlsx"
+    window._boe_controller._selected_file = Path("boe.xlsx")
+    window.pages["financeiro"].selected_import_file.setText("financeiro.xlsx")
+    window.pages["orcamento"].import_summary.setText("orcamento.xlsx")
+    window.pages["metas"].import_summary.setText("metas.xlsx")
+    window.pages["boe"].file_path.setText("boe.xlsx")
+
     window._logout()
 
+    assert window._cashflow_controller.import_file_path is None
+    assert window._budget_controller.import_file_path is None
+    assert window._budget_controller.selected_import_file_path is None
+    assert window._target_controller.import_file_path is None
+    assert window._target_controller.selected_import_file_path is None
+    assert window._boe_controller._selected_file is None
+    assert window.pages["financeiro"].selected_import_file.text() == (
+        "Nenhum arquivo selecionado."
+    )
+    assert window.pages["boe"].file_path.text() == ""
     visible = {key for key, button in window.sidebar.buttons.items() if not button.isHidden()}
     assert visible == EXPECTED_MODULES["OPERADOR_BOE"]
     assert window.navigation.first_allowed_page() == "dashboard"
@@ -226,16 +249,36 @@ def test_operator_actions_follow_final_matrix_and_personal_admin_remains(qtbot, 
         settings, api_client=FakeRemoteAPI(),
         authenticated_user=AuthenticatedUser(2, "BOE", "OPERADOR_BOE", False),
     )
+    manager = MainWindow(
+        settings, api_client=FakeRemoteAPI(),
+        authenticated_user=AuthenticatedUser(3, "Gestor", "GESTOR", False),
+    )
     qtbot.addWidget(financial)
     qtbot.addWidget(boe)
+    qtbot.addWidget(manager)
 
     assert financial.pages["financeiro"].new_entry_button.isEnabled()
     assert not financial.pages["orcamento"].new_button.isEnabled()
+    assert not any(
+        button.isEnabled()
+        for button in financial.pages["orcamento"].import_steps.buttons
+    )
+    financial._budget_controller.selected_import_file_path = "bloqueado.xlsx"
+    financial._budget_controller._restore_import_entry_stages()
+    assert not any(
+        button.isEnabled()
+        for button in financial.pages["orcamento"].import_steps.buttons
+    )
+    assert manager.pages["orcamento"].new_button.isEnabled()
+    assert [
+        button.isEnabled()
+        for button in manager.pages["orcamento"].import_steps.buttons
+    ] == [True, False, False, False]
     assert financial.pages["cadastros"].tabs.isTabVisible(1)
     assert not financial.pages["cadastros"].tabs.isTabVisible(0)
     assert financial.pages["cadastros"].new_catalog_button.isEnabled()
     assert financial.pages["cadastros"].edit_catalog_button.isEnabled()
-    assert not boe.pages["boe"].import_button.isEnabled()
+    assert not boe.pages["boe"].import_steps.buttons[3].isEnabled()
     assert boe.pages["cadastros"].tabs.isTabVisible(0)
     assert not boe.pages["cadastros"].tabs.isTabVisible(1)
     for window in (financial, boe):

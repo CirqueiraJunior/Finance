@@ -10,7 +10,17 @@ psycopg_datas, psycopg_binaries, psycopg_hiddenimports = collect_all("psycopg")
 binary_datas = collect_data_files("psycopg_binary")
 
 datas = (
-    collect_data_files("finance_server", includes=["resources/*.pem"])
+    [
+        (
+            str(
+                source_root
+                / "finance_server"
+                / "resources"
+                / "recovery_public_key.pem"
+            ),
+            "finance_server/resources",
+        )
+    ]
     + psycopg_datas
     + binary_datas
 )
@@ -59,6 +69,7 @@ exe = EXE(
     strip=False,
     upx=True,
     upx_exclude=[],
+    append_pkg=False,
     runtime_tmpdir=None,
     console=True,
     disable_windowed_traceback=False,

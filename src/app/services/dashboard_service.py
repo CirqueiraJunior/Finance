@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from app.models.cashflow_entry import EXPENSE_CATEGORIES
 from app.models.target_entry import TargetIndicator
 from app.services.boe_service import BOEService
 from app.services.budget_service import BudgetService
@@ -39,6 +40,23 @@ class BudgetDashboardSummary:
     actual_expense: Decimal
     budgeted_result: Decimal
     actual_result: Decimal
+    has_budgeted_expense: bool = True
+
+    @property
+    def expense_result(self) -> Decimal | None:
+        if not self.has_budgeted_expense:
+            return None
+        return self.budgeted_expense - self.actual_expense
+
+    @property
+    def expense_variation_percentage(self) -> Decimal | None:
+        if not self.has_budgeted_expense or self.budgeted_expense == 0:
+            return None
+        return (
+            (self.actual_expense - self.budgeted_expense)
+            / self.budgeted_expense
+            * Decimal("100")
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +111,16 @@ class DashboardService:
         self.analytics = DashboardRepository(financial_flow.cashflow.repository.session)
 
     def get_dashboard_data(self, year: int, month: int, **filters) -> dict:
+        boe_arguments = {
+            "start_year": filters.get("boe_start_year"),
+            "end_year": filters.get("boe_end_year"),
+        }
+        if filters.get("boe_source_code") is not None:
+            boe_arguments["source_code"] = filters["boe_source_code"]
+        if filters.get("boe_entity_ids") is not None:
+            boe_arguments["entity_ids"] = filters["boe_entity_ids"]
+        if filters.get("boe_source_codes") is not None:
+            boe_arguments["source_codes"] = filters["boe_source_codes"]
         return {
             "financial": self.get_financial_dashboard(
                 year, month, filters.get("category"), filters.get("entry_type")
@@ -100,23 +128,38 @@ class DashboardService:
             "boe": self.get_boe_dashboard(
                 year, filters.get("boe_entity_id"),
                 filters.get("boe_start_month"), filters.get("boe_end_month"),
-                start_year=filters.get("boe_start_year"),
-                end_year=filters.get("boe_end_year"),
+                **boe_arguments,
             ),
-            "targets": self.get_targets_dashboard(
-                year, filters.get("target_entity_id"),
-                filters.get("indicator", "TODAS"),
-                filters.get("target_start_month"), filters.get("target_end_month"),
-                start_year=filters.get("target_start_year"),
-                end_year=filters.get("target_end_year"),
-                region=filters.get("region"),
-            ),
+            "targets": self._get_targets_dashboard_from_filters(year, filters),
         }
+
+    def _get_targets_dashboard_from_filters(self, year: int, filters: dict) -> dict:
+        arguments = {
+            "start_year": filters.get("target_start_year"),
+            "end_year": filters.get("target_end_year"),
+            "region": filters.get("region"),
+        }
+        if filters.get("target_entity_ids") is not None:
+            arguments["entity_ids"] = filters["target_entity_ids"]
+        return self.get_targets_dashboard(
+            year,
+            filters.get("target_entity_id"),
+            filters.get("indicator", "TODAS"),
+            filters.get("target_start_month"),
+            filters.get("target_end_month"),
+            **arguments,
+        )
 
     def get_dashboard_summary(self, year: int, month: int) -> DashboardSummary:
         financial = self.financial_flow.get_summary(year, month)
         boe_details = self.boe.get_period_details(year, month)
-        budget = self.budget.get_budget_vs_actual(year, month).summary
+        budget_result = self.budget.get_budget_vs_actual(year, month)
+        budget = budget_result.summary
+        has_budgeted_expense = any(
+            comparison.entry_type == "DESPESA"
+            and any(not detail.unmatched for detail in comparison.details)
+            for comparison in budget_result.comparisons
+        )
         queries = self.targets.get_target_vs_actual(
             year, month, TargetIndicator.QUERIES
         )
@@ -154,6 +197,7 @@ class DashboardService:
                 budget.actual_expense,
                 budget.budgeted_result,
                 budget.actual_result,
+                has_budgeted_expense,
             ),
             targets=TargetDashboardSummary(
                 self._indicator(queries),
@@ -180,6 +224,11 @@ class DashboardService:
     ) -> dict:
         category = category or None
         entry_type = entry_type or None
+        expense_categories = {item.value for item in EXPENSE_CATEGORIES}
+        expense_comparison_applicable = (
+            entry_type in (None, "DESPESA")
+            and (category is None or category in expense_categories)
+        )
         explicit_period = any(
             value is not None
             for value in (start_year, start_month, end_year, end_month)
@@ -226,6 +275,10 @@ class DashboardService:
             applications = investment.applications if investment else ZERO
             redemptions = investment.redemptions if investment else ZERO
             budget = aggregates["budget"][key]
+            expense_budget_exists = (
+                expense_comparison_applicable
+                and (*key, "DESPESA") in aggregates["budget_presence"]
+            )
 
             official_cash = official["cash"].get(key)
             official_investment = official["investments"].get(key)
@@ -259,6 +312,7 @@ class DashboardService:
                 "actual_revenue": direct + indirect,
                 "budgeted_expense": budget["DESPESA"],
                 "actual_expense": expense,
+                "expense_budget_exists": expense_budget_exists,
             })
 
         by_period = {
@@ -317,12 +371,32 @@ class DashboardService:
         budgeted_expense = sum(
             (aggregates["budget"][p]["DESPESA"] for p in metric_periods), ZERO
         )
+        expense_budget_exists = (
+            expense_comparison_applicable
+            and any(
+                (*period, "DESPESA") in aggregates["budget_presence"]
+                for period in metric_periods
+            )
+        )
         actual_revenue = direct_total + indirect_total
         actual_expense = expense_total
         actual_result = actual_revenue - actual_expense
         budgeted_result = budgeted_revenue - budgeted_expense
         variance = actual_result - budgeted_result
         variance_percentage = None if budgeted_result == 0 else variance / abs(budgeted_result) * Decimal("100")
+        expense_result = (
+            budgeted_expense - actual_expense
+            if expense_budget_exists else None
+        )
+        expense_variation_percentage = (
+            None
+            if not expense_budget_exists or budgeted_expense == 0
+            else (
+                (actual_expense - budgeted_expense)
+                / budgeted_expense
+                * Decimal("100")
+            )
+        )
 
         applied_balance = ZERO
         applied_periods = [
@@ -384,6 +458,10 @@ class DashboardService:
                 "result": actual_result,
                 "variance": variance,
                 "variance_percentage": variance_percentage,
+                "expense_comparison_applicable": expense_comparison_applicable,
+                "expense_budget_exists": expense_budget_exists,
+                "expense_result": expense_result,
+                "expense_variation_percentage": expense_variation_percentage,
             },
             "monthly": monthly,
             "revenue_distribution": dict(aggregates["distributions"]["revenue"]),
@@ -394,7 +472,16 @@ class DashboardService:
         self, year: int, entity_id: int | None = None,
         start_month: int | None = None, end_month: int | None = None,
         *, start_year: int | None = None, end_year: int | None = None,
+        source_code: int | None = None,
+        entity_ids: tuple[int, ...] | list[int] | None = None,
+        source_codes: tuple[int, ...] | list[int] | None = None,
     ) -> dict:
+        entity_ids, source_codes = self.boe.normalize_operational_entity_filters(
+            entity_id=entity_id,
+            source_code=source_code,
+            entity_ids=entity_ids,
+            source_codes=source_codes,
+        )
         start_year = year if start_year is None else start_year
         end_year = year if end_year is None else end_year
         start_month = 1 if start_month is None else start_month
@@ -403,12 +490,21 @@ class DashboardService:
             start_year, start_month, end_year, end_month
         )
         aggregates = self.analytics.boe_period(
-            start_year, start_month, end_year, end_month, entity_id
+            start_year,
+            start_month,
+            end_year,
+            end_month,
+            entity_id,
+            source_code,
+            entity_ids,
+            source_codes,
         )
         rows = aggregates["rows"]
         queries = sum((row.queries for row in rows), 0)
         total = sum((row.value for row in rows), ZERO)
-        entity_totals: dict[tuple[int, int, str], dict[str, object]] = {}
+        entity_totals: dict[
+            tuple[int | None, int, str], dict[str, object]
+        ] = {}
         for row in rows:
             key = (row.id, row.codigo_entidade, row.nome)
             item = entity_totals.setdefault(
@@ -438,8 +534,7 @@ class DashboardService:
             "unit_value": None if queries == 0 else total / queries,
             "queries": queries, "total_value": total,
             "entity_count": len(entity_totals),
-            "filters": {"entities": [{"id": item[0], "code": item[1], "name": item[2]}
-                                      for item in aggregates["entities"]]},
+            "filters": {"entities": self.get_boe_entity_options()},
             "monthly": monthly,
             "entities": [{
                 "id": key[0], "code": key[1], "name": key[2],
@@ -453,19 +548,66 @@ class DashboardService:
     def get_available_years(self) -> dict[str, list[int]]:
         return self.analytics.available_years()
 
+    def get_dashboard_entity_options(
+        self, areas: set[str] | None = None, region: str | None = None
+    ) -> dict[str, list[dict]]:
+        requested = set(areas or {"boe", "targets"})
+        result = {}
+        if "boe" in requested:
+            result["boe"] = self.get_boe_entity_options()
+        if "targets" in requested:
+            result["targets"] = self.get_target_entity_options(region)
+        return result
+
+    def get_boe_entity_options(self) -> list[dict]:
+        return [
+            {
+                "id": option.entity_id,
+                "source_code": option.source_code,
+                "code": option.code,
+                "name": option.name,
+            }
+            for option in self.boe.list_operational_entities()
+        ]
+
+    def get_target_entity_options(
+        self, region: str | None = None
+    ) -> list[dict]:
+        region = self._validated_region(region)
+        return [
+            {
+                "id": row.id,
+                "code": row.codigo_entidade,
+                "name": row.nome,
+            }
+            for row in self.analytics.target_entity_options(region)
+        ]
+
     def get_targets_dashboard(
         self, year: int, entity_id: int | None = None,
         indicator: str = "TODAS",
         start_month: int | None = None, end_month: int | None = None,
         *, start_year: int | None = None, end_year: int | None = None,
         region: str | None = None,
+        entity_ids: tuple[int, ...] | list[int] | None = None,
     ) -> dict:
         selected = indicator.upper()
         if selected not in {"CONSULTAS", "REGISTROS", "TODAS"}:
             raise ValueError("Indicador inválido.")
-        region = region.upper() if region else None
-        if region not in {None, "NORTE", "NOROESTE", "CENTRO", "LESTE", "SUL"}:
-            raise ValueError("Região inválida.")
+        region = self._validated_region(region)
+        if entity_id is not None and entity_ids is not None:
+            raise ValueError(
+                "Parâmetros individual e múltiplo de Entidade são incompatíveis."
+            )
+        normalized_entity_ids = None
+        if entity_ids is not None:
+            normalized_entity_ids = tuple(sorted(set(entity_ids)))
+            if not normalized_entity_ids:
+                raise ValueError(
+                    "A seleção múltipla deve conter ao menos uma Entidade."
+                )
+            if any(value <= 0 for value in normalized_entity_ids):
+                raise ValueError("Identificador de Entidade inválido.")
         start_year = year if start_year is None else start_year
         end_year = year if end_year is None else end_year
         start_month = 1 if start_month is None else start_month
@@ -474,7 +616,13 @@ class DashboardService:
             start_year, start_month, end_year, end_month
         )
         aggregates = self.analytics.targets_period(
-            start_year, start_month, end_year, end_month, entity_id, region
+            start_year,
+            start_month,
+            end_year,
+            end_month,
+            entity_id,
+            region,
+            normalized_entity_ids,
         )
         by_key = {
             (row.periodo_ano, row.periodo_mes, row.indicador): row
@@ -562,6 +710,12 @@ class DashboardService:
             ranking = [row for row in ranking if row.entity_id in allowed_ids]
         if entity_id is not None:
             ranking = [row for row in ranking if row.entity_id == entity_id]
+        if normalized_entity_ids is not None:
+            allowed_selected_ids = set(normalized_entity_ids)
+            ranking = [
+                row for row in ranking
+                if row.entity_id in allowed_selected_ids
+            ]
         data_available_through = self._data_available_through(
             periods,
             available_periods,
@@ -595,6 +749,15 @@ class DashboardService:
                                          if by_key.get((selected_year, selected_month, "REGISTROS")) else ZERO),
             } for selected_year, selected_month in periods],
         }
+
+    @staticmethod
+    def _validated_region(region: str | None) -> str | None:
+        normalized = region.upper() if region else None
+        if normalized not in {
+            None, "NORTE", "NOROESTE", "CENTRO", "LESTE", "SUL"
+        }:
+            raise ValueError("Região inválida.")
+        return normalized
 
     @staticmethod
     def _dashboard_months(

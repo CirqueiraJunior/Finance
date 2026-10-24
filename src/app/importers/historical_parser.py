@@ -552,6 +552,16 @@ class HistoricalWorkbookParser:
 
             if all(cell(column) is None for column in required):
                 continue
+
+            # Ignore footer/summary rows without any period.
+            # Partially informed periods remain validation errors.
+            # Skip undated footer or formula-only rows. A budget
+            # amount without a period remains a blocking error.
+            if cell("ANO") is None and cell("MES") is None:
+                raw_value = cell("VALOR ORCADO")
+                if raw_value is None:
+                    continue
+
             try:
                 year_value = cell("ANO")
                 year = int(year_value)

@@ -5,6 +5,7 @@ from threading import Event
 import pytest
 from PySide6.QtCharts import QChartView
 from PySide6.QtCore import QTimer, Qt
+from PySide6.QtWidgets import QLabel
 
 from app.gui.controllers.dashboard_controller import DashboardController
 from app.gui.pages.dashboard import DashboardChartView, DashboardPage
@@ -47,8 +48,28 @@ def test_dashboard_page_has_area_filters_complete_cards_and_charts(qtbot):
     qtbot.addWidget(page)
 
     assert page.selected_period()[1] in range(1, 13)
-    assert len(page.financial_cards) == 10
-    assert page.budget_table.rowCount() == 3
+    assert tuple(page.financial_cards) == (
+        "opening_balance", "direct_revenue", "indirect_revenue", "total_revenue",
+        "total_expense", "period_balance", "applications", "redemptions",
+        "net_revenue", "boe_value", "bank_balance", "applied_balance",
+    )
+    assert len(page.financial_cards) == 12
+    titles = [
+        next(
+            child.text()
+            for child in value.parentWidget().findChildren(QLabel)
+            if child.objectName() == "summaryLabel"
+        )
+        for value in page.financial_cards.values()
+    ]
+    assert titles == [
+        "Saldo Inicial", "Receita Direta", "Receita Indireta", "Receita Total",
+        "Despesa Total", "Saldo do Período", "Aplicações", "Resgates",
+        "Receita Líquida", "Valor BOE", "Saldo Bancário", "Saldo Aplicado",
+    ]
+    assert tuple(page.budget_cards) == (
+        "budgeted", "actual", "result", "variation"
+    )
     assert len(page.findChildren(QChartView)) == 14
     assert [page.tabs.tabText(index) for index in range(page.tabs.count())] == [
         "Financeiro", "BOE", "Meta x Realizado"
@@ -334,9 +355,14 @@ def test_dashboard_page_displays_complete_summary(qtbot):
     page.show_summary(summary())
 
     assert page.financial_cards["total_revenue"].text() == "R$ 22.067,27"
+    assert page.financial_cards["period_balance"].text() == "R$ 21.567,27"
+    assert page.financial_cards["boe_value"].text() == "R$ 21.967,27"
     assert page.boe_entities.text() == "77"
     assert page.boe_queries.text() == "316.988"
-    assert page.budget_table.item(0, 1).text() == "R$ 20.200,00"
+    assert page.budget_cards["budgeted"].text() == "R$ 2.000,00"
+    assert page.budget_cards["actual"].text() == "R$ 500,00"
+    assert page.budget_cards["result"].text() == "R$ 1.500,00"
+    assert page.budget_cards["variation"].text() == "-75,00%"
     assert page.query_achievement.text() == "90,68%"
     assert page.registration_achievement.text() == "104,20%"
     assert not page.boe_state.isVisible()
@@ -432,7 +458,46 @@ def test_controller_updates_all_blocks_when_filter_changes(qtbot):
 
     assert service.calls[-1] == (2026, 8)
     assert page.financial_cards["total_revenue"].text() == "R$ 100,00"
+    assert page.financial_cards["period_balance"].text() == "R$ 21.567,27"
+    assert page.financial_cards["boe_value"].text() == "R$ 21.967,27"
     assert "08/2026" in page.status.text()
+
+
+def test_dashboard_financial_kpis_follow_standardized_layout_from_payload(qtbot):
+    page = DashboardPage()
+    qtbot.addWidget(page)
+    page.show_dashboard_data({
+        "financial": {
+            "kpis": {
+                "opening_balance": Decimal("1000.00"),
+                "direct_revenue": Decimal("2000.00"),
+                "indirect_revenue": Decimal("345.56"),
+                "total_revenue": Decimal("2345.56"),
+                "net_revenue": Decimal("1500.00"),
+                "total_expense": Decimal("1111.00"),
+                "applications": Decimal("10.00"),
+                "redemptions": Decimal("20.00"),
+                "bank_balance": Decimal("3000.00"),
+                "applied_balance": Decimal("4000.00"),
+            },
+            "budget": {
+                "budgeted_revenue": Decimal("0"),
+                "actual_revenue": Decimal("0"),
+                "budgeted_expense": Decimal("0"),
+                "actual_expense": Decimal("0"),
+                "result": Decimal("0"),
+                "variance": Decimal("0"),
+            },
+            "monthly": [],
+        }
+    })
+
+    assert page.financial_cards["total_revenue"].text() == "R$ 2.345,56"
+    assert page.financial_cards["period_balance"].text() == "R$ 1.234,56"
+    assert page.financial_cards["boe_value"].text() == "R$ 500,00"
+    assert page.financial_cards["opening_balance"].parentWidget().property("cardRole") == "balance"
+    assert page.financial_cards["total_expense"].parentWidget().property("cardRole") == "expense"
+    assert page.financial_cards["boe_value"].parentWidget().property("cardRole") == "movement"
 
 
 def test_dashboard_month_selector_and_distribution_percentages(qtbot):

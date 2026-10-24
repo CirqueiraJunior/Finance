@@ -1,12 +1,15 @@
+from PySide6.QtWidgets import QPlainTextEdit
+from app.gui.import_workflow_steps import ImportWorkflowSteps
+from app.gui.import_workflow_panel import ImportWorkflowPanel
 from app.widgets.wheel_guard import WheelBlockedComboBox, WheelBlockedSpinBox, WheelBlockedTabWidget
 from datetime import date
 from decimal import Decimal
 
-from PySide6.QtCore import Qt, QEvent
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel,
+    QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel,
     QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget, QTabWidget, QListView,
+    QTableWidgetItem, QVBoxLayout, QWidget, QTabWidget,
 )
 
 from app.models.entity import Entity
@@ -17,65 +20,11 @@ from app.gui.formatters import (
 from app.services.target_service import TargetVsActual
 from app.services.ranking_service import AnnualRankingEntry, RankingEntry
 from app.widgets import BrazilianDecimalEdit, MonthComboBox
+from app.widgets.entity_multi_select import EntityMultiSelectCombo
 from app.widgets.year_combo import populate_year_combo
 
 
-class EntityMultiSelectCombo(WheelBlockedComboBox):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setView(QListView())
-        self.view().viewport().installEventFilter(self)
-        self.addItem("Todas as Entidades", None)
-        self._check(0, True)
-
-    def _check(self, row, checked):
-        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-        self.setItemData(row, state, Qt.ItemDataRole.CheckStateRole)
-
-    def eventFilter(self, watched, event):
-        if watched is self.view().viewport() and event.type() == QEvent.Type.MouseButtonRelease:
-            index = self.view().indexAt(event.position().toPoint())
-            if index.isValid():
-                self.toggle_index(index.row())
-                return True
-        return super().eventFilter(watched, event)
-
-    def toggle_index(self, row):
-        if row == 0:
-            checked = self.itemData(0, Qt.ItemDataRole.CheckStateRole) != Qt.CheckState.Checked
-            for i in range(self.count()): self._check(i, checked)
-        else:
-            checked = self.itemData(row, Qt.ItemDataRole.CheckStateRole) != Qt.CheckState.Checked
-            self._check(row, checked)
-            self._check(0, all(self.itemData(i, Qt.ItemDataRole.CheckStateRole) == Qt.CheckState.Checked for i in range(1, self.count())))
-        self.setToolTip(self.selection_text())
-
-    def set_entities(self, entities, selected_ids=None):
-        selected = set(selected_ids or ())
-        all_selected = not selected
-        self.clear()
-        self.addItem("Todas as Entidades", None)
-        for entity in entities:
-            name = entity.nome_oficial or entity.nome
-            self.addItem(f"{entity.codigo_entidade} — {name}", entity.id)
-        for i in range(self.count()):
-            self._check(i, all_selected or (i > 0 and self.itemData(i) in selected))
-        self.setToolTip(self.selection_text())
-
-    def selected_ids(self):
-        if self.count() <= 1: return None
-        ids = tuple(int(self.itemData(i)) for i in range(1, self.count()) if self.itemData(i, Qt.ItemDataRole.CheckStateRole) == Qt.CheckState.Checked)
-        return None if len(ids) == self.count() - 1 else ids
-
-    def selection_text(self):
-        ids = self.selected_ids()
-        if ids is None: return "Todas as Entidades"
-        if not ids: return "Nenhuma Entidade"
-        if len(ids) == 1:
-            row = next((i for i in range(1, self.count()) if self.itemData(i) == ids[0]), 0)
-            return self.itemText(row)
-        return f"{len(ids)} Entidades selecionadas"
-
+from PySide6.QtWidgets import QScrollArea
 
 class TargetImportProgressDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -187,7 +136,9 @@ class MetasPage(QWidget):
         )
         description.setObjectName("pageDescription")
 
-        filters = QHBoxLayout()
+        filter_panel = QWidget()
+        filter_panel.setObjectName("dashboardFilterBar")
+        filters = QHBoxLayout(filter_panel)
         self.year_filter = WheelBlockedComboBox()
         self.year_filter.setEnabled(False)
         self.month_filter = MonthComboBox()
@@ -205,11 +156,6 @@ class MetasPage(QWidget):
         self.new_button.setObjectName("primaryButton")
         self.edit_button = QPushButton("Editar Meta")
         self.edit_button.setProperty("buttonRole", "secondary")
-        self.import_file_button = QPushButton("Selecionar arquivo")
-        self.import_file_button.setProperty("buttonRole", "secondary")
-        self.validate_import_button = QPushButton("Validar")
-        self.validate_import_button.setProperty("buttonRole", "info")
-        self.validate_import_button.setEnabled(False)
         filters.addWidget(QLabel("Ano"))
         filters.addWidget(self.year_filter)
         filters.addWidget(QLabel("Mês"))
@@ -238,19 +184,52 @@ class MetasPage(QWidget):
         self.import_preview.setMaximumHeight(112)
         self.import_issues = QLabel()
         self.import_issues.setWordWrap(True)
-        self.confirm_import_button = QPushButton("Importar")
-        self.confirm_import_button.setProperty("buttonRole", "primary")
-        self.confirm_import_button.setObjectName("primaryButton")
-        self.confirm_import_button.setEnabled(False)
-        import_actions = QHBoxLayout()
-        import_actions.addWidget(self.import_file_button)
-        import_actions.addWidget(self.validate_import_button)
-        import_actions.addWidget(self.confirm_import_button)
-        import_actions.addStretch()
-        import_layout.addLayout(import_actions)
-        import_layout.addWidget(self.import_summary)
-        import_layout.addWidget(self.import_preview)
-        import_layout.addWidget(self.import_issues)
+        # Legacy action widgets remain internal until the controller/RBAC cleanup.
+        # Shared visual workflow; existing module actions are unchanged.
+        self.import_steps = ImportWorkflowSteps(steps=(
+            "Selecionar", "Validar",
+            "Comparar e autorizar", "Importar",
+        ))
+
+        validation_column = QVBoxLayout()
+        validation_title = QLabel("Resultado da valida\u00e7\u00e3o")
+        validation_title.setObjectName("sectionTitle")
+        validation_column.addWidget(validation_title)
+
+        self.import_issues.setMinimumHeight(150)
+        self.import_issues.setStyleSheet(
+            "background-color: white;"
+            "border: 1px solid #CAD6E3;"
+            "border-radius: 7px;"
+            "padding: 10px;"
+        )
+        validation_column.addWidget(self.import_issues)
+
+        result_column = QVBoxLayout()
+        result_title = QLabel("Resultado da importa\u00e7\u00e3o")
+        result_title.setObjectName("sectionTitle")
+        result_column.addWidget(result_title)
+
+        self.import_result = QPlainTextEdit()
+        self.import_result.setReadOnly(True)
+        self.import_result.setFixedHeight(150)
+        self.import_result.setPlaceholderText(
+            "Nenhuma importa\u00e7\u00e3o executada nesta sess\u00e3o."
+        )
+        result_column.addWidget(self.import_result)
+
+        results = QHBoxLayout()
+        results.setSpacing(12)
+        results.addLayout(validation_column, 1)
+        results.addLayout(result_column, 1)
+
+        self.import_panel = ImportWorkflowPanel(
+            steps=self.import_steps,
+            file_display=self.import_summary,
+            results_layout=results,
+            preview=self.import_preview,
+        )
+        import_layout.addWidget(self.import_panel)
 
         cards = QHBoxLayout()
         self.entity_count = self._card("Entidades", cards, "0")
@@ -276,13 +255,22 @@ class MetasPage(QWidget):
         self.status.setObjectName("operationStatus")
         layout.addWidget(title)
         layout.addWidget(description)
-        layout.addLayout(filters)
-        layout.addWidget(import_area)
+        layout.addWidget(filter_panel)
         layout.addLayout(cards)
         layout.addWidget(self.empty_state)
         layout.addWidget(self.table, 1)
         layout.addWidget(self.status)
-        self.tabs.addTab(operational, "Meta x Realizado")
+        layout.addWidget(import_area)
+        # Scroll only the Meta x Realizado operational tab.
+        self.operational_scroll_area = QScrollArea()
+        self.operational_scroll_area.setObjectName('metasScrollArea')
+        self.operational_scroll_area.setWidgetResizable(True)
+        self.operational_scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.operational_scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.operational_scroll_area.setWidget(operational)
+        self.tabs.addTab(self.operational_scroll_area, "Meta x Realizado")
         self.ranking_tab = QWidget()
         ranking_layout = QVBoxLayout(self.ranking_tab)
         ranking_filters = QHBoxLayout()
@@ -294,8 +282,7 @@ class MetasPage(QWidget):
         self.ranking_refresh = QPushButton("Atualizar ranking")
         self.ranking_refresh.setEnabled(False)
         self.ranking_refresh.setProperty("buttonRole", "info")
-        self.ranking_entity = WheelBlockedComboBox()
-        self.ranking_entity.addItem("Todas as Entidades", None)
+        self.ranking_entity = EntityMultiSelectCombo()
         ranking_filters.addWidget(QLabel("Ano"))
         ranking_filters.addWidget(self.ranking_year)
         ranking_filters.addWidget(QLabel("Trimestre"))
@@ -336,13 +323,18 @@ class MetasPage(QWidget):
         outer.addWidget(self.tabs)
 
     def set_import_available(self, available: bool) -> None:
-        self.import_file_button.setEnabled(available)
-        self.validate_import_button.setEnabled(False)
-        self.confirm_import_button.setEnabled(False)
+        self._import_available = bool(available)
+        permitted = getattr(self, "_import_write_allowed", True)
+        self.import_steps.set_stage_enabled(
+            1, self._import_available and permitted
+        )
         if not available:
+            for stage in (2, 3, 4):
+                self.import_steps.set_stage_enabled(stage, False)
             self.import_summary.setText(
                 "Importação central disponível somente no modo servidor."
             )
+
 
     def show_import_validation(self, value: dict) -> None:
         metadata = value.get("metadata", {})
@@ -371,7 +363,6 @@ class MetasPage(QWidget):
         messages = [f"ERRO: {item}" for item in value.get("errors", [])]
         messages.extend(f"AVISO: {item}" for item in value.get("warnings", []))
         self.import_issues.setText("\n".join(messages) or "Nenhuma inconsistência.")
-        self.confirm_import_button.setEnabled(bool(value.get("can_import")))
         self.import_preview.resizeColumnsToContents()
         self.set_status(
             "Arquivo validado e pronto para importação."
@@ -381,13 +372,18 @@ class MetasPage(QWidget):
         )
 
     def show_import_result(self, value: dict) -> None:
+        self.import_result.setPlainText(
+            f"Registros importados: {value.get('imported', 0)}\n"
+            f"Ano: {value.get('year') or '-'}\n"
+            f"Meta: {format_currency(value.get('target_total', 0))}\n"
+            f"Realizado: {format_currency(value.get('actual_total', 0))}"
+        )
         self.import_summary.setText(
             f"Importação concluída: {value.get('imported', 0)} registros | "
             f"Ano: {value.get('year') or '—'} | "
             f"Meta: {format_currency(value.get('target_total', 0))} | "
             f"Realizado: {format_currency(value.get('actual_total', 0))}"
         )
-        self.confirm_import_button.setEnabled(False)
         self.set_status("Metas importadas com sucesso.")
 
     @staticmethod
@@ -461,15 +457,21 @@ class MetasPage(QWidget):
         self.status.style().polish(self.status)
 
     def show_ranking(self, rows: list[RankingEntry], annual: list[AnnualRankingEntry]) -> None:
-        selected = self.ranking_entity.currentData()
-        self.ranking_entity.blockSignals(True)
-        self.ranking_entity.clear()
-        self.ranking_entity.addItem("Todas as Entidades", None)
-        for row in rows:
-            self.ranking_entity.addItem(f"{row.entity_code} — {row.entity_name}", row.entity_id)
-        self.ranking_entity.setCurrentIndex(max(0, self.ranking_entity.findData(selected)))
-        self.ranking_entity.blockSignals(False)
-        visible = [row for row in rows if selected is None or row.entity_id == selected]
+        selected = self.ranking_entity.selected_ids()
+        self.ranking_entity.set_options(
+            (
+                (f"{row.entity_code} — {row.entity_name}", int(row.entity_id))
+                for row in rows
+            ),
+            selected,
+        )
+        selected_ids = self.ranking_entity.selected_ids()
+        selected_set = None if selected_ids is None else set(selected_ids)
+        visible = [
+            row
+            for row in rows
+            if selected_set is None or row.entity_id in selected_set
+        ]
         self.ranking_table.setRowCount(len(visible))
         for row_index, row in enumerate(visible):
             situation = "Classificada" if row.classified else "Desclassificada"
@@ -518,7 +520,12 @@ class MetasPage(QWidget):
                       row.classified_quarters, row.award_count, self.currency(row.award_total)]
             for column, value in enumerate(values):
                 self.annual_table.setItem(index, column, QTableWidgetItem(str(value)))
-        detail = next((row for row in rows if row.entity_id == selected), None)
+        detail_id = (
+            selected_ids[0]
+            if selected_ids is not None and len(selected_ids) == 1
+            else None
+        )
+        detail = next((row for row in rows if row.entity_id == detail_id), None)
         if detail is None:
             detail_text = "Selecione uma Entidade para consultar sua visão detalhada."
         elif detail.strategy_year == 2025:

@@ -33,6 +33,7 @@ from app.gui.formatters import (
 from app.services.dashboard_service import DashboardSummary
 from app.widgets import MonthComboBox
 from app.widgets.buttons import PrimaryButton
+from app.widgets.entity_multi_select import EntityMultiSelectCombo
 
 
 class DashboardChartView(QChartView):
@@ -167,19 +168,13 @@ class DashboardPage(QWidget):
         )
         description.setObjectName("pageDescription")
         self.financial_start_year = WheelBlockedComboBox()
-        self.financial_start_year.setFixedWidth(88)
         self.financial_start_month = MonthComboBox()
         self.financial_start_month.setObjectName("dashboardFinancialStartMonthFilter")
-        self.financial_start_month.setMinimumWidth(120)
-        self.financial_start_month.setMaximumWidth(150)
         self.financial_start_month.set_month(date.today().month)
 
         self.financial_end_year = WheelBlockedComboBox()
-        self.financial_end_year.setFixedWidth(88)
         self.financial_end_month = MonthComboBox()
         self.financial_end_month.setObjectName("dashboardMonthFilter")
-        self.financial_end_month.setMinimumWidth(120)
-        self.financial_end_month.setMaximumWidth(150)
         self.financial_end_month.set_month(date.today().month)
 
         # Compatibilidade com o contrato anterior da página/controlador/testes.
@@ -212,14 +207,16 @@ class DashboardPage(QWidget):
         layout.addWidget(self.tabs)
 
         finance_filters = QHBoxLayout()
+        finance_filters.setContentsMargins(2, 4, 2, 4)
+        finance_filters.setSpacing(5)
         finance_filters.addWidget(QLabel("De"))
         finance_filters.addWidget(self.financial_start_year)
         finance_filters.addWidget(self.financial_start_month)
-        finance_filters.addSpacing(8)
+        finance_filters.addSpacing(2)
         finance_filters.addWidget(QLabel("Até"))
         finance_filters.addWidget(self.financial_end_year)
         finance_filters.addWidget(self.financial_end_month)
-        finance_filters.addSpacing(18)
+        finance_filters.addSpacing(8)
         self.finance_category_filter = WheelBlockedComboBox()
         self.finance_category_filter.addItem("Todas as categorias", None)
         for value in ("RECEITA_DIRETA", "RECEITA_INDIRETA", "ADMINISTRATIVO",
@@ -238,7 +235,32 @@ class DashboardPage(QWidget):
         finance_filters.addWidget(self.refresh_button)
         finance_filter_panel = QWidget()
         finance_filter_panel.setObjectName("dashboardFilterBar")
+        finance_filter_panel.setProperty("dashboardArea", "financial")
         finance_filter_panel.setLayout(finance_filters)
+        self.financial_filter_panel = finance_filter_panel
+
+        # Mede com o estilo final já herdado da faixa. Assim cada combo reserva
+        # o texto completo e o espaço da seta, independentemente do mês atual.
+        for widget in (
+            self.financial_start_year,
+            self.financial_start_month,
+            self.financial_end_year,
+            self.financial_end_month,
+        ):
+            widget.ensurePolished()
+        year_width = (
+            self.financial_start_year.fontMetrics().horizontalAdvance("0000") + 45
+        )
+        month_width = max(
+            self.financial_start_month.fontMetrics().horizontalAdvance(
+                self.financial_start_month.itemText(index)
+            )
+            for index in range(self.financial_start_month.count())
+        ) + 45
+        for widget in (self.financial_start_year, self.financial_end_year):
+            widget.setFixedWidth(year_width)
+        for widget in (self.financial_start_month, self.financial_end_month):
+            widget.setFixedWidth(month_width)
         tab_layouts["financial"].addWidget(finance_filter_panel)
         self.financial_data_availability = QLabel()
         self.financial_data_availability.setObjectName("pageDescription")
@@ -252,10 +274,12 @@ class DashboardPage(QWidget):
             ("direct_revenue", "Receita Direta"),
             ("indirect_revenue", "Receita Indireta"),
             ("total_revenue", "Receita Total"),
-            ("net_revenue", "Receita Líquida"),
             ("total_expense", "Despesa Total"),
+            ("period_balance", "Saldo do Período"),
             ("applications", "Aplicações"),
             ("redemptions", "Resgates"),
+            ("net_revenue", "Receita Líquida"),
+            ("boe_value", "Valor BOE"),
             ("bank_balance", "Saldo Bancário"),
             ("applied_balance", "Saldo Aplicado"),
         )
@@ -264,10 +288,12 @@ class DashboardPage(QWidget):
             "direct_revenue": "revenue",
             "indirect_revenue": "revenue",
             "total_revenue": "revenue",
-            "net_revenue": "revenue",
             "total_expense": "expense",
+            "period_balance": "balance",
             "applications": "movement",
             "redemptions": "movement",
+            "net_revenue": "revenue",
+            "boe_value": "movement",
             "bank_balance": "balance",
             "applied_balance": "balance",
         }
@@ -281,19 +307,20 @@ class DashboardPage(QWidget):
         boe_period_row = QHBoxLayout()
         boe_entity_row = QHBoxLayout()
         self.boe_start_year = WheelBlockedComboBox()
-        self.boe_start_year.setFixedWidth(88)
+        self.boe_start_year.setFixedWidth(116)
         self.boe_start_month = MonthComboBox()
         self.boe_start_month.setMinimumWidth(120)
         self.boe_start_month.setMaximumWidth(150)
         self.boe_start_month.set_month(1)
         self.boe_end_year = WheelBlockedComboBox()
-        self.boe_end_year.setFixedWidth(88)
+        self.boe_end_year.setFixedWidth(116)
         self.boe_end_month = MonthComboBox()
         self.boe_end_month.setMinimumWidth(120)
         self.boe_end_month.setMaximumWidth(150)
         self.boe_end_month.set_month(date.today().month)
-        self.boe_entity_filter = WheelBlockedComboBox()
-        self.boe_entity_filter.addItem("Todas as entidades", None)
+        self.boe_entity_filter = EntityMultiSelectCombo(
+            all_label="Todas as entidades"
+        )
         boe_period_row.addWidget(QLabel("Período inicial"))
         boe_period_row.addWidget(self.boe_start_year)
         boe_period_row.addWidget(self.boe_start_month)
@@ -337,28 +364,35 @@ class DashboardPage(QWidget):
         tab_layouts["boe"].addWidget(self.boe_table)
 
         tab_layouts["financial"].addWidget(self._section("Orçado x Realizado"))
-        self.budget_table = QTableWidget(3, 3)
-        self.budget_table.setObjectName("dashboardBudgetTable")
-        self.budget_table.setHorizontalHeaderLabels(["Grupo", "Orçado", "Realizado"])
-        self.budget_table.verticalHeader().setVisible(False)
-        self.budget_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.budget_table.setMinimumHeight(155)
-        self.budget_table.setMaximumHeight(190)
-        self.budget_table.verticalHeader().setDefaultSectionSize(34)
-        self.budget_table.horizontalHeader().setStretchLastSection(True)
-        tab_layouts["financial"].addWidget(self.budget_table)
+        budget_cards = QHBoxLayout()
+        budget_cards.setSpacing(8)
+        self.budget_cards = {
+            "budgeted": self._add_card(
+                budget_cards, "Orçado", role="expense"
+            ),
+            "actual": self._add_card(
+                budget_cards, "Realizado", role="expense"
+            ),
+            "result": self._add_card(
+                budget_cards, "Resultado", role="balance"
+            ),
+            "variation": self._add_card(
+                budget_cards, "Variação (%)", "N/A", role="performance"
+            ),
+        }
+        tab_layouts["financial"].addLayout(budget_cards)
 
         target_filters = QVBoxLayout()
         target_period_row = QHBoxLayout()
         target_secondary_row = QHBoxLayout()
         self.target_start_year = WheelBlockedComboBox()
-        self.target_start_year.setFixedWidth(88)
+        self.target_start_year.setFixedWidth(116)
         self.target_start_month = MonthComboBox()
         self.target_start_month.setMinimumWidth(120)
         self.target_start_month.setMaximumWidth(150)
         self.target_start_month.set_month(1)
         self.target_end_year = WheelBlockedComboBox()
-        self.target_end_year.setFixedWidth(88)
+        self.target_end_year.setFixedWidth(116)
         self.target_end_month = MonthComboBox()
         self.target_end_month.setMinimumWidth(120)
         self.target_end_month.setMaximumWidth(150)
@@ -367,8 +401,9 @@ class DashboardPage(QWidget):
         self.target_region_filter.addItem("Todas", None)
         for region in ("NORTE", "NOROESTE", "CENTRO", "LESTE", "SUL"):
             self.target_region_filter.addItem(region.title(), region)
-        self.target_entity_filter = WheelBlockedComboBox()
-        self.target_entity_filter.addItem("Todas as entidades", None)
+        self.target_entity_filter = EntityMultiSelectCombo(
+            all_label="Todas as entidades"
+        )
         self.target_indicator_filter = WheelBlockedComboBox()
         for label, value in (("Todas", "TODAS"), ("Consultas", "CONSULTAS"),
                              ("Registros", "REGISTROS")):
@@ -489,7 +524,59 @@ class DashboardPage(QWidget):
                 self.target_region_filter, self.target_entity_filter,
                 self.target_indicator_filter)
 
-    def selected_dashboard_filters(self) -> dict:
+    def selected_dashboard_filters(self, areas: set[str] | None = None) -> dict:
+        boe_selection = self.boe_entity_filter.selected_values()
+        if boe_selection == () and (areas is None or "boe" in areas):
+            raise ValueError("Selecione ao menos uma Entidade BOE.")
+        boe_entity_id = None
+        boe_source_code = None
+        boe_entity_ids = None
+        boe_source_codes = None
+        if boe_selection is not None:
+            if any(
+                kind not in {"master_entity", "boe_source"}
+                for kind, _value in boe_selection
+            ):
+                raise ValueError("Filtro de Entidade BOE inválido.")
+            entity_ids = tuple(
+                int(value)
+                for kind, value in boe_selection
+                if kind == "master_entity"
+            )
+            source_codes = tuple(
+                int(value)
+                for kind, value in boe_selection
+                if kind == "boe_source"
+            )
+            if len(boe_selection) == 1 and entity_ids:
+                boe_entity_id = entity_ids[0]
+            elif len(boe_selection) == 1 and source_codes:
+                boe_source_code = source_codes[0]
+            else:
+                boe_entity_ids = entity_ids or None
+                boe_source_codes = source_codes or None
+
+        target_selection = self.target_entity_filter.selected_values()
+        if target_selection == () and (areas is None or "targets" in areas):
+            raise ValueError("Selecione ao menos uma Entidade de Metas.")
+        if target_selection is not None and any(
+            kind != "master_entity" for kind, _value in target_selection
+        ):
+            raise ValueError("Filtro de Entidade de Metas inválido.")
+        target_ids = (
+            None
+            if target_selection is None
+            else tuple(int(value) for kind, value in target_selection
+                       if kind == "master_entity")
+        )
+        target_entity_id = (
+            target_ids[0] if target_ids is not None and len(target_ids) == 1
+            else None
+        )
+        target_entity_ids = (
+            target_ids if target_ids is not None and len(target_ids) > 1
+            else None
+        )
         return {
             "category": self.finance_category_filter.currentData(),
             "entry_type": self.finance_type_filter.currentData(),
@@ -497,12 +584,16 @@ class DashboardPage(QWidget):
             "financial_start_month": self.financial_start_month.month(),
             "financial_end_year": self.financial_end_year.currentData(),
             "financial_end_month": self.financial_end_month.month(),
-            "boe_entity_id": self.boe_entity_filter.currentData(),
+            "boe_entity_id": boe_entity_id,
+            "boe_source_code": boe_source_code,
+            "boe_entity_ids": boe_entity_ids,
+            "boe_source_codes": boe_source_codes,
             "boe_start_year": self.boe_start_year.currentData(),
             "boe_start_month": self.boe_start_month.month(),
             "boe_end_year": self.boe_end_year.currentData(),
             "boe_end_month": self.boe_end_month.month(),
-            "target_entity_id": self.target_entity_filter.currentData(),
+            "target_entity_id": target_entity_id,
+            "target_entity_ids": target_entity_ids,
             "target_start_year": self.target_start_year.currentData(),
             "target_start_month": self.target_start_month.month(),
             "target_end_year": self.target_end_year.currentData(),
@@ -510,6 +601,32 @@ class DashboardPage(QWidget):
             "region": self.target_region_filter.currentData(),
             "indicator": self.target_indicator_filter.currentData() or "TODAS",
         }
+
+    def set_dashboard_entity_options(self, options: dict) -> None:
+        if "boe" in options:
+            self.boe_entity_filter.set_options(
+                (
+                    (
+                        f"{entity.get('code')} — {entity['name']}",
+                        (
+                            ("boe_source", int(entity["source_code"]))
+                            if entity.get("source_code") is not None
+                            else ("master_entity", int(entity["id"]))
+                        ),
+                    )
+                    for entity in options["boe"]
+                )
+            )
+        if "targets" in options:
+            self.target_entity_filter.set_options(
+                (
+                    (
+                        f"{entity.get('code')} — {entity['name']}",
+                        ("master_entity", int(entity["id"])),
+                    )
+                    for entity in options["targets"]
+                )
+            )
 
     def set_available_years(
         self,
@@ -606,16 +723,9 @@ class DashboardPage(QWidget):
             data.get("data_available_through"),
         )
         for key, label in self.financial_cards.items():
-            label.setText(self.currency(data["kpis"].get(key)))
+            label.setText(self.currency(self._financial_indicator_value(key, data["kpis"])))
         budget = data["budget"]
-        rows = (("Receitas", budget["budgeted_revenue"], budget["actual_revenue"]),
-                ("Despesas", budget["budgeted_expense"], budget["actual_expense"]),
-                ("Resultado", self.decimal(budget["result"]) -
-                 self.decimal(budget["variance"]), budget["result"]))
-        for index, row in enumerate(rows):
-            for column, value in enumerate((row[0], self.currency(row[1]),
-                                            self.currency(row[2]))):
-                self.budget_table.setItem(index, column, QTableWidgetItem(value))
+        self._show_budget_comparison(budget)
         monthly = data.get("monthly", [])
         categories = [self.month_label(row["month"]) for row in monthly]
         yield
@@ -630,12 +740,8 @@ class DashboardPage(QWidget):
         yield
         self.budget_chart.setChart(self._bar_chart(
             "Orçado x Realizado mensal", categories,
-            [("Orçado", [abs(self.decimal(row["budgeted_revenue"]) -
-                              self.decimal(row["budgeted_expense"]))
-                          for row in monthly]),
-             ("Realizado", [abs(self.decimal(row["actual_revenue"]) -
-                                 self.decimal(row["actual_expense"]))
-                             for row in monthly])]))
+            [("Orçado", [row["budgeted_expense"] for row in monthly]),
+             ("Realizado", [row["actual_expense"] for row in monthly])]))
         yield
         revenue = data.get("revenue_distribution", {})
         expense = data.get("expense_distribution", {})
@@ -660,7 +766,11 @@ class DashboardPage(QWidget):
             self.boe_data_availability,
             data.get("data_available_through"),
         )
-        self._sync_entities(self.boe_entity_filter, data.get("filters", {}).get("entities", []))
+        self._sync_entities(
+            self.boe_entity_filter,
+            data.get("filters", {}).get("entities", []),
+            boe_sources=True,
+        )
         self.boe_unit_value.setText(self.currency(data.get("unit_value")))
         self.boe_entities.setText(self.integer(data["entity_count"]))
         self.boe_queries.setText(self.integer(data["queries"]))
@@ -786,16 +896,26 @@ class DashboardPage(QWidget):
         label.setVisible(True)
 
     @staticmethod
-    def _sync_entities(combo: QComboBox, entities: list[dict]) -> None:
-        selected = combo.currentData()
-        combo.blockSignals(True)
-        combo.clear()
-        combo.addItem("Todas as entidades", None)
-        for entity in entities:
-            combo.addItem(f"{entity['code']} — {entity['name']}", entity["id"])
-        index = combo.findData(selected)
-        combo.setCurrentIndex(max(index, 0))
-        combo.blockSignals(False)
+    def _sync_entities(
+        combo: EntityMultiSelectCombo,
+        entities: list[dict],
+        *,
+        boe_sources: bool = False,
+    ) -> None:
+        combo.set_options(
+            (
+                (
+                    f"{entity.get('code')} — {entity['name']}",
+                    (
+                        ("boe_source", int(entity["source_code"]))
+                        if boe_sources
+                        and entity.get("source_code") is not None
+                        else ("master_entity", int(entity["id"]))
+                    ),
+                )
+                for entity in entities
+            )
+        )
 
     def _show_target_values(self, value: dict, target: QLabel, actual: QLabel,
                             achievement: QLabel) -> None:
@@ -895,24 +1015,40 @@ class DashboardPage(QWidget):
 
     def show_summary(self, summary: DashboardSummary) -> None:
         financial = summary.financial
+        kpis = {
+            "total_revenue": financial.total_revenue,
+            "total_expense": financial.total_expense,
+            "period_balance": financial.operational_result,
+            "applications": financial.applications,
+            "redemptions": financial.redemptions,
+            "applied_balance": financial.applied_balance,
+        }
+        for field in (
+            "opening_balance", "direct_revenue", "indirect_revenue",
+            "net_revenue", "bank_balance", "boe_expense", "boe_value",
+        ):
+            if hasattr(financial, field):
+                kpis[field] = getattr(financial, field)
+        if "boe_value" not in kpis and "boe_expense" not in kpis:
+            kpis["boe_value"] = summary.boe.total_value
         for field, label in self.financial_cards.items():
-            label.setText(self.currency(getattr(financial, field, None)))
+            label.setText(self.currency(self._financial_indicator_value(field, kpis)))
         self.boe_entities.setText(self.integer(summary.boe.entities))
         self.boe_queries.setText(self.integer(summary.boe.queries))
         self.boe_value.setText(self.currency(summary.boe.total_value))
         self.boe_state.setVisible(not summary.boe.has_data)
 
         budget = summary.budget
-        budget_rows = (
-            (budget.budgeted_revenue, budget.actual_revenue),
-            (budget.budgeted_expense, budget.actual_expense),
-            (budget.budgeted_result, budget.actual_result),
-        )
-        budget_labels = ("Receitas", "Despesas", "Resultado")
-        for row, values in enumerate(budget_rows):
-            self.budget_table.setItem(row, 0, QTableWidgetItem(budget_labels[row]))
-            self.budget_table.setItem(row, 1, QTableWidgetItem(self.currency(values[0])))
-            self.budget_table.setItem(row, 2, QTableWidgetItem(self.currency(values[1])))
+        self._show_budget_comparison({
+            "expense_comparison_applicable": True,
+            "expense_budget_exists": budget.has_budgeted_expense,
+            "budgeted_expense": budget.budgeted_expense,
+            "actual_expense": budget.actual_expense,
+            "expense_result": budget.expense_result,
+            "expense_variation_percentage": (
+                budget.expense_variation_percentage
+            ),
+        })
 
         self._show_target(
             summary.targets.queries,
@@ -942,9 +1078,9 @@ class DashboardPage(QWidget):
         self.budget_chart.setChart(
             self._bar_chart(
                 "Orçado x Realizado",
-                ["Receitas", "Despesas"],
-                [("Orçado", [budget.budgeted_revenue, budget.budgeted_expense]),
-                 ("Realizado", [budget.actual_revenue, budget.actual_expense])],
+                ["Despesas"],
+                [("Orçado", [budget.budgeted_expense]),
+                 ("Realizado", [budget.actual_expense])],
             )
         )
         self.target_chart.setChart(
@@ -1052,6 +1188,48 @@ class DashboardPage(QWidget):
         self.status.setProperty("error", error)
         self.status.style().unpolish(self.status)
         self.status.style().polish(self.status)
+
+    def _show_budget_comparison(self, budget: dict) -> None:
+        if not budget.get("expense_comparison_applicable", True):
+            for label in self.budget_cards.values():
+                label.setText("N/A")
+            return
+
+        actual = budget.get("actual_expense")
+        self.budget_cards["actual"].setText(self.currency(actual))
+        if not budget.get("expense_budget_exists", True):
+            self.budget_cards["budgeted"].setText("Não orçado")
+            self.budget_cards["result"].setText("Não orçado")
+            self.budget_cards["variation"].setText("Não orçado")
+            return
+
+        self.budget_cards["budgeted"].setText(
+            self.currency(budget.get("budgeted_expense"))
+        )
+        self.budget_cards["result"].setText(
+            self.currency(budget.get("expense_result"))
+        )
+        variation = budget.get("expense_variation_percentage")
+        self.budget_cards["variation"].setText(
+            "N/A" if variation is None else format_percentage(variation)
+        )
+
+    def _financial_indicator_value(self, key: str, kpis: dict):
+        if key in kpis:
+            return kpis[key]
+        if key == "period_balance":
+            return (
+                self.decimal(kpis.get("total_revenue"))
+                - self.decimal(kpis.get("total_expense"))
+            )
+        if key == "boe_value":
+            if "boe_expense" in kpis:
+                return kpis["boe_expense"]
+            return (
+                self.decimal(kpis.get("direct_revenue"))
+                - self.decimal(kpis.get("net_revenue"))
+            )
+        return kpis.get(key)
 
     @staticmethod
     def currency(value: Decimal | None) -> str:

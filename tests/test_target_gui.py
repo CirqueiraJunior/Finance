@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QAbstractItemView, QDialog, QLabel
 
 from app.api_client import APIClient, APIConnectionError, APIReadTimeoutError
@@ -44,11 +45,11 @@ def test_page_has_filters_cards_table_and_empty_state(qtbot):
     assert page.indicator_filter.itemText(2) == "Registros"
     assert page.table.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
     assert page.empty_state.isVisibleTo(page)
-    assert page.import_file_button.text() == "Selecionar arquivo"
-    assert page.validate_import_button.text() == "Validar"
-    assert page.confirm_import_button.text() == "Importar"
-    assert not page.validate_import_button.isEnabled()
-    assert not page.confirm_import_button.isEnabled()
+    assert page.import_steps.buttons[0].text() == "1. Selecionar"
+    assert page.import_steps.buttons[1].text() == "2. Validar"
+    assert page.import_steps.buttons[3].text() == "4. Importar"
+    assert not page.import_steps.buttons[1].isEnabled()
+    assert not page.import_steps.buttons[3].isEnabled()
 
 
 def test_import_preview_enables_confirmation_only_when_valid(qtbot):
@@ -62,13 +63,13 @@ def test_import_preview_enables_confirmation_only_when_valid(qtbot):
         "warnings": [], "totals": {"rows": 1, "target": "100.0000", "actual": "80.0000"},
     }
     page.show_import_validation({**base, "errors": [], "can_import": True})
-    assert page.confirm_import_button.isEnabled()
+    assert not page.import_steps.buttons[3].isEnabled()
     assert page.import_preview.rowCount() == 1
 
     page.show_import_validation({
         **base, "errors": ["Duplicidade"], "can_import": False,
     })
-    assert not page.confirm_import_button.isEnabled()
+    assert not page.import_steps.buttons[3].isEnabled()
     assert "Duplicidade" in page.import_issues.text()
 
 
@@ -256,21 +257,22 @@ def _async_controller(qtbot, service):
     ranking = _Ranking()
     controller = TargetController(page, service, ranking)
     controller.import_file_path = "metas.xlsx"
-    page.confirm_import_button.setEnabled(True)
+    page.import_steps.buttons[3].setEnabled(True)
     return page, controller, ranking
 
 
 def test_import_runs_off_ui_thread_blocks_duplicate_and_refreshes(qtbot):
     service = _RemoteImportService(wait=True)
     page, controller, ranking = _async_controller(qtbot, service)
+    import_completed = QSignalSpy(controller.import_completed)
     main_thread = threading.get_ident()
 
     controller.import_validated_file()
     qtbot.waitUntil(service.started.is_set)
 
     assert service.worker_thread != main_thread
-    assert not page.confirm_import_button.isEnabled()
-    assert not page.import_file_button.isEnabled()
+    assert not page.import_steps.buttons[3].isEnabled()
+    assert not page.import_steps.buttons[0].isEnabled()
     assert isinstance(controller._import_dialog, TargetImportProgressDialog)
     assert controller._import_dialog.isVisible()
     assert controller._import_dialog.windowTitle() == "Importação de Metas"
@@ -285,14 +287,20 @@ def test_import_runs_off_ui_thread_blocks_duplicate_and_refreshes(qtbot):
     assert service.calls == 1
 
     service.release.set()
-    qtbot.waitUntil(lambda: controller._import_thread is None)
+    qtbot.waitUntil(
+        lambda: (
+            controller._import_thread is None
+            and "Metas importadas com sucesso" in page.status.text()
+        )
+    )
 
     assert controller._import_dialog is None
-    assert page.import_file_button.isEnabled()
-    assert not page.confirm_import_button.isEnabled()
+    assert page.import_steps.buttons[0].isEnabled()
+    assert not page.import_steps.buttons[3].isEnabled()
     assert "Metas importadas com sucesso" in page.status.text()
     assert service.refresh_calls >= 2
     assert ranking.calls >= 2
+    assert import_completed.count() == 1
 
 
 @pytest.mark.parametrize(
@@ -318,8 +326,8 @@ def test_import_error_closes_progress_and_restores_controls(
     qtbot.waitUntil(lambda: controller._import_thread is None)
 
     assert controller._import_dialog is None
-    assert page.import_file_button.isEnabled()
-    assert page.confirm_import_button.isEnabled() is confirmation_enabled
+    assert page.import_steps.buttons[0].isEnabled()
+    assert not page.import_steps.buttons[3].isEnabled()
     assert expected in page.status.text()
     if isinstance(error, APIReadTimeoutError):
         assert "Servidor Finance indisponível" not in page.status.text()

@@ -1,6 +1,6 @@
 """Validação e preparação transacional da importação central de Orçamento."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -82,26 +82,72 @@ class BudgetImportService:
             row for row in result.data if isinstance(row, BudgetImportData)
         ]
 
-        requested_keys = {
-            (row.year, row.month, row.entry_type, row.category)
-            for row in import_rows
+        # Aggregate only rows inside this uploaded workbook.
+        # Do not add values previously stored in the database.
+        grouped = {}
+        skipped_zero = 0
+        for row in import_rows:
+            label = (row.source_label or "").strip()
+            if not label or len(label) > 255:
+                errors.append(
+                    f"Linha {row.line}: descricao obrigatoria "
+                    "com ate 255 caracteres."
+                )
+                continue
+            if row.entry_type == "DESPESA" and row.value == 0:
+                skipped_zero += 1
+                continue
+            key = (
+                row.year, row.month, row.entry_type, row.category,
+                self.budgets.description_key(label),
+            )
+            if key in grouped:
+                first = grouped[key]
+                grouped[key] = replace(
+                    first, value=first.value + row.value
+                )
+            else:
+                grouped[key] = replace(row, source_label=label)
+
+        if skipped_zero:
+            warnings.append(
+                f"{skipped_zero} despesas zeradas ignoradas."
+            )
+
+        import_rows = list(grouped.values())
+        requested_keys = set(grouped)
+
+        groups = {
+            (year, month, entry_type, category)
+            for year, month, entry_type, category, _ in requested_keys
         }
-        existing_entries = self.budgets.by_keys(requested_keys)
+        scoped_entries = self.budgets.by_groups(groups)
+        existing_entries = {}
+        for entry in scoped_entries:
+            key = (
+                entry.periodo_ano,
+                entry.periodo_mes,
+                entry.tipo,
+                entry.categoria,
+                self.budgets.description_key(entry.descricao),
+            )
+            if key in existing_entries:
+                errors.append(
+                    "Registros duplicados encontrados no or?amento existente."
+                )
+            elif key in requested_keys:
+                existing_entries[key] = entry
 
         preview: list[BudgetImportPreviewRow] = []
-        seen: set[tuple[int, int, str, str]] = set()
         total = Decimal("0.0000")
         replacements = 0
         new_count = changed_count = unchanged_count = 0
 
         for row in import_rows:
-            key = (row.year, row.month, row.entry_type, row.category)
-
-            if key in seen:
-                errors.append(
-                    f"Linha {row.line}: registro repetido no arquivo para "
-                    f"{row.month:02d}/{row.year}, {row.entry_type}, {row.category}."
-                )
+            key = (
+                row.year, row.month, row.entry_type, row.category,
+                self.budgets.description_key(row.source_label),
+            )
             existing = existing_entries.get(key)
             previous = Decimal(existing.valor_orcado) if existing is not None else None
             if existing is None:
@@ -116,8 +162,6 @@ class BudgetImportService:
                     unchanged_count += 1
                 else:
                     changed_count += 1
-
-            seen.add(key)
 
             preview.append(
                 BudgetImportPreviewRow(
@@ -163,10 +207,11 @@ class BudgetImportService:
             changed_count=changed_count,
             unchanged_count=unchanged_count,
         )
-        from dataclasses import replace
         return replace(
             validation,
-            snapshot_hash=budget_snapshot(validation, existing_entries),
+            snapshot_hash=budget_snapshot(
+                validation, existing_entries, scoped_entries
+            ),
         )
 
     def stage_import(
@@ -184,13 +229,19 @@ class BudgetImportService:
 
         try:
             keys = {
-                (row.year, row.month, row.entry_type, row.category)
+                (
+                    row.year, row.month, row.entry_type, row.category,
+                    self.budgets.description_key(row.source_label),
+                )
                 for row in validation.preview
             }
             existing = self.budgets.by_keys(keys)
             new_entries: list[BudgetEntry] = []
             for row in validation.preview:
-                key = (row.year, row.month, row.entry_type, row.category)
+                key = (
+                    row.year, row.month, row.entry_type, row.category,
+                    self.budgets.description_key(row.source_label),
+                )
                 entry = existing.get(key)
                 if entry is None:
                     entry = BudgetEntry(

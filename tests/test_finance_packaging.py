@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "packaging" / "Finance.spec"
+SERVER_SPEC = ROOT / "packaging" / "FinanceServer.spec"
 ISS = ROOT / "packaging" / "Finance.iss"
 
 
@@ -21,6 +22,20 @@ def test_finance_spec_remains_windowed():
     text = SPEC.read_text(encoding="utf-8")
 
     assert "console=False" in text
+
+
+def test_finance_server_uses_external_pyinstaller_package():
+    text = SERVER_SPEC.read_text(encoding="utf-8")
+
+    assert "append_pkg=False" in text
+
+
+def test_finance_server_packages_assisted_recovery_public_key():
+    text = SERVER_SPEC.read_text(encoding="utf-8")
+
+    assert '"recovery_public_key.pem"' in text
+    assert '"finance_server/resources"' in text
+    assert 'collect_data_files("finance_server"' not in text
 
 
 def test_finance_installer_accepts_release_version():
@@ -54,6 +69,11 @@ def test_finance_installer_preserves_release_paths_and_branding():
 
     assert (
         'Source: "{#BuildRoot}\\FinanceServer.exe"'
+        in text
+    )
+
+    assert (
+        'Source: "{#BuildRoot}\\FinanceServer.pkg"'
         in text
     )
 

@@ -69,6 +69,34 @@ class HistoricalWorkbookImporter:
         finally:
             workbook.close()
 
+
+    def parse_cashflow(self, file_path: str | Path) -> HistoricalPreview:
+        """Read Lancamentos even when the workbook also contains Orcado."""
+        path = Path(file_path)
+        if path.suffix.lower() not in {".xlsx", ".xlsm"} or not path.is_file():
+            return self.parse(path)
+
+        workbook = load_workbook(path, read_only=True, data_only=True)
+        try:
+            from app.importers.workbook_sheet_detector import detect_sheet
+
+            selection = detect_sheet(workbook.sheetnames, "FINANCEIRO")
+            if selection.status == "FOUND":
+                return self._cashflow(path, workbook[selection.sheet_name])
+            if selection.status == "AMBIGUOUS":
+                return HistoricalPreview(
+                    path, "DESCONHECIDO", None,
+                    errors=[
+                        "Mais de uma aba Financeiro compativel foi encontrada: "
+                        + ", ".join(selection.candidates)
+                    ],
+                )
+        finally:
+            workbook.close()
+
+        # Preserve the existing error reporting for other file types.
+        return self.parse(path)
+
     def parse_association(self, file_path: str | Path) -> HistoricalPreview:
         path = Path(file_path)
         workbook = load_workbook(path, read_only=True, data_only=True)
@@ -113,11 +141,26 @@ class HistoricalWorkbookImporter:
             if not any(value is not None for value in values[:8]):
                 continue
             year, month_name, description, notes, category, kind, value, boe = values[:8]
+            category_label = normalized(category)
+            kind_label = normalized(kind)
+            notes_label = normalized(notes)
+
+            # An initial applied balance is not a monthly snapshot.
+            if (
+                notes_label == "SALDO APLICADO INICIAL"
+                and not category_label
+                and not kind_label
+            ):
+                continue
+
             technical_label = normalized(description or notes)
             balance_type = None
             if "SALDO INICIAL" in technical_label:
                 balance_type = "SALDO_INICIAL"
-            elif technical_label == "SALDO APLICADO":
+            elif (
+                category_label == "SALDO APLICADO"
+                and kind_label == "SALDO"
+            ):
                 balance_type = "SALDO_APLICADO"
             if balance_type is not None:
                 try:

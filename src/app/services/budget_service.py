@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy.exc import IntegrityError
@@ -24,6 +24,15 @@ REVENUE_CATEGORIES = (
 
 
 @dataclass(frozen=True, slots=True)
+class BudgetDetail:
+    description: str
+    budgeted: Decimal
+    actual: Decimal
+    variance: Decimal
+    unmatched: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class BudgetComparison:
     entry_type: str
     description: str | None
@@ -32,6 +41,7 @@ class BudgetComparison:
     actual: Decimal
     absolute_variance: Decimal
     percentage_variance: Decimal | None
+    details: tuple[BudgetDetail, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +52,16 @@ class BudgetSummary:
     actual_expense: Decimal
     budgeted_result: Decimal
     actual_result: Decimal
+
+    @property
+    def revenue_result(self) -> Decimal:
+        """Saldo entre a receita prevista e a efetivamente realizada."""
+        return self.budgeted_revenue - self.actual_revenue
+
+    @property
+    def expense_result(self) -> Decimal:
+        """Economia (ou estouro) entre a despesa prevista e a realizada."""
+        return self.budgeted_expense - self.actual_expense
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,21 +97,24 @@ class BudgetService:
         normalized_type, normalized_category = self._valid_combination(
             entry_type, category
         )
+        normalized_description = self._description(descricao)
         if self.repository.exists(
             normalized_year,
             normalized_month,
             normalized_type.value,
             normalized_category.value,
+            normalized_description,
         ):
             raise BudgetDuplicateError(
-                "Já existe orçamento para este período, tipo e categoria."
+                "Ja existe orcamento com esta descricao "
+                "no periodo, tipo e categoria."
             )
         budget = BudgetEntry(
             periodo_ano=normalized_year,
             periodo_mes=normalized_month,
             tipo=normalized_type.value,
             categoria=normalized_category.value,
-            descricao=self._description(descricao),
+            descricao=normalized_description,
             valor_orcado=self._non_negative_decimal(budgeted_value),
             observacao=self._optional_text(notes),
         )
@@ -155,16 +178,32 @@ class BudgetService:
         budget_values: dict[tuple[str, str], Decimal] = {}
         budget_descriptions: dict[tuple[str, str], set[str]] = {}
         actual_values: dict[tuple[str, str], Decimal] = {}
+        budget_details: dict[tuple[str, str, str], Decimal] = {}
+        actual_details: dict[tuple[str, str, str], Decimal] = {}
+        display_names: dict[tuple[str, str, str], str] = {}
+
         for budget in budgets:
             key = (budget.tipo, budget.categoria)
             budget_values[key] = budget_values.get(key, zero) + budget.valor_orcado
             if budget.descricao:
                 budget_descriptions.setdefault(key, set()).add(budget.descricao)
+            description = (budget.descricao or "").strip()
+            detailed_key = (*key, description.casefold())
+            budget_details[detailed_key] = (
+                budget_details.get(detailed_key, zero) + budget.valor_orcado
+            )
+            display_names.setdefault(detailed_key, description or "Sem descricao")
         for entry in actual_entries:
             if entry.categoria == CashflowCategory.DIRECT_REVENUE.value:
                 continue
             key = (entry.tipo, entry.categoria)
             actual_values[key] = actual_values.get(key, zero) + entry.valor
+            description = (entry.descricao or "").strip()
+            detailed_key = (*key, description.casefold())
+            actual_details[detailed_key] = (
+                actual_details.get(detailed_key, zero) + entry.valor
+            )
+            display_names.setdefault(detailed_key, description or "Sem descricao")
         selected_months = range(1, 13) if month is None else (normalized_month,)
         for selected_month in selected_months:
             source_year, source_month = (
@@ -219,6 +258,64 @@ class BudgetService:
             (value for (kind, _), value in actual_values.items()
              if kind == CashflowType.EXPENSE.value), zero
         )
+        # Keep category totals authoritative. Details only explain them.
+        detailed_comparisons = []
+        for comparison in comparisons:
+            group = (comparison.entry_type, comparison.category)
+            identities = sorted(
+                {
+                    key for key in budget_details.keys() | actual_details.keys()
+                    if key[:2] == group
+                },
+                key=lambda item: item[2],
+            )
+            details = []
+            direct_revenue = (
+                group == (
+                    CashflowType.REVENUE.value,
+                    CashflowCategory.DIRECT_REVENUE.value,
+                )
+            )
+            for detailed_key in identities:
+                budgeted_amount = budget_details.get(detailed_key, zero)
+                actual_amount = (
+                    zero if direct_revenue
+                    else actual_details.get(detailed_key, zero)
+                )
+                unmatched = detailed_key not in budget_details
+                variance = (
+                    actual_amount - budgeted_amount
+                    if comparison.entry_type == CashflowType.REVENUE.value
+                    else budgeted_amount - actual_amount
+                )
+                details.append(BudgetDetail(
+                    display_names[detailed_key],
+                    budgeted_amount,
+                    actual_amount,
+                    variance,
+                    unmatched,
+                ))
+
+            # Direct revenue follows the prior-month BOE, not description.
+            # Display it separately without attributing it to budget lines.
+            if direct_revenue and comparison.actual:
+                details.append(BudgetDetail(
+                    "BOE do mes anterior",
+                    zero,
+                    comparison.actual,
+                    comparison.actual,
+                    True,
+                ))
+
+            if sum((d.budgeted for d in details), zero) != comparison.budgeted:
+                raise ValueError("Divergencia no detalhamento orcado.")
+            if sum((d.actual for d in details), zero) != comparison.actual:
+                raise ValueError("Divergencia no detalhamento realizado.")
+
+            detailed_comparisons.append(
+                replace(comparison, details=tuple(details))
+            )
+
         summary = BudgetSummary(
             budgeted_revenue,
             actual_revenue,
@@ -227,7 +324,7 @@ class BudgetService:
             budgeted_revenue - budgeted_expense,
             actual_revenue - actual_expense,
         )
-        return BudgetVsActual(tuple(comparisons), summary)
+        return BudgetVsActual(tuple(detailed_comparisons), summary)
 
     def _persist(self, budget: BudgetEntry) -> BudgetEntry:
         try:

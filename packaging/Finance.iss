@@ -43,6 +43,7 @@ UsedUserAreasWarning=no
 [Files]
 Source: "{#BuildRoot}\Finance\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#BuildRoot}\FinanceServer.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BuildRoot}\FinanceServer.pkg"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\ja-product.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#UpdaterInstaller}"; DestName: "{#UpdaterInstallerName}"; Flags: dontcopy
 

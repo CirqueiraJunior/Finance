@@ -10,7 +10,7 @@ from app.core.config import Settings
 
 
 logger = logging.getLogger(__name__)
-EXPECTED_SCHEMA_REVISION = "20260927_26"
+EXPECTED_SCHEMA_REVISION = "20261018_27"
 
 
 @dataclass(frozen=True, slots=True)

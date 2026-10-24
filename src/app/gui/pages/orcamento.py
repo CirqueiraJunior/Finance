@@ -1,3 +1,6 @@
+from PySide6.QtWidgets import QPlainTextEdit
+from app.gui.import_workflow_steps import ImportWorkflowSteps
+from app.gui.import_workflow_panel import ImportWorkflowPanel
 from app.widgets.wheel_guard import WheelBlockedComboBox, WheelBlockedSpinBox
 from datetime import date
 from decimal import Decimal
@@ -17,6 +20,8 @@ from app.services.cashflow_catalog_service import CashflowCatalogOption
 from app.widgets import BRLCurrencyEdit, MonthComboBox
 from app.widgets.year_combo import populate_year_combo, select_year
 
+
+from PySide6.QtWidgets import QScrollArea
 
 class BudgetImportProgressDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -171,7 +176,21 @@ class OrcamentoPage(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("contentPage")
-        layout = QVBoxLayout(self)
+        self._import_available = False
+        self._import_permitted = True
+        self.budget_scroll_area = QScrollArea(self)
+        self.budget_scroll_area.setObjectName("budgetScrollArea")
+        self.budget_scroll_area.setWidgetResizable(True)
+        self.budget_scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.budget_scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.budget_scroll_area.setStyleSheet(
+            "QScrollArea#budgetScrollArea { background: transparent; border: none; }"
+        )
+        self.budget_content = QWidget()
+        self.budget_content.setObjectName("budgetScrollContent")
+        layout = QVBoxLayout(self.budget_content)
         layout.setContentsMargins(32, 2, 32, 12)
         layout.setSpacing(6)
         title = QLabel("Orçado x Realizado")
@@ -179,7 +198,9 @@ class OrcamentoPage(QWidget):
         description = QLabel("Orçamento mensal ou anual comparado ao Fluxo de Caixa.")
         description.setObjectName("pageDescription")
 
-        filters = QHBoxLayout()
+        filter_panel = QWidget()
+        filter_panel.setObjectName("dashboardFilterBar")
+        filters = QHBoxLayout(filter_panel)
         self.year_filter = WheelBlockedComboBox()
         self.year_filter.setEnabled(False)
         self.month_filter = MonthComboBox(include_all=True)
@@ -191,11 +212,6 @@ class OrcamentoPage(QWidget):
         self.new_button.setObjectName("primaryButton")
         self.edit_button = QPushButton("Editar Orçamento")
         self.edit_button.setProperty("buttonRole", "secondary")
-        self.import_file_button = QPushButton("Selecionar arquivo")
-        self.import_file_button.setProperty("buttonRole", "secondary")
-        self.validate_import_button = QPushButton("Validar")
-        self.validate_import_button.setProperty("buttonRole", "info")
-        self.validate_import_button.setEnabled(False)
         filters.addWidget(QLabel("Ano"))
         filters.addWidget(self.year_filter)
         filters.addWidget(QLabel("Mês"))
@@ -221,26 +237,63 @@ class OrcamentoPage(QWidget):
         )
         self.import_issues = QLabel()
         self.import_issues.setWordWrap(True)
-        self.confirm_import_button = QPushButton("Importar")
-        self.confirm_import_button.setProperty("buttonRole", "primary")
-        self.confirm_import_button.setObjectName("primaryButton")
-        self.confirm_import_button.setEnabled(False)
-        import_actions = QHBoxLayout()
-        import_actions.addWidget(self.import_file_button)
-        import_actions.addWidget(self.validate_import_button)
-        import_actions.addWidget(self.confirm_import_button)
-        import_actions.addStretch()
-        import_layout.addLayout(import_actions)
-        import_layout.addWidget(self.import_summary)
-        import_layout.addWidget(self.import_preview)
-        import_layout.addWidget(self.import_issues)
+
+        self.import_steps = ImportWorkflowSteps(
+            steps=(
+                "Selecionar",
+                "Validar",
+                "Comparar e autorizar",
+                "Importar",
+            )
+        )
+
+        validation_column = QVBoxLayout()
+        validation_title = QLabel("Resultado da valida\u00e7\u00e3o")
+        validation_title.setObjectName("sectionTitle")
+        validation_column.addWidget(validation_title)
+
+        self.import_issues.setMinimumHeight(150)
+        self.import_issues.setStyleSheet(
+            "background-color: white;"
+            "border: 1px solid #CAD6E3;"
+            "border-radius: 7px;"
+            "padding: 10px;"
+        )
+        validation_column.addWidget(self.import_issues)
+
+        result_column = QVBoxLayout()
+        result_title = QLabel("Resultado da importa\u00e7\u00e3o")
+        result_title.setObjectName("sectionTitle")
+        result_column.addWidget(result_title)
+
+        self.import_result = QPlainTextEdit()
+        self.import_result.setReadOnly(True)
+        self.import_result.setFixedHeight(150)
+        self.import_result.setPlaceholderText(
+            "Nenhuma importa\u00e7\u00e3o executada nesta sess\u00e3o."
+        )
+        result_column.addWidget(self.import_result)
+
+        results = QHBoxLayout()
+        results.setSpacing(12)
+        results.addLayout(validation_column, 1)
+        results.addLayout(result_column, 1)
+
+        self.import_panel = ImportWorkflowPanel(
+            steps=self.import_steps,
+            file_display=self.import_summary,
+            results_layout=results,
+            preview=self.import_preview,
+        )
+        import_layout.addWidget(self.import_panel)
 
         cards = QHBoxLayout()
         self.budgeted_revenue = self._card("Receita Orçada", cards)
         self.actual_revenue = self._card("Receita Realizada", cards)
         self.budgeted_expense = self._card("Despesa Orçada", cards)
         self.actual_expense = self._card("Despesa Realizada", cards)
-        self.actual_result = self._card("Resultado Realizado", cards)
+        self.revenue_result = self._card("Resultado Receita", cards)
+        self.expense_result = self._card("Resultado Despesas", cards)
 
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
@@ -248,25 +301,45 @@ class OrcamentoPage(QWidget):
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.cellClicked.connect(self._toggle_budget_category)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.status = QLabel("Orçamento pronto.")
         self.status.setObjectName("operationStatus")
         layout.addWidget(title)
         layout.addWidget(description)
-        layout.addLayout(filters)
-        layout.addWidget(import_area)
+        layout.addWidget(filter_panel)
         layout.addLayout(cards)
-        layout.addWidget(self.table, 1)
+        self.table.setMinimumHeight(280)
+        layout.addWidget(self.table)
+        layout.addWidget(import_area)
         layout.addWidget(self.status)
+        self.budget_scroll_area.setWidget(self.budget_content)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self.budget_scroll_area)
 
     def set_import_available(self, available: bool) -> None:
-        self.import_file_button.setEnabled(available)
-        self.validate_import_button.setEnabled(False)
-        self.confirm_import_button.setEnabled(False)
+        self._import_available = bool(available)
+        self._apply_import_access()
         if not available:
             self.import_summary.setText(
                 "Importação central disponível somente no modo servidor."
             )
+
+    def set_import_permission(self, permitted: bool) -> None:
+        self._import_permitted = bool(permitted)
+        self._apply_import_access()
+
+    @property
+    def import_workflow_allowed(self) -> bool:
+        return self._import_available and self._import_permitted
+
+    def _apply_import_access(self) -> None:
+        for stage in range(1, len(self.import_steps.buttons) + 1):
+            self.import_steps.set_stage_enabled(stage, False)
+        self.import_steps.set_stage_enabled(
+            1, self.import_workflow_allowed
+        )
 
     def show_import_validation(self, value: dict) -> None:
         metadata = value.get("metadata", {})
@@ -298,7 +371,6 @@ class OrcamentoPage(QWidget):
         self.import_issues.setText(
             "\n".join(messages) or "Nenhuma inconsistência."
         )
-        self.confirm_import_button.setEnabled(bool(value.get("can_import")))
         self.import_preview.resizeColumnsToContents()
         self.set_status(
             "Arquivo validado e pronto para importação."
@@ -308,12 +380,13 @@ class OrcamentoPage(QWidget):
         )
 
     def show_import_result(self, value: dict) -> None:
-        self.import_summary.setText(
+        result_text = (
             f"Importação concluída: {value.get('imported', 0)} registros | "
             f"Ano: {value.get('year') or '—'} | "
             f"Total: {format_currency(value.get('total', 0))}"
         )
-        self.confirm_import_button.setEnabled(False)
+        self.import_summary.setText(result_text)
+        self.import_result.setPlainText(result_text)
         self.set_status("Orçamento importado com sucesso.")
 
     @staticmethod
@@ -321,6 +394,8 @@ class OrcamentoPage(QWidget):
         card = QWidget()
         card.setObjectName("summaryCard")
         card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(10, 6, 10, 6)
+        card_layout.setSpacing(2)
         label = QLabel(title)
         label.setObjectName("summaryLabel")
         value = QLabel("R$ 0,00")
@@ -347,40 +422,144 @@ class OrcamentoPage(QWidget):
     def show_result(
         self, result: BudgetVsActual, budgets: list[BudgetEntry]
     ) -> None:
-        budget_ids = {
-            (budget.tipo, budget.categoria): budget.id for budget in budgets
-        }
-        budget_notes = {
-            (budget.tipo, budget.categoria): (budget.observacao or "—")
-            for budget in budgets
-        }
-        self.table.setRowCount(len(result.comparisons))
-        for row, comparison in enumerate(result.comparisons):
+        # Financial actuals come from comparison.details, never from budget.
+        # Group budgets only to associate an editable ID and optional notes.
+        budget_lookup = {}
+        for budget in budgets:
+            key = (
+                budget.tipo,
+                budget.categoria,
+                (budget.descricao or "Sem descricao").strip().casefold(),
+            )
+            budget_lookup.setdefault(key, []).append(budget)
+
+        self._budget_children = {}
+        self.table.setRowCount(0)
+
+        for comparison in result.comparisons:
+            details = sorted(
+                comparison.details,
+                key=lambda detail: (
+                    detail.unmatched,
+                    detail.description.casefold(),
+                ),
+            )
+            parent_row = self.table.rowCount()
+            self.table.insertRow(parent_row)
+            self._budget_children[parent_row] = []
+
+            label = (
+                f"+ Detalhar lançamentos ({len(details)})"
+                if details else "Sem detalhamento"
+            )
             values = [
                 comparison.entry_type,
-                comparison.description or "—",
+                label,
                 BudgetDialog.category_label(comparison.category),
                 self.currency(comparison.budgeted),
                 self.currency(comparison.actual),
                 self.currency(comparison.absolute_variance),
                 format_percentage(comparison.percentage_variance),
-                budget_notes.get((comparison.entry_type, comparison.category), "—"),
+                "Resumo por categoria",
             ]
             for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
+                item = QTableWidgetItem(str(value))
                 if column == 0:
-                    item.setData(
-                        Qt.ItemDataRole.UserRole,
-                        budget_ids.get((comparison.entry_type, comparison.category)),
+                    item.setData(Qt.ItemDataRole.UserRole, None)
+                if column == 1 and details:
+                    item.setToolTip("Clique para expandir ou recolher.")
+                self.table.setItem(parent_row, column, item)
+
+            detail_budgeted = Decimal("0")
+            detail_actual = Decimal("0")
+
+            for detail in details:
+                detail_budgeted += detail.budgeted
+                detail_actual += detail.actual
+
+                identity = (
+                    comparison.entry_type,
+                    comparison.category,
+                    detail.description.strip().casefold(),
+                )
+                matched_budgets = budget_lookup.get(identity, ())
+                budget_id = (
+                    matched_budgets[0].id
+                    if len(matched_budgets) == 1 and not detail.unmatched
+                    else None
+                )
+
+                detail_row = self.table.rowCount()
+                self.table.insertRow(detail_row)
+                self._budget_children[parent_row].append(detail_row)
+
+                notes = (
+                    "Realizado sem orcamento correspondente"
+                    if detail.unmatched else
+                    (
+                        matched_budgets[0].observacao or ""
+                        if len(matched_budgets) == 1 else
+                        "Valores agrupados por descricao"
                     )
-                self.table.setItem(row, column, item)
+                )
+                prefix = "    [SEM ORCAMENTO] " if detail.unmatched else "    "
+                values = [
+                    comparison.entry_type,
+                    prefix + detail.description,
+                    BudgetDialog.category_label(comparison.category),
+                    self.currency(detail.budgeted),
+                    self.currency(detail.actual),
+                    self.currency(detail.variance),
+                    format_percentage((detail.variance / detail.budgeted * Decimal("100")).quantize(Decimal("0.0001"))) if detail.budgeted > 0 else "N/A",
+                    notes or "?",
+                ]
+                for column, value in enumerate(values):
+                    item = QTableWidgetItem(str(value))
+                    if column == 0:
+                        item.setData(Qt.ItemDataRole.UserRole, budget_id)
+                    if detail.unmatched:
+                        item.setToolTip(
+                            "Lancamento do Financeiro sem correspondencia "
+                            "com uma descricao do Orcamento."
+                        )
+                    self.table.setItem(detail_row, column, item)
+                self.table.setRowHidden(detail_row, True)
+
+            if (
+                detail_budgeted != comparison.budgeted
+                or detail_actual != comparison.actual
+            ):
+                raise ValueError(
+                    "Detalhamento nao corresponde ao total da categoria."
+                )
+
         summary = result.summary
         self.budgeted_revenue.setText(self.currency(summary.budgeted_revenue))
         self.actual_revenue.setText(self.currency(summary.actual_revenue))
         self.budgeted_expense.setText(self.currency(summary.budgeted_expense))
         self.actual_expense.setText(self.currency(summary.actual_expense))
-        self.actual_result.setText(self.currency(summary.actual_result))
+        self.revenue_result.setText(self.currency(summary.revenue_result))
+        self.expense_result.setText(self.currency(summary.expense_result))
         self.table.resizeColumnsToContents()
+        self.table.setColumnWidth(1, 280)
+        self.table.setMinimumHeight(350)
+        self.table.setColumnWidth(2, 150)
+
+    def _toggle_budget_category(self, row: int, column: int) -> None:
+        children = getattr(self, "_budget_children", {}).get(row)
+        if not children:
+            return
+
+        expanding = self.table.isRowHidden(children[0])
+        for child in children:
+            self.table.setRowHidden(child, not expanding)
+
+        label = self.table.item(row, 1)
+        if label is not None:
+            action = "-" if expanding else "+"
+            label.setText(
+                f"{action} Detalhar lançamentos ({len(children)})"
+            )
 
     def selected_budget_id(self) -> int | None:
         row = self.table.currentRow()

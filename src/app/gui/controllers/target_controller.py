@@ -1,6 +1,7 @@
 from decimal import Decimal
 from pathlib import Path
 from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtWidgets import QMessageBox
 from PySide6.QtWidgets import QDialog, QFileDialog
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -37,6 +38,8 @@ class TargetImportWorker(QObject):
 
 
 class TargetController(QObject):
+    import_completed = Signal()
+
     def __init__(self, view: MetasPage, service: TargetService,
                  ranking: RankingService | None = None,
                  *, defer_initial_load: bool = False) -> None:
@@ -46,6 +49,11 @@ class TargetController(QObject):
         self.ranking = ranking
         self.import_file_path = None
         self.selected_import_file_path = None
+        self._last_import_validation = None
+        self._last_import_validation_path = None
+        self._workflow_compared = False
+        self._workflow_authorized_file = None
+        self._validation_generation = 0
         self._import_thread: QThread | None = None
         self._import_worker: TargetImportWorker | None = None
         self._import_dialog: TargetImportProgressDialog | None = None
@@ -56,14 +64,19 @@ class TargetController(QObject):
         self.view.new_button.clicked.connect(self.open_new_dialog)
         self.view.edit_button.clicked.connect(self.open_edit_dialog)
         self.view.ranking_refresh.clicked.connect(self.refresh_ranking)
-        self.view.ranking_entity.currentIndexChanged.connect(self.refresh_ranking)
-        self.view.import_file_button.clicked.connect(self.select_import_file)
-        self.view.validate_import_button.clicked.connect(
-            self.validate_selected_import_file
+        self.view.ranking_entity.selectionChanged.connect(self.refresh_ranking)
+        self.view.import_steps.configure_actions(
+            on_select=self.select_import_file,
+            on_validate=self.validate_selected_import_file,
+            on_compare=self.compare_import_validation,
+            on_import=self.import_workflow_step,
         )
-        self.view.confirm_import_button.clicked.connect(self.import_validated_file)
+        self.view.import_steps.reset_stages()
         self.view.set_import_available(
             hasattr(service, "validate_import") and hasattr(service, "import_file")
+        )
+        self.view.import_steps.set_stage_enabled(
+            1, getattr(self.view, "_import_available", False)
         )
         self._years_loader = AvailableYearsLoader(
             self,
@@ -192,19 +205,20 @@ class TargetController(QObject):
             if self._operation_thread is not None:
                 self._operation_thread.deleteLater()
 
-            self._operation_dialog = None
-            self._operation_thread = None
-            self._operation_worker = None
+            try:
+                if state["ok"]:
+                    succeeded(state["result"])
+                else:
+                    failed(state["error"])
+            finally:
+                self._operation_dialog = None
+                self._operation_thread = None
+                self._operation_worker = None
 
-            if import_operation:
-                self._import_dialog = None
-                self._import_thread = None
-                self._import_worker = None
-
-            if state["ok"]:
-                succeeded(state["result"])
-            else:
-                failed(state["error"])
+                if import_operation:
+                    self._import_dialog = None
+                    self._import_thread = None
+                    self._import_worker = None
 
         thread.started.connect(worker.run)
         worker.succeeded.connect(store_success)
@@ -345,7 +359,125 @@ class TargetController(QObject):
                     error=True,
                 )
 
+
+    def _invalidate_import_workflow(self):
+        self._last_import_validation = None
+        self._last_import_validation_path = None
+        self._workflow_compared = False
+        self._workflow_authorized_file = None
+        for stage in (3, 4):
+            self.view.import_steps.set_stage_enabled(stage, False)
+
+    def reset_import_session(self) -> None:
+        """Discard import state owned by the authenticated user session."""
+        self._validation_generation += 1
+        self.import_file_path = None
+        self.selected_import_file_path = None
+        self._invalidate_import_workflow()
+        self.view.import_steps.reset_stages()
+        self.view.import_steps.set_stage_enabled(
+            1,
+            getattr(self.view, "_import_available", False)
+            and getattr(self.view, "_import_write_allowed", True),
+        )
+        self.view.import_summary.setText(
+            "Selecione um arquivo para validar a importação de Metas."
+        )
+        self.view.import_issues.clear()
+        self.view.import_preview.setRowCount(0)
+        self.view.import_result.clear()
+
+    def compare_import_validation(self):
+        """Compare and explicitly authorize the selected validated file."""
+        from PySide6.QtWidgets import QDialog
+        from app.gui.target_comparison_dialog import TargetComparisonDialog
+
+        path = self.selected_import_file_path
+        validation = self._last_import_validation
+        generation = self._validation_generation
+
+        self._workflow_compared = False
+        self._workflow_authorized_file = None
+        self.view.import_steps.set_stage_enabled(4, False)
+
+        eligible = (
+            getattr(self.view, "_import_write_allowed", True)
+            and isinstance(validation, dict)
+            and bool(path)
+            and self._last_import_validation_path == path
+            and self.import_file_path == path
+            and bool(validation.get("can_import"))
+        )
+
+        if not eligible:
+            self.view.set_status(
+                "Valide um arquivo de Metas autorizado antes de comparar.",
+                error=True,
+            )
+            return
+
+        dialog = TargetComparisonDialog(
+            validation, can_authorize=True, parent=self.view
+        )
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+
+        still_valid = (
+            getattr(self.view, "_import_write_allowed", True)
+            and generation == self._validation_generation
+            and self.selected_import_file_path == path
+            and self.import_file_path == path
+            and self._last_import_validation_path == path
+            and self._last_import_validation is validation
+            and bool(validation.get("can_import"))
+        )
+
+        if not accepted or not still_valid:
+            self.view.set_status(
+                "Comparacao cancelada ou validacao alterada. "
+                "Importacao bloqueada."
+            )
+            return
+
+        self._workflow_compared = True
+        self._workflow_authorized_file = path
+        self.view.import_steps.set_stage_enabled(4, True)
+        self.view.set_status(
+            "Comparacao autorizada. Etapa Importar liberada."
+        )
+
+
+
+
+    def import_workflow_step(self):
+        path = self.selected_import_file_path
+        validation = self._last_import_validation
+        eligible = (
+            bool(path)
+            and self._workflow_authorized_file == path
+            and self._workflow_compared
+            and isinstance(validation, dict)
+            and bool(validation.get("can_import"))
+            and getattr(self.view, "_import_write_allowed", True)
+            and self._last_import_validation_path == path
+            and self.import_file_path == path
+        )
+
+        # Consumir a autorizacao antes de chamar o metodo legado.
+        self._workflow_authorized_file = None
+        self.view.import_steps.set_stage_enabled(4, False)
+
+        if not eligible:
+            self.view.set_status(
+                "Confirme novamente o fluxo de Metas antes de importar.",
+                error=True,
+            )
+            return
+
+        self.import_validated_file()
+
     def select_import_file(self) -> None:
+        if not getattr(self.view, "_import_write_allowed", True):
+            return
         path, _ = QFileDialog.getOpenFileName(
             self.view,
             "Selecionar arquivo de Metas",
@@ -358,16 +490,20 @@ class TargetController(QObject):
 
         self.selected_import_file_path = path
         self.import_file_path = None
+        self._validation_generation += 1
+        self._invalidate_import_workflow()
+        self.view.import_steps.reset_stages()
+        self.view.import_steps.set_stage_enabled(2, True)
 
         self.view.import_summary.setText(
             f"Arquivo selecionado: {Path(path).name}"
         )
         self.view.import_issues.setText("")
-        self.view.validate_import_button.setEnabled(True)
-        self.view.confirm_import_button.setEnabled(False)
         self.view.set_status("Arquivo selecionado. Clique em Validar.")
 
     def validate_selected_import_file(self) -> None:
+        if not getattr(self.view, "_import_write_allowed", True):
+            return
         if not self.selected_import_file_path:
             return
 
@@ -375,24 +511,36 @@ class TargetController(QObject):
 
     def validate_import_file(self, path: str) -> None:
         self.import_file_path = None
-        self.view.validate_import_button.setEnabled(False)
-        self.view.confirm_import_button.setEnabled(False)
+        self._validation_generation += 1
+        generation = self._validation_generation
+        self._invalidate_import_workflow()
 
         def succeeded(validation: dict) -> None:
+            if (self.selected_import_file_path != path or
+                    generation != self._validation_generation):
+                return
+            if not isinstance(validation, dict) or not validation:
+                self.view.set_status(
+                    'Validacao de Metas sem resultado utilizavel.',
+                    error=True,
+                )
+                return
             self.view.show_import_validation(validation)
-            self.view.validate_import_button.setEnabled(True)
+            self._last_import_validation = validation
+            self._last_import_validation_path = path
+            self.view.import_steps.set_stage_enabled(3, True)
 
             if validation.get("can_import"):
                 self.import_file_path = path
-                self.view.confirm_import_button.setEnabled(True)
 
         def failed(error: Exception) -> None:
+            if (self.selected_import_file_path != path or
+                    generation != self._validation_generation):
+                return
+            self._invalidate_import_workflow()
             self.view.set_status(
                 f"Falha ao validar arquivo de Metas: {error}",
                 error=True,
-            )
-            self.view.validate_import_button.setEnabled(
-                self.selected_import_file_path is not None
             )
 
         self._run_operation(
@@ -411,13 +559,12 @@ class TargetController(QObject):
             return
 
         selected_file = self.import_file_path
+        for stage in (1, 2, 3, 4):
+            self.view.import_steps.set_stage_enabled(stage, False)
         filters = self.view.selected_filters()
         ranking_year = self.view.ranking_year.currentData()
         ranking_quarter = self.view.ranking_quarter.currentData()
 
-        self.view.confirm_import_button.setEnabled(False)
-        self.view.validate_import_button.setEnabled(False)
-        self.view.import_file_button.setEnabled(False)
 
         def operation():
             import_result = self.service.import_file(selected_file)
@@ -455,6 +602,14 @@ class TargetController(QObject):
             self.view.show_import_result(import_result)
             self.import_file_path = None
             self.selected_import_file_path = None
+            self._validation_generation += 1
+            self._invalidate_import_workflow()
+            self.view.import_steps.reset_stages()
+            self.view.import_steps.set_stage_enabled(
+                1,
+                getattr(self.view, "_import_available", False)
+                and getattr(self.view, "_import_write_allowed", True),
+            )
 
             self.view.set_entities(entities)
             self.view.show_result(target_result)
@@ -463,9 +618,8 @@ class TargetController(QObject):
                 rows, annual = ranking_payload
                 self.view.show_ranking(rows, annual)
 
-            self.view.import_file_button.setEnabled(True)
-            self.view.validate_import_button.setEnabled(False)
-            self.view.confirm_import_button.setEnabled(False)
+            self.import_completed.emit()
+
 
         def failed(error: Exception) -> None:
             if isinstance(error, APIReadTimeoutError):
@@ -475,14 +629,17 @@ class TargetController(QObject):
                 f"Falha ao importar Metas: {error}",
                 error=True,
             )
+            permitted = (
+                getattr(self.view, "_import_available", False)
+                and getattr(self.view, "_import_write_allowed", True)
+            )
+            self.view.import_steps.set_stage_enabled(1, permitted)
+            self.view.import_steps.set_stage_enabled(
+                2, permitted and bool(self.selected_import_file_path)
+            )
+            self.view.import_steps.set_stage_enabled(3, False)
+            self.view.import_steps.set_stage_enabled(4, False)
 
-            self.view.import_file_button.setEnabled(True)
-            self.view.validate_import_button.setEnabled(
-                self.selected_import_file_path is not None
-            )
-            self.view.confirm_import_button.setEnabled(
-                self.import_file_path is not None
-            )
 
         self._run_operation(
             service=self.service,

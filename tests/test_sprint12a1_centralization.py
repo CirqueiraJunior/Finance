@@ -187,11 +187,22 @@ def test_dashboard_endpoints_forward_optional_period_filters(tmp_path, monkeypat
         ).status_code == 200
 
     assert captured["boe"] == (
-        2026, 1, 2, 7, {"start_year": 2025, "end_year": 2026}
+        2026, 1, 2, 7, {
+            "start_year": 2025,
+            "end_year": 2026,
+            "source_code": None,
+            "entity_ids": None,
+            "source_codes": None,
+        }
     )
     assert captured["targets"] == (
         2026, 1, "CONSULTAS", 3, 6,
-        {"start_year": 2025, "end_year": 2026, "region": "NORTE"},
+        {
+            "start_year": 2025,
+            "end_year": 2026,
+            "region": "NORTE",
+            "entity_ids": None,
+        },
     )
     app.state.engine.dispose()
 

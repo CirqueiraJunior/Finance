@@ -32,7 +32,7 @@ def test_custom_widgets_use_protected_bases():
     expected = {
         SRC / "widgets" / "month_combo.py":
             "class MonthComboBox(WheelBlockedComboBox):",
-        SRC / "gui" / "pages" / "metas.py":
+        SRC / "widgets" / "entity_multi_select.py":
             "class EntityMultiSelectCombo(WheelBlockedComboBox):",
         SRC / "gui" / "pages" / "boe.py":
             "class BOEPeriodEdit(WheelBlockedDateEdit):",

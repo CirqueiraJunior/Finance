@@ -1,7 +1,7 @@
 from collections import defaultdict
 from decimal import Decimal
 
-from sqlalchemy import case, func, select, union
+from sqlalchemy import case, func, or_, select, union
 from sqlalchemy.orm import Session
 
 from app.models.association_entry import AssociationEntry
@@ -130,12 +130,14 @@ class DashboardRepository:
         if entry_type:
             budget = budget.where(BudgetEntry.tipo == entry_type)
         budget_rows = defaultdict(lambda: {"RECEITA": ZERO, "DESPESA": ZERO})
+        budget_presence: set[tuple[int, int, str]] = set()
         for row in self.session.execute(
             budget.group_by(
                 BudgetEntry.periodo_ano, BudgetEntry.periodo_mes, BudgetEntry.tipo
             )
         ):
             budget_rows[(row.periodo_ano, row.periodo_mes)][row.tipo] = row.value
+            budget_presence.add((row.periodo_ano, row.periodo_mes, row.tipo))
 
         if start_month == 1:
             source_start_year, source_start_month = start_year - 1, 12
@@ -225,6 +227,7 @@ class DashboardRepository:
             "cash": cash_rows,
             "investments": investment_rows,
             "budget": budget_rows,
+            "budget_presence": budget_presence,
             "direct": direct,
             "applied": applied,
             "distributions": distributions,
@@ -242,6 +245,11 @@ class DashboardRepository:
                 lambda: {"RECEITA": ZERO, "DESPESA": ZERO},
                 {m: v for (y, m), v in period["budget"].items() if y == year},
             ),
+            "budget_presence": {
+                (month, entry_type)
+                for selected_year, month, entry_type in period["budget_presence"]
+                if selected_year == year
+            },
             "direct": {m: v for (y, m), v in period["direct"].items() if y == year},
             "applied": {m: v for (y, m), v in period["applied"].items() if y == year},
             "distributions": period["distributions"],
@@ -251,26 +259,59 @@ class DashboardRepository:
         self, start_year: int, start_month: int,
         end_year: int, end_month: int,
         entity_id: int | None = None,
+        source_code: int | None = None,
+        entity_ids: tuple[int, ...] | None = None,
+        source_codes: tuple[int, ...] | None = None,
     ) -> dict:
         period = BOEImport.periodo_ano * 100 + BOEImport.periodo_mes
+        entity_name = func.coalesce(
+            Entity.nome_oficial,
+            Entity.nome,
+            BOEEntityTotal.nome_entidade_origem,
+        )
+        entity_code = func.coalesce(
+            Entity.codigo_entidade,
+            BOEEntityTotal.codigo_entidade_origem,
+        )
         statement = select(
             BOEImport.periodo_ano, BOEImport.periodo_mes,
-            Entity.id, Entity.codigo_entidade, Entity.nome,
+            BOEEntityTotal.entity_id.label("id"),
+            entity_code.label("codigo_entidade"),
+            entity_name.label("nome"),
             func.count(BOEEntityTotal.id).label("records"),
             func.sum(BOEEntityTotal.quantidade_consultas).label("queries"),
             func.sum(BOEEntityTotal.valor_total).label("value"),
         ).join(BOEEntityTotal, BOEEntityTotal.boe_import_id == BOEImport.id).join(
-            Entity, Entity.id == BOEEntityTotal.entity_id
+            Entity, Entity.id == BOEEntityTotal.entity_id, isouter=True
         ).where(
             BOEImport.status == "imported",
+            BOEEntityTotal.codigo_entidade_origem != 7500,
             period.between(start_year * 100 + start_month,
                            end_year * 100 + end_month),
         )
         if entity_id is not None:
-            statement = statement.where(Entity.id == entity_id)
+            statement = statement.where(BOEEntityTotal.entity_id == entity_id)
+        if source_code is not None:
+            statement = statement.where(
+                BOEEntityTotal.codigo_entidade_origem == source_code
+            )
+        if entity_ids is not None or source_codes is not None:
+            alternatives = []
+            if entity_ids:
+                alternatives.append(BOEEntityTotal.entity_id.in_(entity_ids))
+            if source_codes:
+                alternatives.append(
+                    BOEEntityTotal.codigo_entidade_origem.in_(source_codes)
+                )
+            statement = statement.where(or_(*alternatives))
         rows = list(self.session.execute(statement.group_by(
             BOEImport.periodo_ano, BOEImport.periodo_mes,
-            Entity.id, Entity.codigo_entidade, Entity.nome
+            BOEEntityTotal.entity_id,
+            BOEEntityTotal.codigo_entidade_origem,
+            Entity.codigo_entidade,
+            Entity.nome_oficial,
+            Entity.nome,
+            BOEEntityTotal.nome_entidade_origem,
         )))
         entities = {(row.id, row.codigo_entidade, row.nome) for row in rows}
         return {"rows": rows, "entities": sorted(entities, key=lambda x: x[1])}
@@ -278,11 +319,22 @@ class DashboardRepository:
     def boe_year(self, year: int, entity_id: int | None = None) -> dict:
         return self.boe_period(year, 1, year, 12, entity_id)
 
+    def target_entity_options(self, region: str | None = None) -> list:
+        statement = select(
+            Entity.id, Entity.codigo_entidade, Entity.nome, Entity.regiao
+        ).where(Entity.codigo_entidade != 7500)
+        if region is not None:
+            statement = statement.where(Entity.regiao == region)
+        return list(self.session.execute(
+            statement.order_by(Entity.codigo_entidade)
+        ))
+
     def targets_period(
         self, start_year: int, start_month: int,
         end_year: int, end_month: int,
         entity_id: int | None = None,
         region: str | None = None,
+        entity_ids: tuple[int, ...] | None = None,
     ) -> dict:
         target_period = TargetEntry.periodo_ano * 100 + TargetEntry.periodo_mes
         association_period = (
@@ -310,6 +362,11 @@ class DashboardRepository:
         if entity_id is not None:
             statement = statement.where(TargetEntry.entity_id == entity_id)
             association = association.where(AssociationEntry.entity_id == entity_id)
+        if entity_ids is not None:
+            statement = statement.where(TargetEntry.entity_id.in_(entity_ids))
+            association = association.where(
+                AssociationEntry.entity_id.in_(entity_ids)
+            )
         if region is not None:
             statement = statement.where(Entity.regiao == region)
             association = association.where(Entity.regiao == region)
@@ -322,14 +379,7 @@ class DashboardRepository:
                 AssociationEntry.periodo_ano, AssociationEntry.periodo_mes
             ))
         }
-        entities_query = select(
-            Entity.id, Entity.codigo_entidade, Entity.nome, Entity.regiao
-        ).where(Entity.codigo_entidade != 7500)
-        if region is not None:
-            entities_query = entities_query.where(Entity.regiao == region)
-        entities = list(self.session.execute(
-            entities_query.order_by(Entity.codigo_entidade)
-        ))
+        entities = self.target_entity_options(region)
         return {"rows": rows, "associations": association_rows, "entities": entities}
 
     def targets_year(self, year: int, entity_id: int | None = None) -> dict:

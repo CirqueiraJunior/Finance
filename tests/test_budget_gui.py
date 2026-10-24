@@ -31,11 +31,16 @@ def test_budget_page_has_filters_cards_and_read_only_table(qtbot):
     assert page.new_button.text() == "Novo Orçamento"
     assert page.month_filter.itemData(0) == 0
     assert page.table.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
-    assert page.import_file_button.text() == "Selecionar arquivo"
-    assert page.validate_import_button.text() == "Validar"
-    assert page.confirm_import_button.text() == "Importar"
-    assert not page.validate_import_button.isEnabled()
-    assert not page.confirm_import_button.isEnabled()
+    assert [button.text() for button in page.import_steps.buttons] == [
+        "1. Selecionar",
+        "2. Validar",
+        "3. Comparar e autorizar",
+        "4. Importar",
+    ]
+    assert not any(button.isEnabled() for button in page.import_steps.buttons)
+    assert not hasattr(page, "import_file_button")
+    assert not hasattr(page, "validate_import_button")
+    assert not hasattr(page, "confirm_import_button")
 
 
 def test_budget_dialog_filters_categories(qtbot):
@@ -83,9 +88,9 @@ def test_controller_filters_and_displays_cards(qtbot, db_session):
     page.set_available_years([2026])
     page.set_period(2026, 7)
     controller.refresh()
-    assert page.table.rowCount() == 1
+    assert page.table.rowCount() == 2
     assert page.budgeted_expense.text() == "R$ 2.000,00"
-    assert page.actual_result.text() == "R$ 0,00"
+    assert page.expense_result.text() == "R$ 2.000,00"
 
 
 def test_controller_creates_budget(qtbot, db_session, monkeypatch):
@@ -117,7 +122,7 @@ def test_controller_creates_budget(qtbot, db_session, monkeypatch):
     monkeypatch.setattr("app.gui.controllers.budget_controller.BudgetDialog", FakeDialog)
     controller.open_new_dialog()
     assert len(service.list_by_period(2026, 7)) == 1
-    assert page.table.rowCount() == 1
+    assert page.table.rowCount() == 2
 
 
 def test_controller_edits_budget_value_and_notes(qtbot, db_session, monkeypatch):
@@ -131,7 +136,7 @@ def test_controller_edits_budget_value_and_notes(qtbot, db_session, monkeypatch)
     page.set_period(2026, 7)
     controller = BudgetController(page, service)
     controller.refresh()
-    page.table.selectRow(0)
+    page.table.selectRow(1)
 
     class FakeDialog:
         def __init__(self, _parent, _budget, **_kwargs):
@@ -206,14 +211,14 @@ def test_budget_import_preview_enables_only_valid_confirmation(qtbot):
     }
 
     page.show_import_validation({**base, "errors": [], "can_import": True})
-    assert page.confirm_import_button.isEnabled()
+    assert not page.import_steps.buttons[3].isEnabled()
     assert page.import_preview.rowCount() == 1
     assert page.import_preview.item(0, 6).text() == "Repasse"
 
     page.show_import_validation({
         **base, "errors": ["Duplicidade"], "can_import": False,
     })
-    assert not page.confirm_import_button.isEnabled()
+    assert not page.import_steps.buttons[3].isEnabled()
     assert "Duplicidade" in page.import_issues.text()
 
 
@@ -274,8 +279,45 @@ def _remote_controller(qtbot, service):
     qtbot.addWidget(page)
     controller = BudgetController(page, service)
     controller.import_file_path = "orcamento.xlsx"
-    page.confirm_import_button.setEnabled(True)
     return page, controller
+
+
+def test_budget_import_uses_confirmed_result_year_before_refresh(qtbot):
+    class Service(_RemoteBudgetImportService):
+        def __init__(self):
+            super().__init__()
+            self.imported = False
+            self.loaded_years = []
+
+        def available_years(self):
+            return [2026] if self.imported else []
+
+        def import_file(self, path):
+            self.imported = True
+            return super().import_file(path)
+
+        def get_budget_vs_actual(self, year, month=None):
+            assert year == 2026
+            self.loaded_years.append(year)
+            return super().get_budget_vs_actual(year, month)
+
+        def list_by_period(self, year, month):
+            assert year == 2026
+            return []
+
+    page = OrcamentoPage()
+    qtbot.addWidget(page)
+    service = Service()
+    controller = BudgetController(page, service, defer_initial_load=True)
+    page.year_filter.clear()
+    controller.import_file_path = "orcamento.xlsx"
+    controller.selected_import_file_path = "orcamento.xlsx"
+
+    controller.import_validated_file()
+
+    qtbot.waitUntil(lambda: controller._import_thread is None)
+    assert page.year_filter.currentData() == 2026
+    assert service.loaded_years == [2026]
 
 
 def test_budget_controller_validates_selected_file(qtbot, monkeypatch):
@@ -290,15 +332,56 @@ def test_budget_controller_validates_selected_file(qtbot, monkeypatch):
 
     assert controller.selected_import_file_path == "selecionado.xlsx"
     assert controller.import_file_path is None
-    assert page.validate_import_button.isEnabled()
-    assert not page.confirm_import_button.isEnabled()
+    assert [button.isEnabled() for button in page.import_steps.buttons] == [
+        True, True, False, False,
+    ]
     assert service.validated_path is None
 
     controller.validate_selected_import_file()
 
     assert service.validated_path == "selecionado.xlsx"
     assert controller.import_file_path == "selecionado.xlsx"
-    assert page.confirm_import_button.isEnabled()
+    assert [button.isEnabled() for button in page.import_steps.buttons] == [
+        True, True, True, False,
+    ]
+
+
+def test_budget_remote_validation_blocks_duplicate_execution(
+    qtbot, monkeypatch,
+):
+    service = _RemoteBudgetImportService()
+    page, controller = _remote_controller(qtbot, service)
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+    original_validate = service.validate_import
+
+    def validate(path):
+        calls.append(path)
+        started.set()
+        release.wait(3)
+        return original_validate(path)
+
+    service.validate_import = validate
+    controller.selected_import_file_path = "selecionado.xlsx"
+    monkeypatch.setattr(controller, "_is_remote", lambda: True)
+
+    controller.validate_selected_import_file()
+    qtbot.waitUntil(started.is_set)
+
+    assert not any(
+        button.isEnabled() for button in page.import_steps.buttons
+    )
+    controller.validate_selected_import_file()
+    assert calls == ["selecionado.xlsx"]
+
+    release.set()
+    qtbot.waitUntil(lambda: controller._operation_thread is None)
+
+    assert [button.isEnabled() for button in page.import_steps.buttons] == [
+        True, True, True, False,
+    ]
+
 
 def test_budget_import_runs_in_worker_blocks_duplicate_and_refreshes(qtbot):
     service = _RemoteBudgetImportService(wait=True)
@@ -309,8 +392,9 @@ def test_budget_import_runs_in_worker_blocks_duplicate_and_refreshes(qtbot):
     qtbot.waitUntil(service.started.is_set)
 
     assert service.worker_thread != main_thread
-    assert not page.confirm_import_button.isEnabled()
-    assert not page.import_file_button.isEnabled()
+    assert not any(
+        button.isEnabled() for button in page.import_steps.buttons
+    )
     assert isinstance(controller._import_dialog, BudgetImportProgressDialog)
     assert controller._import_dialog.isVisible()
     assert controller._import_dialog.windowTitle() == "Importação de Orçamento"
@@ -329,27 +413,28 @@ def test_budget_import_runs_in_worker_blocks_duplicate_and_refreshes(qtbot):
     qtbot.waitUntil(lambda: controller._import_thread is None)
 
     assert controller._import_dialog is None
-    assert page.import_file_button.isEnabled()
-    assert not page.confirm_import_button.isEnabled()
+    assert [button.isEnabled() for button in page.import_steps.buttons] == [
+        True, False, False, False,
+    ]
     assert "Orçamento importado com sucesso" in page.status.text()
     assert service.refresh_calls == 1
 
 
 @pytest.mark.parametrize(
-    "error, message, confirmation_enabled",
+    "error, message",
     [
-        (RuntimeError("falha segura"), "falha segura", True),
+        (RuntimeError("falha segura"), "falha segura"),
         (APIReadTimeoutError(
             "A importação está demorando mais que o esperado. "
             "Verifique o resultado antes de tentar novamente."
-        ), "Verifique o resultado antes de tentar novamente", False),
+        ), "Verifique o resultado antes de tentar novamente"),
         (APIConnectionError(
             "Servidor Finance indisponível. Verifique a conexão e tente novamente."
-        ), "Servidor Finance indisponível", True),
+        ), "Servidor Finance indisponível"),
     ],
 )
 def test_budget_import_error_closes_modal_and_restores_controls(
-    qtbot, error, message, confirmation_enabled,
+    qtbot, error, message,
 ):
     service = _RemoteBudgetImportService(error=error)
     page, controller = _remote_controller(qtbot, service)
@@ -358,8 +443,9 @@ def test_budget_import_error_closes_modal_and_restores_controls(
     qtbot.waitUntil(lambda: controller._import_thread is None)
 
     assert controller._import_dialog is None
-    assert page.import_file_button.isEnabled()
-    assert page.confirm_import_button.isEnabled() is confirmation_enabled
+    assert [button.isEnabled() for button in page.import_steps.buttons] == [
+        True, False, False, False,
+    ]
     assert message in page.status.text()
     if isinstance(error, APIReadTimeoutError):
         assert "Servidor Finance indisponível" not in page.status.text()

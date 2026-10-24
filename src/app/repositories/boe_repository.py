@@ -1,9 +1,10 @@
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.boe_entity_total import BOEEntityTotal
 from app.models.boe_import import BOEImport
 from app.models.boe_import_issue import BOEImportIssue
+from app.models.entity import Entity
 from app.repositories.base import BaseRepository
 
 
@@ -68,6 +69,27 @@ class BOERepository(BaseRepository[BOEImport]):
         )
         return list(self.session.scalars(statement))
 
+    def list_operational_entity_options(self) -> list[tuple]:
+        statement = (
+            select(
+                BOEEntityTotal.entity_id,
+                BOEEntityTotal.codigo_entidade_origem,
+                BOEEntityTotal.nome_entidade_origem,
+                Entity.codigo_entidade,
+                Entity.nome_oficial,
+                Entity.nome,
+            )
+            .join(BOEImport, BOEImport.id == BOEEntityTotal.boe_import_id)
+            .outerjoin(Entity, Entity.id == BOEEntityTotal.entity_id)
+            .where(
+                BOEImport.status == "imported",
+                BOEEntityTotal.codigo_entidade_origem != 7500,
+            )
+            .distinct()
+            .order_by(BOEEntityTotal.codigo_entidade_origem)
+        )
+        return list(self.session.execute(statement).tuples())
+
     def list_operational_totals(
         self,
         start_year: int,
@@ -75,6 +97,9 @@ class BOERepository(BaseRepository[BOEImport]):
         end_year: int,
         end_month: int,
         entity_id: int | None = None,
+        source_code: int | None = None,
+        entity_ids: tuple[int, ...] | None = None,
+        source_codes: tuple[int, ...] | None = None,
     ) -> list[tuple[BOEEntityTotal, BOEImport]]:
         start_period = start_year * 100 + start_month
         end_period = end_year * 100 + end_month
@@ -97,4 +122,17 @@ class BOERepository(BaseRepository[BOEImport]):
         )
         if entity_id is not None:
             statement = statement.where(BOEEntityTotal.entity_id == entity_id)
+        if source_code is not None:
+            statement = statement.where(
+                BOEEntityTotal.codigo_entidade_origem == source_code
+            )
+        if entity_ids is not None or source_codes is not None:
+            alternatives = []
+            if entity_ids:
+                alternatives.append(BOEEntityTotal.entity_id.in_(entity_ids))
+            if source_codes:
+                alternatives.append(
+                    BOEEntityTotal.codigo_entidade_origem.in_(source_codes)
+                )
+            statement = statement.where(or_(*alternatives))
         return list(self.session.execute(statement).tuples())
