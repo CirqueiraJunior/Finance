@@ -239,3 +239,33 @@ def test_remote_csv_service_sends_only_year(tmp_path, monkeypatch):
     assert api.downloads == [
         ("/api/v1/reports/csv-export", {"year": 2026})
     ]
+
+
+def test_csv_export_returns_exact_persisted_record_id(csv_context, tmp_path):
+    """O ID retornado deve identificar o registro criado nesta exportação."""
+    _seed_annual_data(csv_context)
+
+    service = csv_context["service"]
+
+    primeiro = service.export_all(2026, tmp_path / "primeiro")
+    segundo = service.export_all(2026, tmp_path / "segundo")
+
+    historico = service.list_history(limit=20)
+
+    assert primeiro.export_id is not None
+    assert segundo.export_id is not None
+    assert primeiro.export_id != segundo.export_id
+
+    registros = {registro.id: registro for registro in historico}
+
+    assert registros[primeiro.export_id].ano == 2026
+    assert registros[primeiro.export_id].status == "SUCCESS"
+    assert registros[primeiro.export_id].diretorio == str(
+        (tmp_path / "primeiro").resolve()
+    )
+
+    assert registros[segundo.export_id].ano == 2026
+    assert registros[segundo.export_id].status == "SUCCESS"
+    assert registros[segundo.export_id].diretorio == str(
+        (tmp_path / "segundo").resolve()
+    )

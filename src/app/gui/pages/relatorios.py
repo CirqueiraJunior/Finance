@@ -79,6 +79,27 @@ class RelatoriosPage(QWidget):
         self.export_output.setPlaceholderText(
             "A validação verifica os dados anuais para todas as Entidades ativas."
         )
+        self.history_title = QLabel("Histórico de exportações CSV")
+        self.history_title.setObjectName("sectionTitle")
+
+        self.history_table = QTableWidget(0, 5)
+        self.history_table.setHorizontalHeaderLabels(
+            ["Data/Hora", "Usuário", "Ano", "Situação", "Arquivos"]
+        )
+        self.history_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self.history_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.history_table.setMinimumHeight(130)
+        self.history_table.setMaximumHeight(190)
+        self.history_table.horizontalHeader().setStretchLastSection(True)
+
+        self.history_empty_label = QLabel(
+            "Nenhuma exportação registrada."
+        )
+
         self.status = QLabel("Relatórios prontos.")
         self.status.setObjectName("operationStatus")
 
@@ -89,6 +110,9 @@ class RelatoriosPage(QWidget):
         layout.addWidget(export_title)
         layout.addLayout(export_actions)
         layout.addWidget(self.export_output)
+        layout.addWidget(self.history_title)
+        layout.addWidget(self.history_table)
+        layout.addWidget(self.history_empty_label)
         layout.addWidget(self.status)
 
         self._destination: Path | None = None
@@ -131,6 +155,29 @@ class RelatoriosPage(QWidget):
             for column, value in enumerate(values):
                 self.report_table.setItem(row_index, column, QTableWidgetItem(value))
         self.report_table.resizeColumnsToContents()
+
+    def show_export_history(self, records: list[dict]) -> None:
+        """Apresenta os registros recebidos do serviço de histórico."""
+        self.history_table.setRowCount(len(records))
+        self.history_empty_label.setVisible(not records)
+
+        for row_index, record in enumerate(records):
+            values = (
+                str(record.get("created_at", "")),
+                str(record.get("user_name") or "Não identificado"),
+                str(record.get("year", "")),
+                str(record.get("status", "")),
+                str(record.get("files_count", 0)),
+            )
+
+            for column, value in enumerate(values):
+                self.history_table.setItem(
+                    row_index,
+                    column,
+                    QTableWidgetItem(value),
+                )
+
+        self.history_table.resizeColumnsToContents()
 
     def show_export_message(self, message: str) -> None:
         self.export_output.setPlainText(message)

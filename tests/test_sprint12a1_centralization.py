@@ -499,3 +499,87 @@ def test_remote_target_import_uses_authenticated_api_upload_only(tmp_path):
         ("/api/v1/targets/import/validate", str(file_path), {}),
         ("/api/v1/targets/import", str(file_path), {"import_file": True}),
     ]
+
+
+def test_csv_export_audit_links_exact_record_and_user(tmp_path, monkeypatch):
+    """A auditoria identifica o usuário e a exportação pelo ID real."""
+    from pathlib import Path
+
+    from app.models.csv_export import CSVExport
+    from app.services.site_csv_service import (
+        CSVExportResult,
+        CSVValidationResult,
+        SiteCSVService,
+    )
+    from finance_server.models import AuditLog
+
+    app = _context(tmp_path)
+
+    def fake_export_all(self, year, destination):
+        destination = Path(destination)
+        destination.mkdir(parents=True, exist_ok=True)
+
+        csv_file = destination / "exemplo.csv"
+        csv_file.write_text("COD;ANO\\n7501;2026\\n", encoding="utf-8")
+
+        report_file = destination / "relatorio_exportacao_2026.txt"
+        report_file.write_text("Exportacao de teste", encoding="utf-8")
+
+        record = CSVExport(
+            ano=year,
+            status="SUCCESS",
+            diretorio=str(destination),
+            arquivos=csv_file.name,
+            relatorio="Exportacao de teste",
+        )
+        self.export_repository.add(record)
+        self.export_repository.session.commit()
+
+        validation = CSVValidationResult(
+            year=year,
+            valid=True,
+            errors=(),
+            entity_count=1,
+            target_rows=1,
+            association_rows=1,
+        )
+        return CSVExportResult(
+            year=year,
+            directory=destination,
+            files=(csv_file,),
+            report_file=report_file,
+            validation=validation,
+            export_id=record.id,
+        )
+
+    monkeypatch.setattr(SiteCSVService, "export_all", fake_export_all)
+
+    try:
+        with TestClient(app) as client:
+            headers = _headers(client, "admin")
+
+            response = client.post(
+                "/api/v1/reports/csv-export",
+                headers=headers,
+                json={"year": 2026},
+            )
+            assert response.status_code == 200, response.text
+
+        with app.state.session_factory() as db:
+            user = db.scalar(select(User).where(User.username == "admin"))
+            export = db.scalar(select(CSVExport))
+            audit = db.scalar(
+                select(AuditLog).where(AuditLog.action == "CSV_EXPORTED")
+            )
+
+            assert user is not None
+            assert export is not None
+            assert audit is not None
+
+            assert audit.user_id == user.id
+            assert audit.entity_type == "CSVExport"
+            assert audit.entity_id == str(export.id)
+            assert audit.details["year"] == 2026
+            assert export.status == "SUCCESS"
+    finally:
+        app.state.engine.dispose()

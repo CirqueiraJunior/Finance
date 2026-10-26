@@ -551,3 +551,8 @@ class RemoteCSVService:
         files = tuple(destination / name for name in names if name.endswith(".csv"))
         report = next(destination / name for name in names if not name.endswith(".csv"))
         return CSVExportResult(year, destination, files, report, self.validate_period(year))
+
+    def list_history(self, limit: int = 20) -> list[dict]:
+        """Consulta o histórico persistido no servidor Finance."""
+        response = self.api.get("/api/v1/reports/csv-history")
+        return response["items"]

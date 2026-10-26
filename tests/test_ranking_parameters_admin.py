@@ -166,10 +166,24 @@ def test_only_administrator_sees_ranking_parameter_block(qtbot, tmp_path):
         window = _window(tmp_path, role)
         qtbot.addWidget(window)
         windows.append(window)
-        visible = window.pages["administracao"].ranking_parameters_widget.isVisibleTo(
-            window.pages["administracao"]
-        )
-        assert visible is (role == "ADMINISTRADOR")
+
+        page = window.pages["administracao"]
+        navigation = page.settings_navigation
+
+        assert navigation.current_section == "account"
+        assert not page.ranking_parameters_widget.isVisibleTo(page)
+
+        window.navigation.navigate_to("administracao")
+        navigation.select_section("parameters")
+
+        if role == "ADMINISTRADOR":
+            assert navigation.current_section == "parameters"
+            assert page.ranking_parameters_widget.isVisibleTo(page)
+        else:
+            assert navigation.current_section == "account"
+            assert not page.ranking_parameters_widget.isVisibleTo(page)
+
+
 
 
 def test_administrator_switches_legacy_2025_and_editable_2026(qtbot, tmp_path):
@@ -191,10 +205,28 @@ def test_administrator_switches_legacy_2025_and_editable_2026(qtbot, tmp_path):
     widget.year.setCurrentIndex(widget.year.findData(2025))
     assert widget.selected_year() == 2025
     assert not widget.save_button.isVisibleTo(widget)
-    assert widget.legacy_strategy.isVisibleTo(widget)
-    assert "somente leitura" in widget.status.text()
+    assert not widget.save_button.isEnabled()
+    assert widget.legacy_card.isVisibleTo(widget)
+    expected_legacy_values = {
+        "Classificação mínima (%)": "100,0000",
+        "1º prêmio — Maior Ticket Médio": "R$ 5.000,00",
+        "2º prêmio — Maior crescimento de associados": "R$ 2.500,00",
+        "3º prêmio — Maior cumprimento da meta": "R$ 1.000,00",
+    }
+    assert set(widget.legacy_fields) == set(expected_legacy_values)
+    for label, expected_value in expected_legacy_values.items():
+        field = widget.legacy_fields[label]
+        assert field.text() == expected_value
+        assert field.isReadOnly()
+        assert field.isVisibleTo(widget)
+    assert not widget.load_button.isEnabled()
+    assert widget.status.text() == "Estratégia legada de 2025 — somente leitura."
 
     widget.year.setCurrentIndex(widget.year.findData(2026))
+    assert not widget.legacy_card.isVisibleTo(widget)
+    assert widget.parameter_form.isVisibleTo(widget)
+    assert widget.save_button.isVisibleTo(widget)
+    assert widget.save_button.isEnabled()
     widget.save_button.click()
     assert api.saved[-1][0] == 2026
     assert api.saved[-1][1]["billing_level_3_points"] == 7

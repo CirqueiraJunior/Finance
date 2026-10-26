@@ -1940,6 +1940,52 @@ def create_app(
                                  AssociationRepository(db), CSVExportRepository(db))
         return jsonable_encoder(service.validate_period(year))
 
+
+    @app.get("/api/v1/reports/csv-history")
+    def csv_history(
+        user: User = Depends(require("reports:read")),
+        db: Session = Depends(get_db),
+    ):
+        from sqlalchemy import select
+
+        from app.models.csv_export import CSVExport
+        from finance_server.models import AuditLog
+
+        exports = CSVExportRepository(db).list_recent(20)
+        records = []
+
+        for item in exports:
+            audit_record = db.scalar(
+                select(AuditLog).where(
+                    AuditLog.action == "CSV_EXPORTED",
+                    AuditLog.entity_type == "CSVExport",
+                    AuditLog.entity_id == str(item.id),
+                ).order_by(AuditLog.id.desc())
+            )
+
+            exporter = None
+            if audit_record is not None and audit_record.user_id is not None:
+                identified_user = db.get(User, audit_record.user_id)
+                if identified_user is not None:
+                    exporter = identified_user.nome
+
+            filenames = [
+                name for name in (item.arquivos or "").splitlines()
+                if name.strip()
+            ]
+
+            records.append({
+                "id": item.id,
+                "created_at": item.created_at.isoformat()
+                if item.created_at else None,
+                "user_name": exporter,
+                "year": item.ano,
+                "status": item.status,
+                "files_count": len(filenames),
+            })
+
+        return {"items": records}
+
     @app.post("/api/v1/reports/csv-export")
     def csv_export(payload: dict = Body(...), user: User = Depends(require("reports:export")),
                    db: Session = Depends(get_db)):
@@ -1955,7 +2001,7 @@ def create_app(
             with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
                 for file_path in (*result.files, result.report_file):
                     archive.write(file_path, file_path.name)
-            audit(db, "CSV_EXPORTED", user, entity_type="CSVExport", details={
+            audit(db, "CSV_EXPORTED", user, entity_type="CSVExport", entity_id=result.export_id, details={
                 "year": payload["year"]
             })
             db.commit()

@@ -54,6 +54,7 @@ class ReportController(QObject):
             return
         self._initial_load_started = True
         self._years_loader.load(remote=self._is_remote(self.report_service))
+        self.refresh_export_history()
 
     def _years_loaded(self, years) -> None:
         self.view.set_available_years(years)
@@ -164,6 +165,48 @@ class ReportController(QObject):
             failed=failed,
         )
 
+    def refresh_export_history(self) -> None:
+        """Carrega os últimos registros de exportação CSV."""
+
+        if not hasattr(self.csv_service, "list_history"):
+            self.view.show_export_history([])
+            return
+
+        def operation():
+            records = self.csv_service.list_history(limit=20)
+            if records and not isinstance(records[0], dict):
+                return [
+                    {
+                        "created_at": (
+                            item.created_at.strftime("%d/%m/%Y %H:%M")
+                            if item.created_at else ""
+                        ),
+                        "user_name": None,
+                        "year": item.ano,
+                        "status": item.status,
+                        "files_count": len(
+                            [
+                                name
+                                for name in (item.arquivos or "").splitlines()
+                                if name.strip()
+                            ]
+                        ),
+                    }
+                    for item in records
+                ]
+            return records
+
+        self._run_operation(
+            service=self.csv_service,
+            window_title="Histórico de Exportações",
+            operation=operation,
+            succeeded=self.view.show_export_history,
+            failed=lambda error: self.view.set_status(
+                f"Falha ao carregar histórico: {error}",
+                error=True,
+            ),
+        )
+
     def validate_csv(self) -> None:
         year = self.view.selected_year()
 
@@ -261,7 +304,8 @@ class ReportController(QObject):
 
             self.view.set_status(
                 "Cinco CSVs gerados com sucesso."
-            )
+            )            self.refresh_export_history()
+
 
         def failed(error: Exception) -> None:
             if isinstance(

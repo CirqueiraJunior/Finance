@@ -52,6 +52,7 @@ class CSVExportResult:
     files: tuple[Path, ...]
     report_file: Path
     validation: CSVValidationResult
+    export_id: int | None = None
 
 
 class SiteCSVService:
@@ -192,7 +193,7 @@ class SiteCSVService:
         report_file = destination / f"relatorio_exportacao_{year}.txt"
         report = self._success_report(year, created, validation)
         report_file.write_text(report, encoding="utf-8")
-        self._record(year, destination, "SUCCESS", created, report)
+        export_id = self._record(year, destination, "SUCCESS", created, report)
         logger.info("Exportação CSV concluída para %s em %s", year, destination)
         return CSVExportResult(
             year=year,
@@ -200,6 +201,7 @@ class SiteCSVService:
             files=tuple(created),
             report_file=report_file,
             validation=validation,
+            export_id=export_id,
         )
 
     def list_history(self, limit: int = 20) -> list[CSVExport]:
@@ -212,7 +214,7 @@ class SiteCSVService:
         status: str,
         files: tuple[Path, ...] | list[Path],
         report: str,
-    ) -> None:
+    ) -> int:
         record = CSVExport(
             ano=year,
             status=status,
@@ -222,6 +224,7 @@ class SiteCSVService:
         )
         self.export_repository.add(record)
         self.export_repository.session.commit()
+        return record.id
 
     @staticmethod
     def _write_target(path, year, entities, data, indicator, attribute) -> None:

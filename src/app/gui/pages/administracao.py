@@ -1,3 +1,5 @@
+from app.widgets.settings_navigation import SettingsNavigation
+from app.gui.pages.seguranca_privacidade import SegurancaPrivacidadeWidget
 from app.widgets.wheel_guard import WheelBlockedComboBox, WheelBlockedDoubleSpinBox, WheelBlockedSpinBox
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import (
@@ -156,8 +158,12 @@ class RankingParametersWidget(QFrame):
         top.addWidget(minimum)
         self.load_button = QPushButton("Carregar")
         self.load_button.setProperty("buttonRole", "info")
+        self.load_button.setMinimumWidth(96)
+        self.load_button.setMaximumWidth(110)
         self.save_button = QPushButton("Salvar")
         self.save_button.setProperty("buttonRole", "primary")
+        self.save_button.setMinimumWidth(96)
+        self.save_button.setMaximumWidth(110)
         top.addWidget(self.load_button)
         top.addWidget(self.save_button)
         self.status = QLabel("Selecione o ano e carregue a configuração.")
@@ -167,58 +173,105 @@ class RankingParametersWidget(QFrame):
         self.parameter_form = QWidget()
         grid = QGridLayout(self.parameter_form)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(8)
+        grid.setHorizontalSpacing(5)
         grid.setVerticalSpacing(2)
-        sections = ("FATURAMENTO", "CAPTAÇÃO", "CANCELAMENTO", "PREMIAÇÃO")
-        for column, section in zip((0, 3, 6, 8), sections):
-            grid.addWidget(QLabel(section), 0, column, 1, 2)
+        sections = (
+            ("FATURAMENTO", 0, 0),
+            ("CAPTAÇÃO", 0, 3),
+            ("CANCELAMENTO", 5, 0),
+            ("PREMIAÇÃO", 5, 3),
+        )
+        for title, row, column in sections:
+            grid.addWidget(QLabel(title), row, column, 1, 2)
 
-        for row, level in enumerate((1, 2, 3), 1):
-            grid.addWidget(QLabel(f"Faixa {level} — mínimo / pontos"), row, 0)
+        for offset, level in enumerate((1, 2, 3), 1):
+            grid.addWidget(
+                QLabel(f"Faixa {level} — mínimo / pontos"),
+                offset, 0,
+            )
             billing_min = self._decimal_spin(4)
             billing_points = self._points_spin()
             self.fields[f"billing_level_{level}_min"] = billing_min
             self.fields[f"billing_level_{level}_points"] = billing_points
-            pair = self._pair(billing_min, billing_points)
-            grid.addWidget(pair, row, 1)
+            grid.addWidget(self._pair(billing_min, billing_points), offset, 1)
 
-            grid.addWidget(QLabel(f"Faixa {level} — mínimo / pontos"), row, 3)
+            grid.addWidget(
+                QLabel(f"Faixa {level} — mínimo / pontos"),
+                offset, 3,
+            )
             acquisition_min = self._decimal_spin(4)
             acquisition_points = self._points_spin()
             self.fields[f"acquisition_level_{level}_min"] = acquisition_min
             self.fields[f"acquisition_level_{level}_points"] = acquisition_points
-            grid.addWidget(self._pair(acquisition_min, acquisition_points), row, 4)
+            grid.addWidget(self._pair(acquisition_min, acquisition_points), offset, 4)
 
         cancellation_rows = (
             ("Zero cancelamentos", "zero_cancellation_points"),
             ("Com cancelamento", "positive_cancellation_points"),
         )
-        for row, (label, name) in enumerate(cancellation_rows, 1):
-            grid.addWidget(QLabel(label), row, 6)
+        for offset, (label, name) in enumerate(cancellation_rows, 6):
+            grid.addWidget(QLabel(label), offset, 0)
             field = self._points_spin()
             self.fields[name] = field
-            grid.addWidget(field, row, 7)
+            grid.addWidget(field, offset, 1)
 
-        for row, (label, name) in enumerate((
+        for offset, (label, name) in enumerate((
             ("1º lugar", "first_place_award"),
             ("2º lugar", "second_place_award"),
             ("3º lugar", "third_place_award"),
-        ), 1):
-            grid.addWidget(QLabel(label), row, 8)
+        ), 6):
+            grid.addWidget(QLabel(label), offset, 3)
             field = self._decimal_spin(2)
             self.fields[name] = field
-            grid.addWidget(field, row, 9)
+            grid.addWidget(field, offset, 4)
+
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(4, 1)
-        grid.setColumnStretch(9, 1)
         box.addWidget(self.parameter_form)
-        self.legacy_strategy = QLabel(
-            "Estratégia 2025: classificações independentes de Faturamento, "
-            "Associados e Ticket Médio, com premiação própria por categoria."
+        self.legacy_card = QWidget()
+        legacy_layout = QGridLayout(self.legacy_card)
+        legacy_layout.setContentsMargins(8, 10, 8, 10)
+        legacy_layout.setHorizontalSpacing(12)
+        legacy_layout.setVerticalSpacing(10)
+
+        self.legacy_fields = {}
+
+        def add_legacy_field(row, column, label, value):
+            title = QLabel(label)
+            field = QLineEdit(value)
+            field.setReadOnly(True)
+            field.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            field.setStyleSheet(
+                "QLineEdit { background: #f3f6fa; "
+                "color: #24415e; border: 1px solid #d6dee8; "
+                "border-radius: 5px; padding: 6px; }"
+            )
+            legacy_layout.addWidget(title, row, column * 2)
+            legacy_layout.addWidget(field, row, column * 2 + 1)
+            self.legacy_fields[label] = field
+
+        add_legacy_field(
+            0, 0, "Classificação mínima (%)",
+            "100,0000"
         )
-        self.legacy_strategy.setWordWrap(True)
-        self.legacy_strategy.setVisible(False)
-        box.addWidget(self.legacy_strategy)
+        add_legacy_field(
+            1, 0, "1º prêmio — Maior Ticket Médio",
+            "R$ 5.000,00"
+        )
+        add_legacy_field(
+            2, 0, "2º prêmio — Maior crescimento de associados",
+            "R$ 2.500,00"
+        )
+        add_legacy_field(
+            3, 0, "3º prêmio — Maior cumprimento da meta",
+            "R$ 1.000,00"
+        )
+        legacy_layout.setColumnStretch(1, 1)
+        for field in self.legacy_fields.values():
+            field.setMinimumWidth(220)
+
+        self.legacy_card.setVisible(False)
+        box.addWidget(self.legacy_card)
         self._configurations: dict[int, dict] = {}
 
     def eventFilter(self, watched, event):
@@ -237,12 +290,20 @@ class RankingParametersWidget(QFrame):
         field.setRange(0, 999999999)
         field.setGroupSeparatorShown(True)
         field.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        if decimals >= 4:
+            field.setMinimumWidth(120)
+            field.setMaximumWidth(145)
+        else:
+            field.setMinimumWidth(110)
+            field.setMaximumWidth(130)
         field.installEventFilter(self)
         return field
 
     def _points_spin(self) -> QSpinBox:
         field = WheelBlockedSpinBox()
         field.setRange(0, 999999)
+        field.setMinimumWidth(72)
+        field.setMaximumWidth(86)
         field.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         field.installEventFilter(self)
         return field
@@ -252,7 +313,7 @@ class RankingParametersWidget(QFrame):
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(3)
+        layout.setSpacing(2)
         layout.addWidget(first)
         layout.addWidget(second)
         return widget
@@ -273,7 +334,6 @@ class RankingParametersWidget(QFrame):
             int(item["year"]): dict(item) for item in configurations
         }
         year = populate_year_combo(self.year, self._configurations)
-        self.load_button.setEnabled(year is not None)
         self.show_selected_strategy()
 
     def selected_year(self) -> int | None:
@@ -285,13 +345,21 @@ class RankingParametersWidget(QFrame):
     def show_selected_strategy(self) -> None:
         configuration = self.selected_configuration()
         if configuration is None:
+            self.load_button.setEnabled(False)
             self._show_parameterized(False)
             self.set_status("Nenhuma configuração de Ranking disponível.", error=True)
             return
+
         editable = bool(configuration.get("editable"))
+        self.load_button.setEnabled(editable)
         self._show_parameterized(editable)
+
         if not editable:
             self.set_status("Estratégia legada de 2025 — somente leitura.")
+        else:
+            self.set_status(
+                f"Parâmetros de {self.selected_year()} disponíveis para carregamento."
+            )
 
     def _show_parameterized(self, editable: bool) -> None:
         self.minimum_label.setVisible(editable)
@@ -299,7 +367,7 @@ class RankingParametersWidget(QFrame):
         self.parameter_form.setVisible(editable)
         self.save_button.setVisible(editable)
         self.save_button.setEnabled(editable)
-        self.legacy_strategy.setVisible(not editable)
+        self.legacy_card.setVisible(not editable)
 
     def set_status(self, message: str, *, error: bool = False) -> None:
         self.status.setText(message)
@@ -337,14 +405,39 @@ class AdministracaoPage(QWidget):
 
         content = QWidget()
         content.setObjectName("contentPage")
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(10, 2, 10, 8)
-        layout.setSpacing(2)
+        shell = QHBoxLayout(content)
+        shell.setContentsMargins(14, 14, 14, 14)
+        shell.setSpacing(20)
+
+        body = QWidget()
+        body.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._root_layout = layout
 
         self.scroll.setWidget(content)
         outer.addWidget(self.scroll)
 
+        self.settings_navigation = SettingsNavigation()
+        shell.addWidget(
+            self.settings_navigation,
+            0,
+            Qt.AlignmentFlag.AlignTop,
+        )
+        shell.addWidget(body, 1)
+
+        self.security_privacy_widget = SegurancaPrivacidadeWidget()
+        self.security_privacy_widget.setVisible(False)
+        layout.addWidget(self.security_privacy_widget)
+
+        self.settings_navigation.section_changed.connect(
+            self._on_settings_section_changed
+        )
         self.personal_widget = QWidget()
         self.personal_widget.setSizePolicy(
             QSizePolicy.Policy.Expanding,
@@ -434,8 +527,8 @@ class AdministracaoPage(QWidget):
             "QFrame#accountCard QLabel { border: none; background: transparent; }"
         )
         compact_layout = QHBoxLayout(self.compact_account_widget)
-        compact_layout.setContentsMargins(12, 5, 12, 5)
-        compact_layout.setSpacing(8)
+        compact_layout.setContentsMargins(18, 16, 18, 16)
+        compact_layout.setSpacing(16)
         compact_text = QVBoxLayout()
         compact_text.setSpacing(0)
         compact_title = QLabel("Minha conta")
@@ -452,7 +545,7 @@ class AdministracaoPage(QWidget):
         self.compact_change_password_button = QPushButton("Alterar senha")
         self.compact_change_password_button.setProperty("buttonRole", "secondary")
         compact_layout.addWidget(self.compact_change_password_button)
-        layout.addWidget(self.compact_account_widget)
+        layout.addWidget(self.compact_account_widget, 0, Qt.AlignmentFlag.AlignTop)
 
         self.info_widget = QFrame()
         self.info_widget.setObjectName("infoCompact")
@@ -527,17 +620,40 @@ class AdministracaoPage(QWidget):
         self.info_widget.setMinimumHeight(self.info_widget.sizeHint().height())
         layout.addWidget(self.info_widget, 0)
 
+        self.parameters_group = QWidget()
+        parameters_layout = QVBoxLayout(self.parameters_group)
+        parameters_layout.setContentsMargins(0, 0, 0, 0)
+        parameters_layout.setSpacing(12)
+
         self.ranking_parameters_widget = RankingParametersWidget()
-        layout.addWidget(self.ranking_parameters_widget, 0)
+        self.ranking_parameters_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Maximum,
+        )
+        parameters_layout.addWidget(
+            self.ranking_parameters_widget,
+            0,
+            Qt.AlignmentFlag.AlignTop,
+        )
 
         self.exports_title = QLabel("Histórico de exportações CSV")
-        layout.addWidget(self.exports_title)
+        self.exports_title.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Fixed,
+        )
+        parameters_layout.addWidget(self.exports_title)
         self.exports = QTableWidget(0, 3)
         self.exports.setHorizontalHeaderLabels(["Data", "Ano", "Diretório"])
         self.exports.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.exports.setMinimumHeight(104)
         self.exports.setMaximumHeight(112)
-        layout.addWidget(self.exports)
+        parameters_layout.addWidget(self.exports)
+
+        layout.addWidget(
+            self.parameters_group,
+            0,
+            Qt.AlignmentFlag.AlignTop,
+        )
         self.user_actions_widget = QWidget()
         user_actions = QHBoxLayout(self.user_actions_widget)
         user_actions.setContentsMargins(0, 0, 0, 0)
@@ -575,6 +691,12 @@ class AdministracaoPage(QWidget):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
         )
+        from PySide6.QtWidgets import QHeaderView
+
+        header = self.multiuser_table.horizontalHeader()
+        header.setMinimumSectionSize(100)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
         layout.addWidget(self.multiuser_table, 1)
         self.status = QLabel()
         layout.addWidget(self.status)
@@ -601,6 +723,48 @@ class AdministracaoPage(QWidget):
             self.multiuser_table,
         )
 
+    def _on_settings_section_changed(self, section: str) -> None:
+        # A navegação respeita as permissões já aplicadas à página.
+        if section not in ("account", "security", "users", "system", "parameters"):
+            return
+
+        can_read = getattr(self, "_can_read_admin", False)
+        can_manage_users = getattr(self, "_can_manage_users", False)
+        can_read_audit = getattr(self, "_can_read_audit", False)
+        can_manage_ranking = getattr(self, "_can_manage_ranking", False)
+
+        allowed = {
+            "account": True,
+            "security": True,
+            "users": can_read and (can_manage_users or can_read_audit),
+            "system": can_read,
+            "parameters": can_read and can_manage_ranking,
+        }
+        if not allowed[section]:
+            return
+
+        self.security_privacy_widget.setVisible(section == "security")
+
+        self.personal_widget.setVisible(section == "account" and not can_read)
+        self.compact_account_widget.setVisible(section == "account" and can_read)
+
+        self.info_widget.setVisible(section == "system" and can_read)
+        self.parameters_group.setVisible(
+            section == "parameters" and can_read and can_manage_ranking
+        )
+        # O histórico CSV pertence ao domínio de Relatórios,
+        # não à configuração das regras de premiação.
+        self.exports_title.setVisible(False)
+        self.exports.setVisible(False)
+
+        show_users = section == "users" and allowed["users"]
+        self.user_actions_widget.setVisible(show_users and can_manage_users)
+        self.content_title.setVisible(show_users)
+        self.multiuser_table.setVisible(show_users)
+
+        self.status.setVisible(
+            can_read and section in ("users", "system")
+        )
     def set_user_management_enabled(self, enabled: bool) -> None:
         for button in (self.users_button, self.new_user_button, self.edit_user_button,
                        self.toggle_user_button, self.reset_password_button,
@@ -613,11 +777,26 @@ class AdministracaoPage(QWidget):
     ) -> None:
         self._can_read_admin = can_read_admin
         self._can_manage_users = can_manage_users
+        self._can_read_audit = can_read_audit
+        self._can_manage_ranking = can_manage_ranking
+
+        self.settings_navigation.set_section_available("account", True)
+        self.settings_navigation.set_section_available("security", True)
+        self.settings_navigation.set_section_available(
+            "users", can_read_admin and (can_manage_users or can_read_audit)
+        )
+        self.settings_navigation.set_section_available("system", can_read_admin)
+        self.settings_navigation.set_section_available(
+            "parameters", can_read_admin and can_manage_ranking
+        )
+
+        if not can_read_admin:
+            self.settings_navigation.select_section("account")
+
         for widget in self._administrative_widgets:
             widget.setVisible(can_read_admin)
         self.set_user_management_enabled(can_manage_users)
         self.audit_button.setEnabled(can_read_audit)
-        self.ranking_parameters_widget.setVisible(can_manage_ranking)
 
         # Quando o usuário possui apenas a área pessoal, centraliza todo o conteúdo
         # relevante da página e oculta mensagens operacionais administrativas.
@@ -631,8 +810,6 @@ class AdministracaoPage(QWidget):
         self.page_description.setAlignment(text_alignment)
         self.status.setVisible(can_read_admin)
         self.account_widget.setVisible(personal_only)
-        self.compact_account_widget.setVisible(can_read_admin)
-        self.user_actions_widget.setVisible(can_read_admin and can_manage_users)
 
         if personal_only:
             self._root_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -641,6 +818,10 @@ class AdministracaoPage(QWidget):
             self._root_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
             self._personal_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
             self.status.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        self._on_settings_section_changed(
+            self.settings_navigation.current_section
+        )
 
     def show_information(self, value: SystemInformation) -> None:
         values = {
